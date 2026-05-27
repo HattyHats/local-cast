@@ -2,6 +2,10 @@
 const bootSequence = document.getElementById('boot-sequence');
 const appWrapper = document.getElementById('app-wrapper');
 
+localforage.config({ name: "LocalCast" });
+const CHUNK_SIZE = 256 * 1024;
+const incomingTransfers = {};
+
 const hostView = document.getElementById('host-view');
 const clientView = document.getElementById('client-view');
 
@@ -121,6 +125,7 @@ async function triggerBurnSequence() {
     
     vfs.root = { id: 'root', name: 'Home', type: 'folder', children: [], parent: null };
     vfs.currentDir = vfs.root;
+    saveVFSToDB();
     hostPassword = null;
     iconUnlocked.classList.remove('hidden');
     iconLocked.classList.add('hidden');
@@ -161,6 +166,22 @@ async function triggerBurnSequence() {
 }
 
 // --- VIRTUAL FILE SYSTEM ---
+async function saveVFSToDB() {
+    if(!isHost) return;
+    function stripParents(node) {
+        return {
+            id: node.id,
+            name: node.name,
+            type: node.type,
+            size: node.size,
+            mime: node.mime,
+            fileObj: node.fileObj,
+            children: node.children ? node.children.map(stripParents) : []
+        };
+    }
+    await localforage.setItem("vfs_root", stripParents(vfs.root));
+}
+
 class VirtualFileSystem {
     constructor() {
         this.root = { id: 'root', name: 'Home', type: 'folder', children: [], parent: null };
@@ -224,9 +245,19 @@ function initApp() {
 }
 
 // --- HOST LOGIC ---
-function initHost() {
+async function initHost() {
     updateStatus('CONNECTING...', 'offline');
     
+    const savedRoot = await localforage.getItem("vfs_root");
+    if (savedRoot) {
+        function linkParents(node, parent) {
+            node.parent = parent;
+            if (node.children) node.children.forEach(c => linkParents(c, node));
+        }
+        linkParents(savedRoot, null);
+        vfs.root = savedRoot;
+        vfs.currentDir = vfs.root;
+    }
     btnLock.classList.remove('hidden');
     btnLock.addEventListener('click', () => {
         if (!hostPassword) {
@@ -278,12 +309,31 @@ function initHost() {
             } else if (data.type === 'REQUEST_FILE' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.id);
                 if (node && node.type === 'file') {
-                    conn.send({ type: 'FILE_DATA', id: node.id, name: node.name, mime: node.mime, file: node.fileObj });
+                    sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'FILE_CHUNK');
                 }
             } else if (data.type === 'REQUEST_ZIP_ALL' && conn.isAuthenticated) {
                 generateZipBlob().then(blob => {
-                    conn.send({ type: 'FILE_DATA', id: 'zip-all', name: 'local-cast-backup.zip', mime: 'application/zip', file: blob });
+                    sendFileInChunks(conn, 'zip-all', blob, 'local-cast-backup.zip', 'application/zip', 'ZIP_CHUNK');
                 });
+            } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
+                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size };
+            } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
+                const transfer = incomingTransfers[data.id];
+                if (transfer) {
+                    transfer.chunks[data.index] = data.chunk;
+                    transfer.received++;
+                    if (transfer.received === transfer.total) {
+                        const fileBlob = new Blob(transfer.chunks, { type: transfer.mime });
+                        const fileObj = new File([fileBlob], transfer.name, { type: transfer.mime });
+                        const newId = 'file_' + Math.random().toString(36).substr(2);
+                        vfs.currentDir.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: fileObj, parent: vfs.currentDir });
+                        saveVFSToDB();
+                        renderHostExplorer();
+                        broadcastTree();
+                        delete incomingTransfers[data.id];
+                        conn.send({ type: 'UPLOAD_COMPLETE' });
+                    }
+                }
             }
         });
         
@@ -335,6 +385,7 @@ function setupHostActions() {
     btnNewFolder.addEventListener('click', () => {
         const name = prompt("Enter folder name:");
         if (name) {
+            saveVFSToDB();
             vfs.addFolder(name);
             renderHostExplorer();
             broadcastTree();
@@ -366,6 +417,14 @@ function setupHostActions() {
     
     fileInput.addEventListener('change', (e) => processFiles(Array.from(e.target.files)));
     folderInput.addEventListener('change', (e) => processFiles(Array.from(e.target.files)));
+
+    if (toggleGuestUploads) {
+        toggleGuestUploads.addEventListener("change", (e) => {
+            connections.forEach(conn => {
+                if (conn.open) conn.send({ type: "GUEST_UPLOAD_ENABLED", enabled: e.target.checked });
+            });
+        });
+    }
 
     // Global Drop Zone
     document.body.addEventListener('dragover', (e) => {
@@ -405,6 +464,7 @@ function processFiles(files) {
             vfs.currentDir.children.push({ id, name: file.name, type: 'file', size: file.size, mime: file.type, fileObj: file, parent: vfs.currentDir });
         }
     });
+    saveVFSToDB();
     fileInput.value = '';
     folderInput.value = '';
     renderHostExplorer();
@@ -430,6 +490,7 @@ function moveNode(nodeId, targetFolderId) {
     }
     
     // Add to new parent
+    saveVFSToDB();
     node.parent = target;
     target.children.push(node);
     
@@ -574,8 +635,30 @@ function initClient() {
                 }
                 
                 renderClientExplorer();
-            } else if (data.type === 'FILE_DATA') {
-                triggerDownload(data.file, data.name, data.mime);
+            } else if (data.type === 'FILE_CHUNK_START' || data.type === 'ZIP_CHUNK_START') {
+                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size };
+                const pct = document.getElementById(data.type === 'ZIP_CHUNK_START' ? 'client-progress-text' : 'preview-progress-text');
+                if (pct) pct.textContent = '0%';
+            } else if (data.type === 'FILE_CHUNK' || data.type === 'ZIP_CHUNK') {
+                const transfer = incomingTransfers[data.id];
+                if (transfer) {
+                    transfer.chunks[data.index] = data.chunk;
+                    transfer.received++;
+                    const pctVal = Math.floor((transfer.received / transfer.total) * 100);
+                    const pct = document.getElementById(data.type === 'ZIP_CHUNK' ? 'client-progress-text' : 'preview-progress-text');
+                    if (pct) pct.textContent = `${pctVal}%`;
+                    
+                    if (transfer.received === transfer.total) {
+                        const blob = new Blob(transfer.chunks, { type: transfer.mime });
+                        triggerDownload(blob, transfer.name, transfer.mime);
+                        delete incomingTransfers[data.id];
+                    }
+                }
+            } else if (data.type === 'GUEST_UPLOAD_ENABLED') {
+                if (btnUploadClient) btnUploadClient.classList.toggle('hidden', !data.enabled);
+            } else if (data.type === 'UPLOAD_COMPLETE') {
+                clientDownloading.classList.add('hidden');
+                alert("Upload complete!");
             } else if (data.type === 'SERVER_BURNED') {
                 triggerBurnSequence();
             }
@@ -593,6 +676,17 @@ function initClient() {
         }
     });
     
+    if(btnUploadClient) btnUploadClient.addEventListener("click", () => clientFileInput.click());
+    if(clientFileInput) clientFileInput.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file && hostConnection && hostConnection.open) {
+            clientDownloading.classList.remove("hidden");
+            downloadFilename.textContent = "Uploading " + file.name;
+            document.getElementById("client-progress-text").textContent = "Starting...";
+            sendFileInChunks(hostConnection, "upload_" + Date.now(), file, file.name, file.type, "CLIENT_UPLOAD_CHUNK");
+        }
+    });
+    
     btnDownloadAllClient.addEventListener('click', () => {
         if (hostConnection && hostConnection.open) {
             clientDownloading.classList.remove('hidden');
@@ -604,9 +698,10 @@ function initClient() {
     btnClosePreview.addEventListener('click', () => {
         previewModal.classList.add('hidden');
         btnDownloadDirect.classList.add('hidden');
-        btnDownloadDirect.style.display = 'none';
-        btnRequestFile.classList.remove('hidden');
-        previewLoader.classList.add('hidden');
+        btnDownloadDirect.style.display = "none";
+        btnRequestFile.classList.remove("hidden");
+        document.getElementById("preview-loader-container").classList.add("hidden");
+        document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
         if (btnDownloadDirect.href) {
             URL.revokeObjectURL(btnDownloadDirect.href);
             btnDownloadDirect.href = '';
@@ -615,8 +710,8 @@ function initClient() {
     
     btnRequestFile.addEventListener('click', () => {
         if (activePreviewFileId && hostConnection && hostConnection.open) {
-            btnRequestFile.classList.add('hidden');
-            previewLoader.classList.remove('hidden');
+            btnRequestFile.classList.add("hidden");
+            document.getElementById("preview-loader-container").classList.remove("hidden");
             hostConnection.send({ type: 'REQUEST_FILE', id: activePreviewFileId });
         }
     });
@@ -658,9 +753,10 @@ function renderClientExplorer() {
                 previewMeta.textContent = `${(child.size / 1024 / 1024).toFixed(2)} MB  •  ${child.mime || 'Unknown Type'}`;
                 
                 btnDownloadDirect.classList.add('hidden');
-                btnDownloadDirect.style.display = 'none';
-                btnRequestFile.classList.remove('hidden');
-                previewLoader.classList.add('hidden');
+                btnDownloadDirect.style.display = "none";
+                btnRequestFile.classList.remove("hidden");
+                document.getElementById("preview-loader-container").classList.add("hidden");
+                document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
                 
                 previewModal.classList.remove('hidden');
             }
@@ -674,7 +770,7 @@ function triggerDownload(fileData, name, mime) {
     if (name === 'local-cast-backup.zip') {
         // Handle Download All
         clientDownloading.classList.add('hidden');
-        const blob = new Blob([fileData], { type: mime });
+        const blob = fileData;
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -684,17 +780,40 @@ function triggerDownload(fileData, name, mime) {
         setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
     } else {
         // Handle Single File Preview Download
-        const blob = new Blob([fileData], { type: mime });
-        const url = URL.createObjectURL(blob);
-        previewLoader.classList.add('hidden');
+        const url = URL.createObjectURL(fileData); // fileData is already a Blob from chunks
+        const loaderContainer = document.getElementById('preview-loader-container');
+        if (loaderContainer) loaderContainer.classList.add('hidden');
         btnDownloadDirect.href = url;
         btnDownloadDirect.download = name;
         btnDownloadDirect.classList.remove('hidden');
         btnDownloadDirect.style.display = 'block';
+        
+        const previewIconContainer = document.getElementById('preview-icon');
+        if (mime.startsWith('image/')) {
+            previewIconContainer.innerHTML = `<img src="${url}" style="max-width: 100%; max-height: 250px; border-radius: 8px;">`;
+        } else if (mime.startsWith('video/')) {
+            previewIconContainer.innerHTML = `<video src="${url}" controls style="max-width: 100%; max-height: 250px; border-radius: 8px;"></video>`;
+        } else if (mime.startsWith('audio/')) {
+            previewIconContainer.innerHTML = `<audio src="${url}" controls style="width: 100%;"></audio>`;
+        }
     }
 }
 
 // --- UTILS ---
+async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, typeStr) {
+    const totalChunks = Math.ceil(fileBlob.size / CHUNK_SIZE);
+    conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks });
+    for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, fileBlob.size);
+        const chunk = fileBlob.slice(start, end);
+        const arrayBuffer = await chunk.arrayBuffer();
+        conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
+        await new Promise(r => setTimeout(r, 10)); // Prevent WebRTC buffer overflow
+    }
+}
+
+
 function updateStatus(text, state) {
     statusText.textContent = text;
     statusDot.className = `status-dot ${state}`;
