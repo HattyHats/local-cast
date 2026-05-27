@@ -151,8 +151,12 @@ async function triggerBurnSequence() {
     appWrapper.classList.remove('hidden');
     setTimeout(() => {
         clearInterval(matrixInterval);
-        bootSequence.style.display = 'none';
-        renderHostExplorer();
+        if (roomCode) {
+            window.location.href = window.location.pathname;
+        } else {
+            bootSequence.style.display = 'none';
+            renderHostExplorer();
+        }
     }, 800);
 }
 
