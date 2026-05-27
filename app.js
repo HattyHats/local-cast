@@ -23,6 +23,14 @@ const btnViewToggleClient = document.getElementById('btn-view-toggle-client');
 const contextMenu = document.getElementById('context-menu');
 const ctxRename = document.getElementById('ctx-rename');
 const ctxDelete = document.getElementById('ctx-delete');
+const ctxLock = document.getElementById('ctx-lock');
+const folderPasswordModal = document.getElementById('folder-password-modal');
+const folderPasswordInput = document.getElementById('folder-password-input');
+const btnSubmitFolderPassword = document.getElementById('btn-submit-folder-password');
+const btnCancelFolderPassword = document.getElementById('btn-cancel-folder-password');
+const folderPasswordError = document.getElementById('folder-password-error');
+let activeAuthFolderId = null;
+
 
 let contextTargetId = null;
 let isListViewHost = false;
@@ -169,6 +177,7 @@ async function triggerBurnSequence() {
     vfs.currentDir = vfs.root;
     saveVFSToDB();
     hostPassword = null;
+    chatMessages.innerHTML = '<div class="chat-msg system">Chat initialized. Encrypted P2P.</div>';
     iconUnlocked.classList.remove('hidden');
     iconLocked.classList.add('hidden');
     
@@ -355,6 +364,15 @@ async function initHost() {
                         c.send({ type: 'CHAT_MSG', sender: 'Guest', text: data.text });
                     }
                 });
+            } else if (data.type === 'FOLDER_AUTH_ATTEMPT' && conn.isAuthenticated) {
+                const node = vfs.findNode(data.folderId);
+                if (node && node.type === 'folder' && node.password === data.password) {
+                    conn.unlockedFolders.add(node.id);
+                    conn.send({ type: 'FOLDER_AUTH_SUCCESS', folderId: node.id });
+                    conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders) });
+                } else {
+                    conn.send({ type: 'FOLDER_AUTH_FAIL' });
+                }
             } else if (data.type === 'REQUEST_FILE' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.id);
                 if (node && node.type === 'file') {
@@ -570,7 +588,7 @@ function renderHostExplorer() {
         item.className = `file-item ${child.type}`;
         
         const icon = child.type === 'folder' ? 
-            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>` : 
+            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
             
         item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>`;
@@ -790,6 +808,11 @@ function initClient() {
                 alert("Upload complete!");
             } else if (data.type === 'CHAT_MSG') {
                 appendChatMessage(data.sender, data.text, 'other');
+            } else if (data.type === 'FOLDER_AUTH_SUCCESS') {
+                folderPasswordModal.classList.add('hidden');
+                // The updated TREE will arrive next and we can navigate in
+            } else if (data.type === 'FOLDER_AUTH_FAIL') {
+                folderPasswordError.classList.remove('hidden');
             } else if (data.type === 'SERVER_BURNED') {
                 triggerBurnSequence();
             }
@@ -800,6 +823,14 @@ function initClient() {
         });
     });
     
+    btnSubmitFolderPassword.addEventListener('click', () => {
+        const pwd = folderPasswordInput.value;
+        if (pwd && hostConnection && hostConnection.open && activeAuthFolderId) {
+            hostConnection.send({ type: 'FOLDER_AUTH_ATTEMPT', folderId: activeAuthFolderId, password: pwd });
+        }
+    });
+    btnCancelFolderPassword.addEventListener('click', () => folderPasswordModal.classList.add('hidden'));
+
     btnSubmitPassword.addEventListener('click', () => {
         const pwd = clientPasswordInput.value;
         if (pwd && hostConnection && hostConnection.open) {
@@ -872,7 +903,7 @@ function renderClientExplorer() {
         item.className = `file-item ${child.type}`;
         
         const icon = child.type === 'folder' ? 
-            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>` : 
+            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
             
         const sizeText = child.size ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
@@ -902,7 +933,7 @@ function renderClientExplorer() {
     });
 }
 
-function triggerDownload(fileData, name, mime) {
+async function triggerDownload(fileData, name, mime) {
     if (name === 'local-cast-backup.zip') {
         // Handle Download All
         clientDownloading.classList.add('hidden');
@@ -927,6 +958,9 @@ function triggerDownload(fileData, name, mime) {
         const previewIconContainer = document.getElementById('preview-icon');
         if (mime.startsWith('image/')) {
             previewIconContainer.innerHTML = `<img src="${url}" style="max-width: 100%; max-height: 250px; border-radius: 8px;">`;
+        } else if (mime.startsWith('text/') || mime === '' || name.endsWith('.md')) {
+            const text = await fileData.text();
+            previewIconContainer.innerHTML = `<div style="max-width: 100%; max-height: 250px; overflow: auto; background: var(--bg-main); padding: 1rem; border-radius: 8px; font-family: var(--font-mono); font-size: 0.8rem; text-align: left; color: var(--text-main); white-space: pre-wrap; word-break: break-word;">${text.replace(/</g, '&lt;')}</div>`;
         } else if (mime.startsWith('video/')) {
             previewIconContainer.innerHTML = `<video src="${url}" controls style="max-width: 100%; max-height: 250px; border-radius: 8px;"></video>`;
         } else if (mime.startsWith('audio/')) {
@@ -1033,6 +1067,30 @@ btnSaveNote.addEventListener('click', async () => {
 
 document.addEventListener('click', (e) => {
     if (!e.target.closest('.context-menu')) contextMenu.classList.add('hidden');
+});
+
+
+ctxLock.addEventListener('click', () => {
+    if (!contextTargetId) return;
+    const node = vfs.findNode(contextTargetId);
+    if (node && node.type === 'folder') {
+        if (node.password) {
+            if (confirm("Remove password from this folder?")) {
+                delete node.password;
+            }
+        } else {
+            const pwd = prompt("Enter a password to lock this folder:");
+            if (pwd) node.password = pwd;
+        }
+        contextTargetId = null;
+        contextMenu.classList.add('hidden');
+        saveVFSToDB();
+        renderHostExplorer();
+        broadcastTree();
+    } else {
+        alert("You can only lock folders.");
+        contextMenu.classList.add('hidden');
+    }
 });
 
 ctxDelete.addEventListener('click', () => {
