@@ -9,7 +9,7 @@ try {
 } catch (e) {
     console.warn("LocalForage config failed:", e);
 }
-const CHUNK_SIZE = 256 * 1024;
+const CHUNK_SIZE = 16 * 1024; // 16 KB for safe WebRTC transmission
 const incomingTransfers = {};
 
 const hostView = document.getElementById('host-view');
