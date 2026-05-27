@@ -59,6 +59,10 @@ const joinUrl = document.getElementById('join-url');
 const clientDownloading = document.getElementById('client-downloading');
 const downloadFilename = document.getElementById('download-filename');
 
+const toggleGuestUploads = document.getElementById('toggle-guest-uploads');
+const btnUploadClient = document.getElementById('btn-upload-client');
+const clientFileInput = document.getElementById('client-file-input');
+
 // --- SPLASH SCREEN ---
 const splashTitle = document.getElementById('splash-title');
 const splashSubtitle = document.getElementById('splash-subtitle');
