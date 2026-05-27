@@ -2,7 +2,13 @@
 const bootSequence = document.getElementById('boot-sequence');
 const appWrapper = document.getElementById('app-wrapper');
 
-localforage.config({ name: "LocalCast" });
+try {
+    if (typeof localforage !== 'undefined') {
+        localforage.config({ name: "LocalCast" });
+    }
+} catch (e) {
+    console.warn("LocalForage config failed:", e);
+}
 const CHUNK_SIZE = 256 * 1024;
 const incomingTransfers = {};
 

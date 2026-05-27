@@ -89,6 +89,13 @@
                             BURN SERVER
                         </button>
                     </div>
+                    <div style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">Allow Guest Uploads</span>
+                        <label class="switch">
+                            <input type="checkbox" id="toggle-guest-uploads">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                     <input type="file" id="file-input" multiple class="hidden-input">
                     <input type="file" id="folder-input" webkitdirectory directory multiple class="hidden-input">
                 </div>
@@ -114,10 +121,16 @@
                     <h2>HOST FILE SERVER</h2>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                         <div class="breadcrumbs" id="client-breadcrumbs"><span class="crumb" data-id="root">/ Home</span></div>
-                        <button id="btn-download-all-client" class="custom-btn" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-blue);">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                            Download All
-                        </button>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="btn-upload-client" class="custom-btn hidden" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-green); color: var(--neon-green);">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                Upload
+                            </button>
+                            <button id="btn-download-all-client" class="custom-btn" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-blue);">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                Download All
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="file-grid" id="client-file-grid">
@@ -126,8 +139,10 @@
                 
                 <div id="client-downloading" class="download-overlay hidden">
                     <div class="loader"></div>
-                    <p style="margin-top: 1rem; color: var(--neon-blue); font-family: var(--font-mono);">Downloading <span id="download-filename"></span>...</p>
+                    <p style="margin-top: 1rem; color: var(--neon-blue); font-family: var(--font-mono);">Processing <span id="download-filename"></span>...</p>
+                    <p id="client-progress-text" style="margin-top: 0.5rem; color: var(--text-main); font-size: 0.9rem;">0%</p>
                 </div>
+                <input type="file" id="client-file-input" multiple class="hidden-input">
             </div>
         </main>
 
@@ -157,14 +172,18 @@
             <p id="preview-meta" style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 2rem;">Size / Type</p>
             
             <div id="preview-action-container">
-                <button id="btn-request-file" class="custom-btn" style="border-color: var(--neon-blue); width: 100%;">REQUEST DOWNLOAD</button>
-                <div id="preview-loader" class="loader hidden" style="margin: 0 auto;"></div>
-                <a id="btn-download-direct" class="custom-btn hidden" style="display: none; background: var(--neon-blue); color: #000; text-decoration: none; width: 100%; box-sizing: border-box; text-align: center;">SAVE FILE TO DEVICE</a>
+                <button id="btn-request-file" class="custom-btn" style="border-color: var(--neon-blue); width: 100%;">REQUEST PREVIEW</button>
+                <div id="preview-loader-container" class="hidden" style="margin: 1rem auto; text-align: center;">
+                    <div class="loader" style="margin: 0 auto;"></div>
+                    <p id="preview-progress-text" style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.8rem;">0%</p>
+                </div>
+                <a id="btn-download-direct" class="custom-btn hidden" style="display: none; background: var(--neon-blue); color: #000; text-decoration: none; width: 100%; box-sizing: border-box; text-align: center; margin-top: 1rem;">SAVE FILE TO DEVICE</a>
             </div>
         </div>
     </div>
 
     <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
