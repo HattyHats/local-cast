@@ -287,13 +287,20 @@ class VirtualFileSystem {
         return folder;
     }
     
-    getTree(dir = this.root) {
-        return {
-            id: dir.id,
-            name: dir.name,
-            type: dir.type,
-            children: dir.children.map(c => c.type === 'folder' ? this.getTree(c) : { id: c.id, name: c.name, type: 'file', size: c.size, mime: c.mime })
-        };
+    getTree(unlockedSet = new Set()) {
+        function clone(node) {
+            const isUnlocked = unlockedSet.has(node.id);
+            const n = { id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, isLocked: !!node.password, isUnlocked };
+            if (node.children) {
+                if (node.password && !isUnlocked) {
+                    n.children = []; // Hide contents
+                } else {
+                    n.children = node.children.map(clone);
+                }
+            }
+            return n;
+        }
+        return clone(this.root);
     }
     
     findNode(id, dir = this.root) {
@@ -367,7 +374,7 @@ async function initHost() {
                 connections.forEach(conn => {
                     if (!conn.isAuthenticated) {
                         conn.isAuthenticated = true;
-                        conn.send({ type: 'TREE', tree: vfs.getTree() });
+                        conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     }
                 });
             }
@@ -394,7 +401,7 @@ async function initHost() {
                 if (data.password === hostPassword) {
                     conn.isAuthenticated = true;
                     conn.send({ type: 'AUTH_SUCCESS' });
-                    conn.send({ type: 'TREE', tree: vfs.getTree() });
+                    conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                 } else {
                     conn.send({ type: 'AUTH_FAIL' });
                 }
@@ -449,7 +456,7 @@ async function initHost() {
             if (hostPassword) {
                 conn.send({ type: 'AUTH_REQUIRED' });
             } else {
-                conn.send({ type: 'TREE', tree: vfs.getTree() });
+                conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
             }
         });
         
@@ -469,10 +476,9 @@ async function initHost() {
 }
 
 function broadcastTree() {
-    const tree = vfs.getTree();
     connections.forEach(conn => {
         if (conn.open && conn.isAuthenticated) {
-            conn.send({ type: 'TREE', tree: tree });
+            conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
         }
     });
 }
@@ -954,8 +960,15 @@ function renderClientExplorer() {
         
         item.addEventListener('click', () => {
             if (child.type === 'folder') {
-                clientCurrentDir = child;
-                renderClientExplorer();
+                if (child.isLocked && !child.isUnlocked) {
+                    activeAuthFolderId = child.id;
+                    folderPasswordInput.value = '';
+                    folderPasswordError.classList.add('hidden');
+                    folderPasswordModal.classList.remove('hidden');
+                } else {
+                    clientCurrentDir = child;
+                    renderClientExplorer();
+                }
             } else {
                 // Open Preview Modal
                 activePreviewFileId = child.id;
