@@ -186,8 +186,8 @@ function initMatrixCanvas() {
 
 window.addEventListener('resize', () => {
     if(canvas && document.body.contains(canvas)) {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        wbCanvas.width = window.innerWidth;
+        wbCanvas.height = window.innerHeight;
     }
 });
 
@@ -408,10 +408,58 @@ async function initHost() {
                     conn.send({ type: 'AUTH_FAIL' });
                 }
             } else if (data.type === 'CHAT_MSG' && conn.isAuthenticated) {
-                appendChatMessage('Guest', data.text, 'other');
+                const sName = conn.profile ? conn.profile.name : (data.sender || 'Guest');
+                const sColor = conn.profile ? conn.profile.color : (data.color || 'var(--neon-blue)');
+                appendChatMessage(sName, data.text, 'other', sColor);
                 Object.values(connections).forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated) {
-                        c.send({ type: 'CHAT_MSG', sender: 'Guest', text: data.text });
+                        c.send({ type: 'CHAT_MSG', sender: sName, text: data.text, color: sColor });
+                    }
+                });
+            } else if (data.type === 'SCRATCHPAD_UPDATE' && conn.isAuthenticated) {
+                globalScratchpadContent = data.text;
+                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && scratchpadTextarea.value !== data.text) {
+                    const start = scratchpadTextarea.selectionStart;
+                    const end = scratchpadTextarea.selectionEnd;
+                    scratchpadTextarea.value = data.text;
+                    scratchpadTextarea.setSelectionRange(start, end);
+                }
+                Object.values(connections).forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated) {
+                        c.send({ type: 'SCRATCHPAD_UPDATE', text: data.text });
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_DRAW' && conn.isAuthenticated) {
+                if (wbCtx) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, false);
+                }
+                Object.values(connections).forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated) c.send(data);
+                });
+            } else if (data.type === 'WHITEBOARD_CLEAR' && conn.isAuthenticated) {
+                if (wbCtx) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                Object.values(connections).forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated) c.send(data);
+                });
+            } else if (data.type === 'REQUEST_WHITEBOARD' && conn.isAuthenticated) {
+                if (canvas) conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+            } else if (data.type === 'INTERCOM_JOIN' && conn.isAuthenticated) {
+                intercomUsers.add(data.peerId);
+                const others = Array.from(intercomUsers).filter(id => id !== data.peerId);
+                conn.send({ type: 'INTERCOM_LIST', users: others });
+            } else if (data.type === 'INTERCOM_LEAVE' && conn.isAuthenticated) {
+                intercomUsers.delete(data.peerId);
+            } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
+                if (canvas) conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+            } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
+                conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+            } else if (data.type === 'PROFILE_UPDATE' && conn.isAuthenticated) {
+                conn.profile = { name: data.name, color: data.color };
+                appendChatMessage('System', `${data.name} joined the network`, 'system', 'var(--text-muted)');
+                Object.values(connections).forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated) {
+                        c.send({ type: 'CHAT_MSG', sender: 'System', text: `${data.name} joined the network`, color: 'var(--text-muted)' });
                     }
                 });
             } else if (data.type === 'FOLDER_AUTH_ATTEMPT' && conn.isAuthenticated) {
@@ -855,8 +903,37 @@ function initClient() {
             } else if (data.type === 'UPLOAD_COMPLETE') {
                 clientDownloading.classList.add('hidden');
                 alert("Upload complete!");
+            } else if (data.type === 'WHITEBOARD_DRAW') {
+                if (wbCtx) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, false);
+                }
+            } else if (data.type === 'WHITEBOARD_CLEAR') {
+                if (wbCtx) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+            } else if (data.type === 'INTERCOM_LIST') {
+                data.users.forEach(id => {
+                    if (id !== peer.id && inIntercom) {
+                        const call = peer.call(id, localAudioStream);
+                        call.on('stream', (remoteStream) => playAudioStream(remoteStream, id));
+                        call.on('close', () => cleanupAudio(id));
+                        activeCalls[id] = call;
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_SYNC') {
+                if (ctx && data.image) {
+                    const img = new Image();
+                    img.onload = () => wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
+                    img.src = data.image;
+                }
+            } else if (data.type === 'SCRATCHPAD_UPDATE') {
+                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && scratchpadTextarea.value !== data.text) {
+                    const start = scratchpadTextarea.selectionStart;
+                    const end = scratchpadTextarea.selectionEnd;
+                    scratchpadTextarea.value = data.text;
+                    scratchpadTextarea.setSelectionRange(start, end);
+                }
             } else if (data.type === 'CHAT_MSG') {
-                appendChatMessage(data.sender, data.text, 'other');
+                appendChatMessage(data.sender, data.text, data.sender === 'System' ? 'system' : 'other', data.color);
             } else if (data.type === 'FILE_ADDED_TOAST') {
                 showToast(`New file: ${data.filename}`);
             } else if (data.type === 'FOLDER_AUTH_SUCCESS') {
@@ -1053,10 +1130,10 @@ function updateStatus(text, state) {
 btnChatToggle.addEventListener('click', () => { chatSidebar.classList.toggle('hidden'); chatBadge.classList.add('hidden'); });
 btnCloseChat.addEventListener('click', () => chatSidebar.classList.add('hidden'));
 
-function appendChatMessage(sender, text, type) {
+function appendChatMessage(sender, text, type, color = 'var(--neon-blue)') {
     const msg = document.createElement('div');
     msg.className = `chat-msg ${type}`;
-    msg.innerHTML = `<div class="sender">${sender}</div><div>${text}</div>`;
+    msg.innerHTML = `<div class="sender" style="color: ${color};">${sender}</div><div>${text}</div>`;
     chatMessages.appendChild(msg);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     
@@ -1208,3 +1285,284 @@ function searchVFS(dir, query, results) {
 // --- END V14 LOGIC ---
 
 window.onload = runBootSequence;
+
+// --- GUEST PROFILE LOGIC ---
+const profileModal = document.getElementById('profile-modal');
+const profileNameInput = document.getElementById('profile-name-input');
+const btnSaveProfile = document.getElementById('btn-save-profile');
+let guestAlias = localStorage.getItem('localcast_alias') || '';
+let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
+
+if (profileModal) {
+    document.querySelectorAll('.color-swatch').forEach(swatch => {
+        swatch.addEventListener('click', () => {
+            document.querySelectorAll('.color-swatch').forEach(s => {
+                s.classList.remove('selected');
+                s.style.borderColor = 'transparent';
+            });
+            swatch.classList.add('selected');
+            swatch.style.borderColor = '#fff';
+            guestColor = swatch.dataset.color;
+        });
+    });
+
+    btnSaveProfile.addEventListener('click', () => {
+        const val = profileNameInput.value.trim();
+        if (val) {
+            guestAlias = val;
+            localStorage.setItem('localcast_alias', guestAlias);
+            localStorage.setItem('localcast_color', guestColor);
+            profileModal.classList.add('hidden');
+            if (hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor });
+            }
+        }
+    });
+}
+
+
+// --- SCRATCHPAD LOGIC ---
+const scratchpadModal = document.getElementById('scratchpad-modal');
+const scratchpadTextarea = document.getElementById('scratchpad-textarea');
+const btnCloseScratchpad = document.getElementById('btn-close-scratchpad');
+const btnLiveScratchpad = document.getElementById('btn-live-scratchpad');
+
+let globalScratchpadContent = ''; // Used by Host
+
+if (btnLiveScratchpad) {
+    btnLiveScratchpad.addEventListener('click', () => {
+        scratchpadModal.classList.remove('hidden');
+        if (!isHost && hostConnection && hostConnection.open) {
+            hostConnection.send({ type: 'REQUEST_SCRATCHPAD' });
+        } else if (isHost) {
+            scratchpadTextarea.value = globalScratchpadContent;
+        }
+    });
+
+    btnCloseScratchpad.addEventListener('click', () => {
+        scratchpadModal.classList.add('hidden');
+    });
+
+    scratchpadTextarea.addEventListener('input', () => {
+        const text = scratchpadTextarea.value;
+        if (isHost) {
+            globalScratchpadContent = text;
+            Object.values(connections).forEach(c => {
+                if (c.open && c.isAuthenticated) c.send({ type: 'SCRATCHPAD_UPDATE', text });
+            });
+        } else if (hostConnection && hostConnection.open) {
+            hostConnection.send({ type: 'SCRATCHPAD_UPDATE', text });
+        }
+    });
+}
+
+
+// --- WHITEBOARD LOGIC ---
+const whiteboardModal = document.getElementById('whiteboard-modal');
+const btnWhiteboard = document.getElementById('btn-whiteboard');
+const btnCloseWhiteboard = document.getElementById('btn-close-whiteboard');
+const btnClearWhiteboard = document.getElementById('btn-clear-whiteboard');
+const wbCanvas = document.getElementById('whiteboard-canvas');
+let wbCtx = null;
+
+let isDrawing = false;
+let lastX = 0;
+let lastY = 0;
+
+if (btnWhiteboard && wbCanvas) {
+    wbCtx = wbCanvas.getContext('2d');
+    
+    function resizeCanvas() {
+        const container = document.getElementById('whiteboard-container');
+        if (wbCanvas.width !== container.clientWidth || wbCanvas.height !== container.clientHeight) {
+            const data = wbCanvas.toDataURL();
+            wbCanvas.width = container.clientWidth;
+            wbCanvas.height = container.clientHeight;
+            const img = new Image();
+            img.onload = () => wbCtx.drawImage(img, 0, 0);
+            img.src = data;
+        }
+    }
+    
+    window.addEventListener('resize', () => {
+        if (!whiteboardModal.classList.contains('hidden')) resizeCanvas();
+    });
+
+    btnWhiteboard.addEventListener('click', () => {
+        whiteboardModal.classList.remove('hidden');
+        setTimeout(() => {
+            resizeCanvas();
+        }, 100);
+        if (!isHost && hostConnection && hostConnection.open) {
+            hostConnection.send({ type: 'REQUEST_WHITEBOARD' });
+        }
+    });
+    
+    document.querySelectorAll('.wb-color').forEach(swatch => {
+        swatch.addEventListener('click', (e) => {
+            document.querySelectorAll('.wb-color').forEach(s => s.style.borderColor = 'transparent');
+            const target = e.target;
+            target.style.borderColor = target.dataset.color === '#000000' ? '#fff' : target.dataset.color;
+            guestColor = target.dataset.color;
+        });
+    });
+
+    btnCloseWhiteboard.addEventListener('click', () => {
+        whiteboardModal.classList.add('hidden');
+    });
+    
+    btnClearWhiteboard.addEventListener('click', () => {
+        wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+        if (isHost) {
+            Object.values(connections).forEach(c => {
+                if (c.open && c.isAuthenticated) c.send({ type: 'WHITEBOARD_CLEAR' });
+            });
+        } else if (hostConnection && hostConnection.open) {
+            hostConnection.send({ type: 'WHITEBOARD_CLEAR' });
+        }
+    });
+
+    function drawLine(x0, y0, x1, y1, color, emit) {
+        wbCtx.beginPath();
+        wbCtx.moveTo(x0, y0);
+        wbCtx.lineTo(x1, y1);
+        wbCtx.strokeStyle = color;
+        wbCtx.lineWidth = 3;
+        wbCtx.lineCap = 'round';
+        wbCtx.stroke();
+        wbCtx.closePath();
+        
+        if (!emit) return;
+        
+        const w = wbCanvas.width;
+        const h = wbCanvas.height;
+        
+        const payload = {
+            type: 'WHITEBOARD_DRAW',
+            x0: x0 / w, y0: y0 / h,
+            x1: x1 / w, y1: y1 / h,
+            color: color
+        };
+
+        if (isHost) {
+            Object.values(connections).forEach(c => {
+                if (c.open && c.isAuthenticated) c.send(payload);
+            });
+        } else if (hostConnection && hostConnection.open) {
+            hostConnection.send(payload);
+        }
+    }
+
+    function getPos(e) {
+        const rect = wbCanvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+
+    function onDown(e) {
+        isDrawing = true;
+        const pos = getPos(e);
+        lastX = pos.x;
+        lastY = pos.y;
+    }
+
+    function onMove(e) {
+        if (!isDrawing) return;
+        const pos = getPos(e);
+        drawLine(lastX, lastY, pos.x, pos.y, guestColor, true);
+        lastX = pos.x;
+        lastY = pos.y;
+    }
+
+    function onUp(e) {
+        if (!isDrawing) return;
+        isDrawing = false;
+    }
+
+    wbCanvas.addEventListener('mousedown', onDown);
+    wbCanvas.addEventListener('mousemove', onMove);
+    wbCanvas.addEventListener('mouseup', onUp);
+    wbCanvas.addEventListener('mouseout', onUp);
+    
+    wbCanvas.addEventListener('touchstart', onDown, {passive: true});
+    wbCanvas.addEventListener('touchmove', onMove, {passive: true});
+    wbCanvas.addEventListener('touchend', onUp);
+}
+
+
+// --- INTERCOM LOGIC ---
+const btnIntercom = document.getElementById('btn-intercom');
+let localAudioStream = null;
+let inIntercom = false;
+let activeCalls = {};
+let intercomUsers = new Set();
+
+function playAudioStream(stream, peerId) {
+    if (document.getElementById(`audio-${peerId}`)) return;
+    const audio = document.createElement('audio');
+    audio.srcObject = stream;
+    audio.autoplay = true;
+    audio.id = `audio-${peerId}`;
+    document.body.appendChild(audio);
+}
+
+function cleanupAudio(peerId) {
+    const audio = document.getElementById(`audio-${peerId}`);
+    if (audio) audio.remove();
+    if (activeCalls[peerId]) {
+        activeCalls[peerId].close();
+        delete activeCalls[peerId];
+    }
+}
+
+if (btnIntercom) {
+    btnIntercom.addEventListener('click', async () => {
+        if (!inIntercom) {
+            try {
+                localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                inIntercom = true;
+                btnIntercom.style.color = 'var(--neon-green)';
+                btnIntercom.style.borderColor = 'var(--neon-green)';
+                
+                peer.on('call', (call) => {
+                    if (!inIntercom) { call.close(); return; }
+                    call.answer(localAudioStream);
+                    call.on('stream', (remoteStream) => playAudioStream(remoteStream, call.peer));
+                    call.on('close', () => cleanupAudio(call.peer));
+                    activeCalls[call.peer] = call;
+                });
+
+                if (isHost) {
+                    intercomUsers.add(peer.id);
+                    intercomUsers.forEach(id => {
+                        if (id !== peer.id && inIntercom) {
+                            const call = peer.call(id, localAudioStream);
+                            call.on('stream', (remoteStream) => playAudioStream(remoteStream, id));
+                            call.on('close', () => cleanupAudio(id));
+                            activeCalls[id] = call;
+                        }
+                    });
+                } else if (hostConnection && hostConnection.open) {
+                    hostConnection.send({ type: 'INTERCOM_JOIN', peerId: peer.id });
+                }
+            } catch(e) {
+                alert("Microphone access denied or not available.");
+            }
+        } else {
+            inIntercom = false;
+            btnIntercom.style.color = '';
+            btnIntercom.style.borderColor = '';
+            if (localAudioStream) {
+                localAudioStream.getTracks().forEach(t => t.stop());
+                localAudioStream = null;
+            }
+            Object.keys(activeCalls).forEach(id => cleanupAudio(id));
+            if (isHost) {
+                intercomUsers.delete(peer.id);
+            } else if (hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'INTERCOM_LEAVE', peerId: peer.id });
+            }
+        }
+    });
+}
