@@ -30,6 +30,47 @@ const btnSubmitFolderPassword = document.getElementById('btn-submit-folder-passw
 const btnCancelFolderPassword = document.getElementById('btn-cancel-folder-password');
 const folderPasswordError = document.getElementById('folder-password-error');
 let activeAuthFolderId = null;
+const chatBadge = document.getElementById('chat-badge');
+const toastContainer = document.getElementById('toast-container');
+
+function showToast(message) {
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    
+    // Play a subtle ding sound
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // A6
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.3);
+    } catch(e) {}
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function notifyFileAdded(filename) {
+    showToast(`New file: ${filename}`);
+    if (isHost) {
+        Object.values(connections).forEach(c => {
+            if (c.open && c.isAuthenticated) c.send({ type: 'FILE_ADDED_TOAST', filename });
+        });
+    }
+}
+
 
 
 let contextTargetId = null;
@@ -808,6 +849,8 @@ function initClient() {
                 alert("Upload complete!");
             } else if (data.type === 'CHAT_MSG') {
                 appendChatMessage(data.sender, data.text, 'other');
+            } else if (data.type === 'FILE_ADDED_TOAST') {
+                showToast(`New file: ${data.filename}`);
             } else if (data.type === 'FOLDER_AUTH_SUCCESS') {
                 folderPasswordModal.classList.add('hidden');
                 // The updated TREE will arrive next and we can navigate in
@@ -991,7 +1034,7 @@ function updateStatus(text, state) {
 
 
 // --- V14 LOGIC ---
-btnChatToggle.addEventListener('click', () => chatSidebar.classList.toggle('hidden'));
+btnChatToggle.addEventListener('click', () => { chatSidebar.classList.toggle('hidden'); chatBadge.classList.add('hidden'); });
 btnCloseChat.addEventListener('click', () => chatSidebar.classList.add('hidden'));
 
 function appendChatMessage(sender, text, type) {
@@ -1000,6 +1043,23 @@ function appendChatMessage(sender, text, type) {
     msg.innerHTML = `<div class="sender">${sender}</div><div>${text}</div>`;
     chatMessages.appendChild(msg);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    if (type !== 'self' && chatSidebar.classList.contains('hidden') && type !== 'system') {
+        chatBadge.classList.remove('hidden');
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+            osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        } catch(e) {}
+    }
 }
 
 btnSendChat.addEventListener('click', () => {
@@ -1063,6 +1123,7 @@ btnSaveNote.addEventListener('click', async () => {
     saveVFSToDB();
     renderHostExplorer();
     broadcastTree();
+    notifyFileAdded(name);
 });
 
 document.addEventListener('click', (e) => {
