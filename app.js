@@ -30,6 +30,7 @@ const btnSubmitFolderPassword = document.getElementById('btn-submit-folder-passw
 const btnCancelFolderPassword = document.getElementById('btn-cancel-folder-password');
 const folderPasswordError = document.getElementById('folder-password-error');
 let activeAuthFolderId = null;
+let autoEnterFolderId = null;
 const chatBadge = document.getElementById('chat-badge');
 const toastContainer = document.getElementById('toast-container');
 
@@ -395,6 +396,7 @@ async function initHost() {
     peer.on('connection', (conn) => {
         connections.push(conn);
         conn.isAuthenticated = !hostPassword;
+        conn.unlockedFolders = new Set();
         
         conn.on('data', (data) => {
             if (data.type === 'AUTH_ATTEMPT') {
@@ -859,6 +861,7 @@ function initClient() {
                 showToast(`New file: ${data.filename}`);
             } else if (data.type === 'FOLDER_AUTH_SUCCESS') {
                 folderPasswordModal.classList.add('hidden');
+                autoEnterFolderId = activeAuthFolderId;
                 // The updated TREE will arrive next and we can navigate in
             } else if (data.type === 'FOLDER_AUTH_FAIL') {
                 folderPasswordError.classList.remove('hidden');
