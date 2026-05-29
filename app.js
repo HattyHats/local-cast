@@ -887,6 +887,11 @@ function renderHostExplorer() {
         item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>`;
         item.draggable = true;
         
+        if (child.isHidden) {
+            item.style.opacity = '0.5';
+            item.style.boxShadow = '0 0 10px var(--neon-purple)';
+        }
+        
         if (selectedNodes.has(child.id)) item.classList.add('selected');
         
         item.addEventListener('click', (e) => {
@@ -1047,6 +1052,7 @@ function initClient() {
             } else if (data.type === 'AUTH_FAIL') {
                 passwordError.classList.remove('hidden');
             } else if (data.type === 'TREE') {
+                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor });
                 clientVFS = data.tree;
                 
                 // Reconstruct parent links for client navigation
@@ -1791,5 +1797,20 @@ if (btnIntercom) {
                 hostConnection.send({ type: 'INTERCOM_LEAVE', peerId: peer.id });
             }
         }
+    });
+}
+
+const btnInfo = document.getElementById('btn-info');
+const infoModal = document.getElementById('info-modal');
+const btnCloseInfo = document.getElementById('btn-close-info');
+
+if (btnInfo) {
+    btnInfo.addEventListener('click', () => {
+        infoModal.classList.remove('hidden');
+    });
+}
+if (btnCloseInfo) {
+    btnCloseInfo.addEventListener('click', () => {
+        infoModal.classList.add('hidden');
     });
 }
