@@ -125,6 +125,7 @@ const whisperInput = document.getElementById('whisper-input');
 const whisperForm = document.getElementById('whisper-form');
 
 let radarBlips = [];
+let showDeadDrops = false;
 let activePeers = {};
 let whisperTarget = null;
 
