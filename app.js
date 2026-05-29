@@ -110,6 +110,29 @@ const btnSubmitPassword = document.getElementById('btn-submit-password');
 const passwordError = document.getElementById('password-error');
 
 const previewModal = document.getElementById('preview-modal');
+
+const btnStreamDirect = document.getElementById('btn-stream-direct');
+
+const btnRadar = document.getElementById('btn-radar');
+const radarModal = document.getElementById('radar-modal');
+const btnCloseRadar = document.getElementById('btn-close-radar');
+const radarCanvas = document.getElementById('radar-canvas');
+
+const whisperModal = document.getElementById('whisper-modal');
+const btnCloseWhisper = document.getElementById('btn-close-whisper');
+const whisperMessages = document.getElementById('whisper-messages');
+const whisperInput = document.getElementById('whisper-input');
+const whisperForm = document.getElementById('whisper-form');
+
+let radarBlips = [];
+let activePeers = {};
+let whisperTarget = null;
+
+const mediaModal = document.getElementById('media-modal');
+const btnCloseMedia = document.getElementById('btn-close-media');
+const mediaTitle = document.getElementById('media-title');
+const mediaContainer = document.getElementById('media-container');
+
 const btnClosePreview = document.getElementById('btn-close-preview');
 const previewFilename = document.getElementById('preview-filename');
 const previewMeta = document.getElementById('preview-meta');
@@ -123,7 +146,11 @@ const btnNewFolder = document.getElementById('btn-new-folder');
 const btnUploadFiles = document.getElementById('btn-upload-files');
 const btnUploadFolder = document.getElementById('btn-upload-folder');
 const btnDownloadAllHost = document.getElementById('btn-download-all-host');
+
 const btnBurn = document.getElementById('btn-burn');
+const burnOverlay = document.getElementById('burn-overlay');
+const burnCountdown = document.getElementById('burn-countdown');
+
 const btnDownloadAllClient = document.getElementById('btn-download-all-client');
 const fileInput = document.getElementById('file-input');
 const folderInput = document.getElementById('folder-input');
@@ -210,53 +237,177 @@ async function runBootSequence() {
     }, 800);
 }
 
-async function triggerBurnSequence() {
-    appWrapper.classList.add('hidden');
-    bootSequence.classList.remove('inactive');
-    bootSequence.style.display = 'flex';
-    
-    vfs.root = { id: 'root', name: 'Home', type: 'folder', children: [], parent: null };
-    vfs.currentDir = vfs.root;
-    saveVFSToDB();
-    hostPassword = null;
-    chatMessages.innerHTML = '<div class="chat-msg system">Chat initialized. Encrypted P2P.</div>';
-    iconUnlocked.classList.remove('hidden');
-    iconLocked.classList.add('hidden');
-    
-    connections.forEach(conn => {
-        if(conn.open) {
-            conn.send({ type: 'SERVER_BURNED' });
+
+let burnTimerInterval = null;
+
+if (btnRadar) {
+    btnRadar.addEventListener('click', () => {
+        radarModal.classList.remove('hidden');
+    });
+}
+if (btnCloseRadar) {
+    btnCloseRadar.addEventListener('click', () => {
+        radarModal.classList.add('hidden');
+    });
+}
+if (btnCloseWhisper) {
+    btnCloseWhisper.addEventListener('click', () => {
+        whisperModal.classList.add('hidden');
+    });
+}
+
+function openWhisper(targetId, alias, color) {
+    whisperTarget = targetId;
+    document.getElementById('whisper-target-name').innerText = 'Whispering: ' + alias;
+    document.getElementById('whisper-target-name').style.color = color;
+    whisperMessages.innerHTML = '';
+    if(radarModal) radarModal.classList.add('hidden');
+    whisperModal.classList.remove('hidden');
+}
+
+if (whisperForm) {
+    whisperForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!whisperInput.value.trim() || !whisperTarget) return;
+        const msg = whisperInput.value.trim();
+        
+        const div = document.createElement('div');
+        div.className = 'whisper-message self';
+        div.innerText = `You: ${msg}`;
+        whisperMessages.appendChild(div);
+        whisperMessages.scrollTop = whisperMessages.scrollHeight;
+        
+        if (isHost) {
+            const conn = connections.find(c => c.peer === whisperTarget);
+            if (conn && conn.open) {
+                conn.send({ type: 'WHISPER', fromId: (peer ? peer.id : null), fromAlias: 'Host', fromColor: guestColor, msg });
+            }
+        } else {
+            if (hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'WHISPER_RELAY', targetId: whisperTarget, msg, fromId: (peer ? peer.id : null), fromAlias: guestAlias, fromColor: guestColor });
+            }
+        }
+        
+        whisperInput.value = '';
+    });
+}
+
+if (radarCanvas) {
+    radarCanvas.addEventListener('click', (e) => {
+        const rect = radarCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        for (const blip of radarBlips) {
+            const dx = x - blip.x;
+            const dy = y - blip.y;
+            if (Math.sqrt(dx*dx + dy*dy) < 20) {
+                openWhisper(blip.id, blip.alias, blip.color);
+                break;
+            }
         }
     });
-    setTimeout(() => {
-        connections.forEach(conn => conn.close());
-        connections = [];
-    }, 200);
-    
-    splashTitle.setAttribute('data-text', 'FILES BURNED');
-    splashTitle.textContent = 'FILES BURNED';
-    splashSubtitle.classList.add('hidden');
-    splashLoader.classList.add('hidden');
-    
-    const matrixInterval = initMatrixCanvas();
-    
-    await new Promise(r => setTimeout(r, 3000));
-    
-    splashTitle.setAttribute('data-text', 'Local-Cast');
-    splashTitle.textContent = 'Local-Cast';
-    
-    bootSequence.classList.add('inactive');
-    appWrapper.classList.remove('hidden');
-    setTimeout(() => {
-        clearInterval(matrixInterval);
-        if (roomCode) {
-            window.location.href = window.location.pathname;
-        } else {
-            bootSequence.style.display = 'none';
-            renderHostExplorer();
+
+    function drawRadar() {
+        requestAnimationFrame(drawRadar);
+        try {
+            if (radarModal && radarModal.classList.contains('hidden')) return;
+            
+            const canvas = radarCanvas;
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = Math.min(cx, cy) - 20;
+
+            ctx.strokeStyle = 'rgba(57,255,20,0.2)';
+            ctx.lineWidth = 1;
+            for(let i=1; i<=3; i++) {
+                ctx.beginPath(); ctx.arc(cx, cy, (radius/3)*i, 0, Math.PI*2); ctx.stroke();
+            }
+            ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy); ctx.stroke();
+
+            ctx.fillStyle = guestColor || '#39ff14';
+            ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = '10px monospace';
+            ctx.fillText("YOU", cx + 10, cy + 4);
+
+            function hashStr(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                return Math.abs(hash);
+            }
+            
+            radarBlips = [];
+            for (const [id, data] of Object.entries(activePeers)) {
+                if (id === (peer ? peer.id : null)) continue;
+                const h = hashStr(id);
+                const angle = (h % 360) * (Math.PI / 180);
+                const dist = 30 + (h % (radius - 50));
+                const x = cx + Math.cos(angle) * dist;
+                const y = cy + Math.sin(angle) * dist;
+                
+                radarBlips.push({ id, x, y, alias: data.alias, color: data.color });
+                ctx.fillStyle = data.color || '#39ff14';
+                ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                ctx.fillText(data.alias || 'Guest', x + 8, y + 4);
+            }
+        } catch(e) {
+            console.error("Radar Error:", e);
         }
-    }, 800);
+    }
+    requestAnimationFrame(drawRadar);
 }
+
+function handleWhisper(data) {
+    if (whisperModal.classList.contains('hidden') || whisperTarget !== data.fromId) {
+        openWhisper(data.fromId, data.fromAlias, data.fromColor);
+    }
+    const div = document.createElement('div');
+    div.className = 'whisper-message other';
+    div.style.borderLeftColor = data.fromColor;
+    div.innerText = `${data.fromAlias}: ${data.msg}`;
+    whisperMessages.appendChild(div);
+    whisperMessages.scrollTop = whisperMessages.scrollHeight;
+}
+
+function startBurnCountdown(seconds) {
+    if (burnTimerInterval) clearInterval(burnTimerInterval);
+    burnOverlay.classList.add('active');
+    
+    let left = seconds;
+    burnCountdown.innerText = left.toFixed(2);
+    
+    const start = Date.now();
+    const target = start + (seconds * 1000);
+    
+    burnTimerInterval = setInterval(() => {
+        const now = Date.now();
+        let remaining = (target - now) / 1000;
+        if (remaining <= 0) {
+            remaining = 0;
+            clearInterval(burnTimerInterval);
+            triggerBurnSequence();
+        }
+        burnCountdown.innerText = remaining.toFixed(2);
+    }, 50);
+}
+
+// Modify triggerBurnSequence to be more aggressive
+function triggerBurnSequence() {
+    vfs = new VirtualFileSystem();
+    if (typeof localforage !== 'undefined') localforage.clear();
+    connections.forEach(conn => conn.close());
+    connections = [];
+    document.body.innerHTML = '<div style="background:#000; color:#f00; height:100vh; width:100vw; display:flex; justify-content:center; align-items:center; flex-direction:column;"><h1 style="font-size:10vw; margin:0; text-shadow: 0 0 50px #f00;">NETWORK DESTROYED</h1><p>All traces wiped from memory.</p></div>';
+}
+
+
 
 // --- VIRTUAL FILE SYSTEM ---
 async function saveVFSToDB() {
@@ -290,13 +441,14 @@ class VirtualFileSystem {
     
     getTree(unlockedSet = new Set()) {
         function clone(node) {
+            if (node.isHidden && !showDeadDrops) return null;
             const isUnlocked = unlockedSet.has(node.id);
-            const n = { id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, isLocked: !!node.password, isUnlocked };
+            const n = { id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, isLocked: !!node.password, isUnlocked, isHidden: node.isHidden };
             if (node.children) {
                 if (node.password && !isUnlocked) {
                     n.children = []; // Hide contents
                 } else {
-                    n.children = node.children.map(clone);
+                    n.children = node.children.map(clone).filter(x => x !== null);
                 }
             }
             return n;
@@ -395,6 +547,7 @@ async function initHost() {
 
     peer.on('connection', (conn) => {
         connections.push(conn);
+        broadcastPeers();
         conn.isAuthenticated = !hostPassword;
         conn.unlockedFolders = new Set();
         
@@ -512,6 +665,7 @@ async function initHost() {
         
         conn.on('close', () => {
             connections = connections.filter(c => c !== conn);
+            broadcastPeers();
         });
     });
 
@@ -523,6 +677,18 @@ async function initHost() {
             document.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
         }
     });
+}
+
+
+function broadcastPeers() {
+    if (!isHost) return;
+    const peers = connections.filter(c => c.open && c.alias).map(c => ({ id: c.peer, alias: c.alias, color: c.color }));
+    connections.forEach(c => {
+        if (c.open) c.send({ type: 'PEER_LIST', peers });
+    });
+    // Update host's own list
+    activePeers = {};
+    peers.forEach(p => activePeers[p.id] = p);
 }
 
 function broadcastTree() {
@@ -566,8 +732,13 @@ function setupHostActions() {
     btnUploadFolder.addEventListener('click', () => folderInput.click());
     
     btnBurn.addEventListener('click', () => {
-        if (confirm("WARNING: This will instantly destroy the server and wipe all files. Are you sure?")) {
-            triggerBurnSequence();
+        const time = prompt("SET BURN TIMER (seconds) or 0 for instant:", "10");
+        if (time !== null && !isNaN(time)) {
+            const seconds = parseInt(time, 10);
+            startBurnCountdown(seconds);
+            Object.values(connections).forEach(c => {
+                if (c.open) c.send({ type: 'BURN_NOTICE', seconds: seconds });
+            });
         }
     });
     
@@ -667,6 +838,30 @@ function moveNode(nodeId, targetFolderId, autoRender = true) {
     }
     return true;
 }
+
+
+    // Konami code for dead drops
+    [hostSearch, document.getElementById('client-search')].forEach(input => {
+        if (!input) return;
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (input.value.trim().toLowerCase() === '/deaddrop') {
+                    showDeadDrops = !showDeadDrops;
+                    input.value = '';
+                    if (isHost) {
+                        renderHostExplorer();
+                        broadcastTree();
+                    } else {
+                        renderClientExplorer(window.lastTree);
+                    }
+                    
+                    // Glitch effect
+                    document.body.style.animation = 'glitch-anim 0.2s';
+                    setTimeout(() => document.body.style.animation = '', 200);
+                }
+            }
+        });
+    });
 
 function renderHostExplorer() {
     renderBreadcrumbs(vfs.currentDir, hostBreadcrumbs, (node) => {
@@ -986,10 +1181,19 @@ function initClient() {
         }
     });
     
-    btnClosePreview.addEventListener('click', () => {
+    
+if (btnCloseMedia) {
+    btnCloseMedia.addEventListener('click', () => {
+        mediaModal.classList.add('hidden');
+        mediaContainer.innerHTML = ''; // Stop playback
+    });
+}
+
+btnClosePreview.addEventListener('click', () => {
         previewModal.classList.add('hidden');
         btnDownloadDirect.classList.add('hidden');
         btnDownloadDirect.style.display = "none";
+        if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
         btnRequestFile.classList.remove("hidden");
         document.getElementById("preview-loader-container").classList.add("hidden");
         document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
@@ -1057,6 +1261,7 @@ function renderClientExplorer() {
                 
                 btnDownloadDirect.classList.add('hidden');
                 btnDownloadDirect.style.display = "none";
+        if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
                 btnRequestFile.classList.remove("hidden");
                 document.getElementById("preview-loader-container").classList.add("hidden");
                 document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
@@ -1069,41 +1274,46 @@ function renderClientExplorer() {
     });
 }
 
+
 async function triggerDownload(fileData, name, mime) {
     if (name === 'local-cast-backup.zip') {
-        // Handle Download All
         clientDownloading.classList.add('hidden');
-        const blob = fileData;
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(fileData);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
+        a.href = url; a.download = name; document.body.appendChild(a); a.click();
         setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
     } else {
-        // Handle Single File Preview Download
-        const url = URL.createObjectURL(fileData); // fileData is already a Blob from chunks
+        const url = URL.createObjectURL(fileData);
         const loaderContainer = document.getElementById('preview-loader-container');
         if (loaderContainer) loaderContainer.classList.add('hidden');
-        btnDownloadDirect.href = url;
-        btnDownloadDirect.download = name;
-        btnDownloadDirect.classList.remove('hidden');
-        btnDownloadDirect.style.display = 'block';
         
-        const previewIconContainer = document.getElementById('preview-icon');
-        if (mime.startsWith('image/')) {
-            previewIconContainer.innerHTML = `<img src="${url}" style="max-width: 100%; max-height: 250px; border-radius: 8px;">`;
-        } else if (mime.startsWith('text/') || mime === '' || name.endsWith('.md')) {
-            const text = await fileData.text();
-            previewIconContainer.innerHTML = `<div style="max-width: 100%; max-height: 250px; overflow: auto; background: var(--bg-main); padding: 1rem; border-radius: 8px; font-family: var(--font-mono); font-size: 0.8rem; text-align: left; color: var(--text-main); white-space: pre-wrap; word-break: break-word;">${text.replace(/</g, '&lt;')}</div>`;
-        } else if (mime.startsWith('video/')) {
-            previewIconContainer.innerHTML = `<video src="${url}" controls style="max-width: 100%; max-height: 250px; border-radius: 8px;"></video>`;
-        } else if (mime.startsWith('audio/')) {
-            previewIconContainer.innerHTML = `<audio src="${url}" controls style="width: 100%;"></audio>`;
+        const isMedia = mime && (mime.startsWith('video/') || mime.startsWith('audio/'));
+        
+        if (isMedia) {
+            btnDownloadDirect.classList.add('hidden');
+            btnDownloadDirect.style.display = "none";
+            btnStreamDirect.classList.remove('hidden');
+            btnStreamDirect.style.display = "block";
+            btnStreamDirect.onclick = () => {
+                previewModal.classList.add('hidden');
+                mediaModal.classList.remove('hidden');
+                mediaTitle.innerText = name;
+                mediaContainer.innerHTML = '';
+                if (mime.startsWith('video/')) {
+                    mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
+                } else {
+                    mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+                }
+            };
+        } else {
+            btnDownloadDirect.href = url;
+            btnDownloadDirect.download = name;
+            btnDownloadDirect.classList.remove('hidden');
+            btnDownloadDirect.style.display = "block";
         }
     }
 }
+
 
 // --- UTILS ---
 async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, typeStr) {
@@ -1259,6 +1469,21 @@ ctxDelete.addEventListener('click', () => {
         broadcastTree();
     }
 });
+
+
+const ctxDeaddrop = document.getElementById('ctx-deaddrop');
+if (ctxDeaddrop) {
+    ctxDeaddrop.addEventListener('click', () => {
+        const node = selectedNodes.values().next().value;
+        if (node) {
+            node.isHidden = !node.isHidden;
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
+        }
+        hideContextMenu();
+    });
+}
 
 ctxRename.addEventListener('click', () => {
     if (!contextTargetId) return;
