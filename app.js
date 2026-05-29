@@ -560,7 +560,16 @@ async function initHost() {
                 } else {
                     conn.send({ type: 'AUTH_FAIL' });
                 }
-            } else if (data.type === 'CHAT_MSG' && conn.isAuthenticated) {
+                        } else if (data.type === 'WHISPER_RELAY' && conn.isAuthenticated) {
+                if (data.targetId === (peer ? peer.id : null)) {
+                    handleWhisper(data);
+                } else {
+                    const target = connections.find(c => c.peer === data.targetId);
+                    if (target && target.open) {
+                        target.send({ type: 'WHISPER', fromId: data.fromId, fromAlias: data.fromAlias, fromColor: data.fromColor, msg: data.msg });
+                    }
+                }
+} else if (data.type === 'CHAT_MSG' && conn.isAuthenticated) {
                 const sName = conn.profile ? conn.profile.name : (data.sender || 'Guest');
                 const sColor = conn.profile ? conn.profile.color : (data.color || 'var(--neon-blue)');
                 appendChatMessage(sName, data.text, 'other', sColor);
@@ -1134,7 +1143,12 @@ function initClient() {
                     scratchpadTextarea.value = data.text;
                     scratchpadTextarea.setSelectionRange(start, end);
                 }
-            } else if (data.type === 'CHAT_MSG') {
+                        } else if (data.type === 'PEER_LIST') {
+                activePeers = {};
+                data.peers.forEach(p => activePeers[p.id] = p);
+            } else if (data.type === 'WHISPER') {
+                handleWhisper(data);
+} else if (data.type === 'CHAT_MSG') {
                 appendChatMessage(data.sender, data.text, data.sender === 'System' ? 'system' : 'other', data.color);
             } else if (data.type === 'FILE_ADDED_TOAST') {
                 showToast(`New file: ${data.filename}`);
