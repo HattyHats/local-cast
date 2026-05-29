@@ -609,6 +609,7 @@ async function initHost() {
                 conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
             } else if (data.type === 'PROFILE_UPDATE' && conn.isAuthenticated) {
                 conn.profile = { name: data.name, color: data.color };
+                broadcastPeers();
                 appendChatMessage('System', `${data.name} joined the network`, 'system', 'var(--text-muted)');
                 Object.values(connections).forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated) {
@@ -682,7 +683,7 @@ async function initHost() {
 
 function broadcastPeers() {
     if (!isHost) return;
-    const peers = connections.filter(c => c.open && c.alias).map(c => ({ id: c.peer, alias: c.alias, color: c.color }));
+    const peers = connections.filter(c => c.open && c.profile).map(c => ({ id: c.peer, alias: c.profile.name, color: c.profile.color }));
     connections.forEach(c => {
         if (c.open) c.send({ type: 'PEER_LIST', peers });
     });
@@ -1474,7 +1475,8 @@ ctxDelete.addEventListener('click', () => {
 const ctxDeaddrop = document.getElementById('ctx-deaddrop');
 if (ctxDeaddrop) {
     ctxDeaddrop.addEventListener('click', () => {
-        const node = selectedNodes.values().next().value;
+        if (!contextTargetId) return;
+        const node = vfs.findNode(contextTargetId);
         if (node) {
             node.isHidden = !node.isHidden;
             saveVFSToDB();
