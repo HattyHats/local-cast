@@ -1,7 +1,7 @@
 window.onerror = function(msg, src, lineno, colno, error) {
     fetch('/log_error?msg=' + encodeURIComponent(msg + ' at ' + lineno + ':' + colno));
 };
-const CACHE_NAME = 'localcast-v47';
+const CACHE_NAME = 'localcast-v48';
 const ASSETS = [
     './',
     './index.html',
