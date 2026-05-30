@@ -536,6 +536,20 @@ async function initHost() {
     });
 
     peer = new Peer({ debug: 2 });
+    peer.on('call', async (call) => {
+        if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
+        try {
+            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            call.answer(localMediaStream);
+            currentCall = call;
+            openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
+            setupCallHandlers(call);
+        } catch (e) {
+            console.error("Failed to answer call:", e);
+            call.close();
+        }
+    });
+
     peer.on('open', (id) => {
         updateStatus('HOST ACTIVE', 'online');
         const connectUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
@@ -628,12 +642,21 @@ async function initHost() {
                 });
             } else if (data.type === 'FOLDER_AUTH_ATTEMPT' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.folderId);
-                if (node && node.type === 'folder' && node.password === data.password) {
-                    conn.unlockedFolders.add(node.id);
-                    conn.send({ type: 'FOLDER_AUTH_SUCCESS', folderId: node.id });
-                    conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders) });
-                } else {
-                    conn.send({ type: 'FOLDER_AUTH_FAIL' });
+                if (node && node.type === 'folder') {
+                    if (node.password === data.password && !node.isHoneyPot) {
+                        conn.unlockedFolders.add(node.id);
+                        conn.send({ type: 'FOLDER_AUTH_SUCCESS', folderId: node.id });
+                        conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                    } else {
+                        conn.send({ type: 'FOLDER_AUTH_FAIL', folderId: data.folderId });
+                        if (node.isHoneyPot) {
+                            conn.honeyPotStrikes = (conn.honeyPotStrikes || 0) + 1;
+                            if (conn.honeyPotStrikes >= 3) {
+                                conn.send({ type: 'HONEYPOT_LOCKDOWN' });
+                                setTimeout(() => conn.close(), 500);
+                            }
+                        }
+                    }
                 }
             } else if (data.type === 'REQUEST_FILE' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.id);
@@ -899,6 +922,10 @@ function renderHostExplorer() {
         item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>`;
         item.draggable = true;
         
+        if (child.isHoneyPot) {
+            item.style.borderColor = '#ff00ff';
+            item.style.boxShadow = '0 0 10px #ff00ff';
+        }
         if (child.isHidden) {
             item.style.opacity = '0.5';
             item.style.boxShadow = '0 0 10px var(--neon-purple)';
@@ -1048,6 +1075,20 @@ function initClient() {
     updateStatus('CONNECTING...', 'offline');
     
     peer = new Peer({ debug: 2 });
+    peer.on('call', async (call) => {
+        if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
+        try {
+            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            call.answer(localMediaStream);
+            currentCall = call;
+            openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
+            setupCallHandlers(call);
+        } catch (e) {
+            console.error("Failed to answer call:", e);
+            call.close();
+        }
+    });
+
     peer.on('open', () => {
         hostConnection = peer.connect(roomCode, { reliable: true });
         
@@ -1161,7 +1202,9 @@ function initClient() {
                 // The updated TREE will arrive next and we can navigate in
             } else if (data.type === 'FOLDER_AUTH_FAIL') {
                 folderPasswordError.classList.remove('hidden');
-            } else if (data.type === 'SERVER_BURNED') {
+                        } else if (data.type === 'HONEYPOT_LOCKDOWN') {
+                document.getElementById('lockdown-overlay').classList.remove('hidden');
+} else if (data.type === 'SERVER_BURNED') {
                 triggerBurnSequence();
             }
         });
@@ -1831,3 +1874,154 @@ if (btnCloseInfo) {
         infoModal.classList.add('hidden');
     });
 }
+
+// --- THEMING ENGINE ---
+const themes = {
+    synthwave: {
+        '--bg-dark': '#050507',
+        '--bg-card': '#0a0b10',
+        '--bg-card-hover': '#101218',
+        '--neon-blue': '#00f0ff',
+        '--neon-green': '#39ff14',
+        '--neon-red': '#ff003c',
+        '--border-glow': 'rgba(0, 240, 255, 0.2)'
+    },
+    matrix: {
+        '--bg-dark': '#000000',
+        '--bg-card': '#001100',
+        '--bg-card-hover': '#002200',
+        '--neon-blue': '#39ff14',
+        '--neon-green': '#39ff14',
+        '--neon-red': '#39ff14',
+        '--border-glow': 'rgba(57, 255, 20, 0.2)'
+    },
+    nightcity: {
+        '--bg-dark': '#0f0f1a',
+        '--bg-card': '#1a0b1c',
+        '--bg-card-hover': '#2a112c',
+        '--neon-blue': '#fce205', // Yellow
+        '--neon-green': '#00f0ff',
+        '--neon-red': '#ff00ff', // Pink
+        '--border-glow': 'rgba(255, 0, 255, 0.2)'
+    },
+    bloodmoon: {
+        '--bg-dark': '#050000',
+        '--bg-card': '#1a0000',
+        '--bg-card-hover': '#330000',
+        '--neon-blue': '#ff003c',
+        '--neon-green': '#ff003c',
+        '--neon-red': '#ff003c',
+        '--border-glow': 'rgba(255, 0, 60, 0.2)'
+    }
+};
+
+function applyTheme(themeName) {
+    const theme = themes[themeName];
+    if (!theme) return;
+    for (const [key, value] of Object.entries(theme)) {
+        document.documentElement.style.setProperty(key, value);
+    }
+    localStorage.setItem('localcast_theme', themeName);
+}
+
+const savedTheme = localStorage.getItem('localcast_theme') || 'synthwave';
+applyTheme(savedTheme);
+
+const btnThemeToggle = document.getElementById('btn-theme-toggle');
+const themeModal = document.getElementById('theme-modal');
+const btnCloseTheme = document.getElementById('btn-close-theme');
+
+if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', () => {
+        themeModal.classList.remove('hidden');
+    });
+}
+if (btnCloseTheme) {
+    btnCloseTheme.addEventListener('click', () => {
+        themeModal.classList.add('hidden');
+    });
+}
+document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        applyTheme(e.target.dataset.theme);
+        themeModal.classList.add('hidden');
+    });
+});
+
+const ctxHoneypot = document.getElementById('ctx-honeypot');
+if (ctxHoneypot) {
+    ctxHoneypot.addEventListener('click', () => {
+        if (!contextTargetId) return;
+        const node = vfs.findNode(contextTargetId);
+        if (node && node.type === 'folder') {
+            node.isHoneyPot = !node.isHoneyPot;
+            if (node.isHoneyPot && !node.password) {
+                const trapPwd = prompt("Enter the bait password for this Honey-Pot:");
+                if (trapPwd) {
+                    node.password = trapPwd;
+                } else {
+                    node.isHoneyPot = false; // Cancel if no password provided
+                }
+            } else if (!node.isHoneyPot) {
+                node.password = null; // Clear password if honeypot is turned off (optional)
+            }
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree(); // We must broadcast tree so the password icon updates!
+        }
+        hideContextMenu();
+    });
+}
+
+// --- COMM-LINK LOGIC ---
+const btnStartCall = document.getElementById('btn-start-call');
+const btnEndCall = document.getElementById('btn-end-call');
+const activeCallBanner = document.getElementById('active-call-banner');
+const commLinkAudio = document.getElementById('comm-link-audio');
+
+let currentCall = null;
+let localMediaStream = null;
+
+async function startCommLink() {
+    try {
+        localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        currentCall = peer.call(whisperTarget, localMediaStream);
+        setupCallHandlers(currentCall);
+    } catch (e) {
+        alert("Microphone access denied.");
+    }
+}
+
+function setupCallHandlers(call) {
+    activeCallBanner.classList.remove('hidden');
+    
+    call.on('stream', (remoteStream) => {
+        commLinkAudio.srcObject = remoteStream;
+    });
+    
+    call.on('close', () => {
+        endCommLink();
+    });
+}
+
+function endCommLink() {
+    if (currentCall) {
+        currentCall.close();
+        currentCall = null;
+    }
+    if (localMediaStream) {
+        localMediaStream.getTracks().forEach(t => t.stop());
+        localMediaStream = null;
+    }
+    commLinkAudio.srcObject = null;
+    if (activeCallBanner) activeCallBanner.classList.add('hidden');
+}
+
+if (btnStartCall) {
+    btnStartCall.addEventListener('click', startCommLink);
+}
+if (btnEndCall) {
+    btnEndCall.addEventListener('click', endCommLink);
+}
+
+
