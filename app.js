@@ -859,11 +859,13 @@ function moveNode(nodeId, targetFolderId, autoRender = true) {
                 if (input.value.trim().toLowerCase() === '/deaddrop') {
                     showDeadDrops = !showDeadDrops;
                     input.value = '';
+                    hostSearchQuery = '';
+                    clientSearchQuery = '';
                     if (isHost) {
                         renderHostExplorer();
                         broadcastTree();
                     } else {
-                        renderClientExplorer(window.lastTree);
+                        renderClientExplorer();
                     }
                     
                     // Glitch effect
