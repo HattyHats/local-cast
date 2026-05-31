@@ -1018,6 +1018,22 @@ function renderHostExplorer() {
                     editorModal.classList.remove('hidden');
                 }
             });
+        } else if (child.type === 'file' && child.mime && (child.mime.startsWith('image/') || child.mime.startsWith('video/') || child.mime.startsWith('audio/'))) {
+            item.addEventListener('dblclick', () => {
+                if (child.fileObj) {
+                    const url = URL.createObjectURL(child.fileObj);
+                    mediaModal.classList.remove('hidden');
+                    mediaTitle.innerText = child.name;
+                    mediaContainer.innerHTML = '';
+                    if (child.mime.startsWith('video/')) {
+                        mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
+                    } else if (child.mime.startsWith('audio/')) {
+                        mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+                    } else {
+                        mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
+                    }
+                }
+            });
         }
         
         hostExplorerGrid.appendChild(item);
@@ -1358,7 +1374,11 @@ async function triggerDownload(fileData, name, mime) {
         const loaderContainer = document.getElementById('preview-loader-container');
         if (loaderContainer) loaderContainer.classList.add('hidden');
         
-        const isMedia = mime && (mime.startsWith('video/') || mime.startsWith('audio/'));
+        const lowerName = name.toLowerCase();
+        const isMedia = (mime && (mime.startsWith('video/') || mime.startsWith('audio/') || mime.startsWith('image/'))) || 
+                        lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') ||
+                        lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') ||
+                        lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.gif');
         
         if (isMedia) {
             btnDownloadDirect.classList.add('hidden');
@@ -1370,10 +1390,12 @@ async function triggerDownload(fileData, name, mime) {
                 mediaModal.classList.remove('hidden');
                 mediaTitle.innerText = name;
                 mediaContainer.innerHTML = '';
-                if (mime.startsWith('video/')) {
+                if ((mime && mime.startsWith('video/')) || lowerName.endsWith('.mp4') || lowerName.endsWith('.webm')) {
                     mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
-                } else {
+                } else if ((mime && mime.startsWith('audio/')) || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav')) {
                     mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+                } else {
+                    mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
                 }
             };
         } else {
@@ -1510,10 +1532,17 @@ if (ctxOpen) {
         const node = vfs.findNode(contextTargetId);
         if (node && node.type === 'file') {
             if (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) {
-                activePreviewFileId = node.id;
-                previewFilename.textContent = node.name;
-                previewMeta.textContent = `${(node.size / 1024 / 1024).toFixed(2)} MB  •  ${node.mime}`;
-                previewModal.classList.remove('hidden');
+                const url = URL.createObjectURL(node.fileObj);
+                mediaModal.classList.remove('hidden');
+                mediaTitle.innerText = node.name;
+                mediaContainer.innerHTML = '';
+                if (node.mime.startsWith('video/')) {
+                    mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
+                } else if (node.mime.startsWith('audio/')) {
+                    mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+                } else {
+                    mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
+                }
             } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
                 if (node.fileObj) {
                     const text = await node.fileObj.text();
