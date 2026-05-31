@@ -643,7 +643,7 @@ async function initHost() {
             } else if (data.type === 'FOLDER_AUTH_ATTEMPT' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.folderId);
                 if (node && node.type === 'folder') {
-                    if (node.password === data.password && !node.isHoneyPot) {
+                    if (node.password === data.password) {
                         conn.unlockedFolders.add(node.id);
                         conn.send({ type: 'FOLDER_AUTH_SUCCESS', folderId: node.id });
                         conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
