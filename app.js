@@ -135,6 +135,7 @@ const mediaModal = document.getElementById('media-modal');
 const btnCloseMedia = document.getElementById('btn-close-media');
 const mediaTitle = document.getElementById('media-title');
 const mediaContainer = document.getElementById('media-container');
+const btnDownloadMedia = document.getElementById('btn-download-media');
 
 const btnClosePreview = document.getElementById('btn-close-preview');
 const previewFilename = document.getElementById('preview-filename');
@@ -1025,6 +1026,11 @@ function renderHostExplorer() {
                     mediaModal.classList.remove('hidden');
                     mediaTitle.innerText = child.name;
                     mediaContainer.innerHTML = '';
+                    if (btnDownloadMedia) {
+                        btnDownloadMedia.href = url;
+                        btnDownloadMedia.download = child.name;
+                        btnDownloadMedia.style.display = "block";
+                    }
                     if (child.mime.startsWith('video/')) {
                         mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
                     } else if (child.mime.startsWith('audio/')) {
@@ -1390,6 +1396,11 @@ async function triggerDownload(fileData, name, mime) {
                 mediaModal.classList.remove('hidden');
                 mediaTitle.innerText = name;
                 mediaContainer.innerHTML = '';
+                if (btnDownloadMedia) {
+                    btnDownloadMedia.href = url;
+                    btnDownloadMedia.download = name;
+                    btnDownloadMedia.style.display = "block";
+                }
                 if ((mime && mime.startsWith('video/')) || lowerName.endsWith('.mp4') || lowerName.endsWith('.webm')) {
                     mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
                 } else if ((mime && mime.startsWith('audio/')) || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav')) {
@@ -1536,6 +1547,11 @@ if (ctxOpen) {
                 mediaModal.classList.remove('hidden');
                 mediaTitle.innerText = node.name;
                 mediaContainer.innerHTML = '';
+                if (btnDownloadMedia) {
+                    btnDownloadMedia.href = url;
+                    btnDownloadMedia.download = node.name;
+                    btnDownloadMedia.style.display = "block";
+                }
                 if (node.mime.startsWith('video/')) {
                     mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
                 } else if (node.mime.startsWith('audio/')) {
