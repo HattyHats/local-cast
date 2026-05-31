@@ -349,7 +349,12 @@ window.onerror = function(msg, src, lineno, colno, error) {
                     <li style="margin-bottom: 0.8rem;"><strong style="color: #ff0;">P2P Media Streaming:</strong> Double-click media files (audio/video/images) to stream them instantly over the P2P connection without having to fully download them first.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-red">Burn Notice:</strong> The "Destroy Network" button obliterates all active connections, wipes all session data, and permanently shreds the encrypted local storage filesystem, leaving zero trace.</li>
                 </ul>
-                <p style="margin-top: 1rem;">To invite guests, they just need to scan your QR code or navigate to the connection URL. Stay secure.</p>
+
+                <h3 style="color: #fff; margin-top: 1.5rem;">Security & Privacy Transparency</h3>
+                <p style="margin-bottom: 0.8rem;"><strong>Is the connection secure?</strong><br>Yes. WebRTC mandates End-to-End Encryption (E2EE) using DTLS and SRTP protocols. No middleman (not even our signaling server) can intercept, read, or listen to your files or audio calls. The browser sandbox also prevents the app from accessing your hard drive or OS.</p>
+                <p style="margin-bottom: 0.8rem;"><strong>Can this be used with strangers?</strong><br>Yes, BUT it is <strong>NOT anonymous</strong>. Because this is a Peer-to-Peer network, the browsers must exchange IP addresses to connect. Anyone you connect with can see your public IP address using basic networking tools. If you need to stay completely anonymous, all parties must use a VPN before connecting.</p>
+                
+                <p style="margin-top: 1.5rem; font-style: italic;">To invite guests, they just need to scan your QR code or navigate to the connection URL. Stay secure.</p>
             </div>
             <div class="modal-actions" style="margin-top: 1.5rem;">
                 <button class="btn" id="btn-close-info" style="width: 100%;">UNDERSTOOD</button>
