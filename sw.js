@@ -1,7 +1,4 @@
-window.onerror = function(msg, src, lineno, colno, error) {
-    fetch('/log_error?msg=' + encodeURIComponent(msg + ' at ' + lineno + ':' + colno));
-};
-const CACHE_NAME = 'localcast-v49';
+const CACHE_NAME = 'localcast-v50';
 const ASSETS = [
     './',
     './index.html',
@@ -15,6 +12,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
+    self.skipWaiting();
     e.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             return cache.addAll(ASSETS);
@@ -38,6 +36,6 @@ self.addEventListener('activate', (e) => {
                     return caches.delete(key);
                 }
             }));
-        })
+        }).then(() => self.clients.claim())
     );
 });
