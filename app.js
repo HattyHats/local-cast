@@ -1275,6 +1275,8 @@ function initClient() {
     });
     
     
+}
+
 if (btnCloseMedia) {
     btnCloseMedia.addEventListener('click', () => {
         mediaModal.classList.add('hidden');
@@ -1283,27 +1285,26 @@ if (btnCloseMedia) {
 }
 
 btnClosePreview.addEventListener('click', () => {
-        previewModal.classList.add('hidden');
-        btnDownloadDirect.classList.add('hidden');
-        btnDownloadDirect.style.display = "none";
-        if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
-        btnRequestFile.classList.remove("hidden");
-        document.getElementById("preview-loader-container").classList.add("hidden");
-        document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
-        if (btnDownloadDirect.href) {
-            URL.revokeObjectURL(btnDownloadDirect.href);
-            btnDownloadDirect.href = '';
-        }
-    });
-    
-    btnRequestFile.addEventListener('click', () => {
-        if (activePreviewFileId && hostConnection && hostConnection.open) {
-            btnRequestFile.classList.add("hidden");
-            document.getElementById("preview-loader-container").classList.remove("hidden");
-            hostConnection.send({ type: 'REQUEST_FILE', id: activePreviewFileId });
-        }
-    });
-}
+    previewModal.classList.add('hidden');
+    btnDownloadDirect.classList.add('hidden');
+    btnDownloadDirect.style.display = "none";
+    if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
+    btnRequestFile.classList.remove("hidden");
+    document.getElementById("preview-loader-container").classList.add("hidden");
+    document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+    if (btnDownloadDirect.href) {
+        URL.revokeObjectURL(btnDownloadDirect.href);
+        btnDownloadDirect.href = '';
+    }
+});
+
+btnRequestFile.addEventListener('click', () => {
+    if (activePreviewFileId && hostConnection && hostConnection.open) {
+        btnRequestFile.classList.add("hidden");
+        document.getElementById("preview-loader-container").classList.remove("hidden");
+        hostConnection.send({ type: 'REQUEST_FILE', id: activePreviewFileId });
+    }
+});
 
 function renderClientExplorer() {
     if (!clientCurrentDir) return;
