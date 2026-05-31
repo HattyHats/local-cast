@@ -24,6 +24,8 @@ const contextMenu = document.getElementById('context-menu');
 const ctxRename = document.getElementById('ctx-rename');
 const ctxDelete = document.getElementById('ctx-delete');
 const ctxLock = document.getElementById('ctx-lock');
+const ctxOpen = document.getElementById('ctx-open');
+const ctxDownload = document.getElementById('ctx-download');
 const folderPasswordModal = document.getElementById('folder-password-modal');
 const folderPasswordInput = document.getElementById('folder-password-input');
 const btnSubmitFolderPassword = document.getElementById('btn-submit-folder-password');
@@ -572,6 +574,7 @@ async function initHost() {
                     conn.isAuthenticated = true;
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                    if (toggleGuestUploads) conn.send({ type: 'GUEST_UPLOAD_ENABLED', enabled: toggleGuestUploads.checked });
                 } else {
                     conn.send({ type: 'AUTH_FAIL' });
                 }
@@ -694,6 +697,7 @@ async function initHost() {
                 conn.send({ type: 'AUTH_REQUIRED' });
             } else {
                 conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                if (toggleGuestUploads) conn.send({ type: 'GUEST_UPLOAD_ENABLED', enabled: toggleGuestUploads.checked });
             }
         });
         
@@ -1499,6 +1503,50 @@ btnSaveNote.addEventListener('click', async () => {
 document.addEventListener('click', (e) => {
     if (!e.target.closest('.context-menu')) contextMenu.classList.add('hidden');
 });
+
+if (ctxOpen) {
+    ctxOpen.addEventListener('click', async () => {
+        if (!contextTargetId) return;
+        const node = vfs.findNode(contextTargetId);
+        if (node && node.type === 'file') {
+            if (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) {
+                activePreviewFileId = node.id;
+                previewFilename.textContent = node.name;
+                previewMeta.textContent = `${(node.size / 1024 / 1024).toFixed(2)} MB  •  ${node.mime}`;
+                previewModal.classList.remove('hidden');
+            } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
+                if (node.fileObj) {
+                    const text = await node.fileObj.text();
+                    editorFilename.value = node.name;
+                    editorTextarea.value = text;
+                    editorModal.classList.remove('hidden');
+                }
+            } else {
+                alert("Cannot preview this file type.");
+            }
+        } else if (node && node.type === 'folder') {
+            // For folders on mobile, open acts like double click
+            vfs.currentDir = node;
+            renderHostExplorer();
+        }
+        contextTargetId = null;
+        contextMenu.classList.add('hidden');
+    });
+}
+
+if (ctxDownload) {
+    ctxDownload.addEventListener('click', () => {
+        if (!contextTargetId) return;
+        const node = vfs.findNode(contextTargetId);
+        if (node && node.type === 'file' && node.fileObj) {
+            triggerDownload(node.fileObj, node.name, node.mime);
+        } else if (node && node.type === 'folder') {
+            alert("Folder download via context menu not implemented. Use 'Download Backup' for now.");
+        }
+        contextTargetId = null;
+        contextMenu.classList.add('hidden');
+    });
+}
 
 
 ctxLock.addEventListener('click', () => {
