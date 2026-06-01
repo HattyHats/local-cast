@@ -2335,6 +2335,20 @@ document.querySelectorAll('.bg-btn').forEach(btn => {
 });
 
 
+if (ctxMagicLink) {
+    ctxMagicLink.addEventListener('click', () => {
+        if (!contextTargetId || !peer || !peer.id) return;
+        const baseUrl = window.location.origin + window.location.pathname;
+        const magicUrl = `${baseUrl}?peer=${peer.id}&file=${contextTargetId}`;
+        navigator.clipboard.writeText(magicUrl).then(() => {
+            showToast("Magic Link copied to clipboard!");
+        }).catch(err => {
+            prompt("Copy this Magic Link:", magicUrl);
+        });
+        hideContextMenu();
+    });
+}
+
 const ctxHoneypot = document.getElementById('ctx-honeypot');
 if (ctxHoneypot) {
     ctxHoneypot.addEventListener('click', () => {
