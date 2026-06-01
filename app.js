@@ -723,7 +723,7 @@ async function initMagicPeer(targetPeerId, targetFileId) {
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
                 magicStatus.textContent = 'Receiving Data...';
                 magicFilename.textContent = data.name;
-                fileTransfer = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime };
+                fileTransfer = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, isEncrypted: data.isEncrypted, salt: data.salt, iv: data.iv };
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
                 if (fileTransfer) {
                     fileTransfer.chunks[data.index] = data.chunk;
@@ -737,15 +737,40 @@ async function initMagicPeer(targetPeerId, targetFileId) {
                         magicStatus.textContent = 'Download Complete!';
                         magicStatus.style.color = 'var(--neon-green)';
                         const fileBlob = new Blob(fileTransfer.chunks, { type: fileTransfer.mime });
-                        const a = document.createElement('a');
-                        a.href = URL.createObjectURL(fileBlob);
-                        a.download = fileTransfer.name;
-                        a.click();
                         
-                        setTimeout(() => {
-                            conn.send({ type: 'UPLOAD_COMPLETE' });
-                            setTimeout(() => { conn.close(); }, 500);
-                        }, 1000);
+                        const finalizeMagic = (blobToSave) => {
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blobToSave);
+                            a.download = fileTransfer.name;
+                            a.click();
+                            
+                            setTimeout(() => {
+                                conn.send({ type: 'UPLOAD_COMPLETE' });
+                                setTimeout(() => { conn.close(); }, 500);
+                            }, 1000);
+                        };
+                        
+                        if (fileTransfer.isEncrypted) {
+                            const pwd = prompt("This file is encrypted. Enter Vault Password:");
+                            if (!pwd) {
+                                magicStatus.textContent = 'Decryption cancelled.';
+                                magicStatus.style.color = 'var(--neon-red)';
+                                return;
+                            }
+                            (async () => {
+                                try {
+                                    const buffer = await fileBlob.arrayBuffer();
+                                    const decryptedBuffer = await decryptFile(buffer, pwd, fileTransfer.salt, fileTransfer.iv);
+                                    const decryptedBlob = new Blob([decryptedBuffer], { type: fileTransfer.mime });
+                                    finalizeMagic(decryptedBlob);
+                                } catch(e) {
+                                    magicStatus.textContent = 'Decryption Failed!';
+                                    magicStatus.style.color = 'var(--neon-red)';
+                                }
+                            })();
+                        } else {
+                            finalizeMagic(fileBlob);
+                        }
                     }
                 }
             }
@@ -837,7 +862,7 @@ async function initHost() {
                     if (node.isLocked || node.password) {
                         conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires a password.' });
                     } else {
-                        sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK');
+                        sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
                     }
                 } else {
                     conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File not found or access denied.' });
@@ -1627,7 +1652,7 @@ function initClient() {
                                         const buffer = await blob.arrayBuffer();
                                         const decryptedBuffer = await decryptFile(buffer, pass, transfer.salt, transfer.iv);
                                         const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
-                                        triggerDownload(decryptedBlob, transfer.name, transfer.mime);
+                                        triggerDownload(decryptedBlob, transfer.name, transfer.mime, data.id);
                                     } catch (e) {
                                         alert("Decryption failed: " + e.message);
                                     }
@@ -1646,7 +1671,7 @@ function initClient() {
                                         const buffer = await blob.arrayBuffer();
                                         const decryptedBuffer = await decryptFile(buffer, manualPass, transfer.salt, transfer.iv);
                                         const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
-                                        triggerDownload(decryptedBlob, transfer.name, transfer.mime);
+                                        triggerDownload(decryptedBlob, transfer.name, transfer.mime, data.id);
                                     } catch (e) {
                                         alert("Decryption failed: " + e.message);
                                     }
@@ -1659,7 +1684,7 @@ function initClient() {
                                 }, { once: true });
                             }
                         } else {
-                            triggerDownload(blob, transfer.name, transfer.mime);
+                            triggerDownload(blob, transfer.name, transfer.mime, data.id);
                         }
                         delete incomingTransfers[data.id];
                     }
@@ -1922,7 +1947,7 @@ function renderClientExplorer() {
 }
 
 
-async function triggerDownload(fileData, name, mime) {
+async function triggerDownload(fileData, name, mime, fileId = null) {
     if (name === 'local-cast-backup.zip') {
         clientDownloading.classList.add('hidden');
         const url = URL.createObjectURL(fileData);
@@ -1939,6 +1964,7 @@ async function triggerDownload(fileData, name, mime) {
                         lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') ||
                         lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') ||
                         lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.gif');
+        const isText = lowerName.endsWith('.txt') || lowerName.endsWith('.md');
         
         if (isMedia) {
             btnDownloadDirect.classList.add('hidden');
@@ -1963,6 +1989,14 @@ async function triggerDownload(fileData, name, mime) {
                     mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
                 }
             };
+        } else if (isText && fileId && activePreviewFileId === fileId) {
+            previewModal.classList.add('hidden');
+            const text = await fileData.text();
+            currentEditorFileId = fileId;
+            editorFilename.value = name;
+            editorTextarea.value = text;
+            editorTextarea.readOnly = !myPermissions.edit;
+            editorModal.classList.remove('hidden');
         } else {
             btnDownloadDirect.href = url;
             btnDownloadDirect.download = name;
@@ -2109,59 +2143,169 @@ document.addEventListener('click', (e) => {
     if (!e.target.closest('.context-menu')) contextMenu.classList.add('hidden');
 });
 
+function findClientNode(node, id) {
+    if (!node) return null;
+    if (node.id === id) return node;
+    if (node.children) {
+        for (let child of node.children) {
+            const found = findClientNode(child, id);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
 if (ctxOpen) {
     ctxOpen.addEventListener('click', async () => {
         if (!contextTargetId) return;
-        const node = vfs.findNode(contextTargetId);
-        if (node && node.type === 'file') {
-            if (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) {
-                const url = URL.createObjectURL(node.fileObj);
-                mediaModal.classList.remove('hidden');
-                mediaTitle.innerText = node.name;
-                mediaContainer.innerHTML = '';
-                if (btnDownloadMedia) {
-                    btnDownloadMedia.href = url;
-                    btnDownloadMedia.download = node.name;
-                    btnDownloadMedia.style.display = "block";
-                }
-                if (node.mime.startsWith('video/')) {
-                    mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
-                } else if (node.mime.startsWith('audio/')) {
-                    mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+        
+        if (isHost) {
+            const node = vfs.findNode(contextTargetId);
+            if (!node) return;
+            if (node.type === 'file') {
+                if (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) {
+                    try {
+                        const decryptedObj = await getDecryptedFileObj(node);
+                        const url = URL.createObjectURL(decryptedObj);
+                        mediaModal.classList.remove('hidden');
+                        mediaTitle.innerText = node.name;
+                        mediaContainer.innerHTML = '';
+                        if (btnDownloadMedia) {
+                            btnDownloadMedia.href = url;
+                            btnDownloadMedia.download = node.name;
+                            btnDownloadMedia.style.display = "block";
+                        }
+                        if (node.mime.startsWith('video/')) {
+                            mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
+                        } else if (node.mime.startsWith('audio/')) {
+                            mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+                        } else {
+                            mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
+                        }
+                    } catch(e) {
+                        alert("Failed to decrypt: " + e.message);
+                    }
+                } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
+                    if (node.fileObj) {
+                        try {
+                            const decryptedObj = await getDecryptedFileObj(node);
+                            const text = await decryptedObj.text();
+                            currentEditorFileId = node.id;
+                            editorFilename.value = node.name;
+                            editorTextarea.value = text;
+                            editorTextarea.readOnly = !myPermissions.edit;
+                            editorModal.classList.remove('hidden');
+                        } catch(e) {
+                            alert("Failed to decrypt: " + e.message);
+                        }
+                    }
                 } else {
-                    mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
+                    alert("Cannot preview this file type.");
                 }
-            } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
-                if (node.fileObj) {
-                    const text = await node.fileObj.text();
-                    currentEditorFileId = node.id;
-                    editorFilename.value = node.name;
-                    editorTextarea.value = text;
-                    editorTextarea.readOnly = !myPermissions.edit; // Set readOnly if no edit permission
-                    editorModal.classList.remove('hidden');
+            } else if (node.type === 'folder') {
+                if (node.isVault && !unlockedVaults[node.id]) {
+                    vaultPasswordModal.classList.remove('hidden');
+                    vaultPasswordInput.value = '';
+                    const handleUnlock = async () => {
+                        const pass = vaultPasswordInput.value;
+                        if (!pass) return alert("Password required");
+                        btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                        unlockedVaults[node.id] = pass;
+                        vfs.currentDir = node;
+                        renderHostExplorer();
+                        broadcastTree();
+                    };
+                    btnConfirmVaultPassword.addEventListener('click', handleUnlock);
+                    btnCloseVaultModal.addEventListener('click', () => {
+                        btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                    }, { once: true });
+                } else {
+                    vfs.currentDir = node;
+                    renderHostExplorer();
                 }
-            } else {
-                alert("Cannot preview this file type.");
             }
-        } else if (node && node.type === 'folder') {
-            // For folders on mobile, open acts like double click
-            vfs.currentDir = node;
-            renderHostExplorer();
+        } else {
+            // Guest Logic
+            const node = findClientNode(clientVFS, contextTargetId);
+            if (!node) return;
+            if (node.type === 'file') {
+                activePreviewFileId = node.id;
+                previewFilename.textContent = node.name;
+                previewMeta.textContent = `${(node.size / 1024 / 1024).toFixed(2)} MB  •  ${node.mime || 'Unknown Type'}`;
+                
+                btnDownloadDirect.classList.add('hidden');
+                btnDownloadDirect.style.display = "none";
+                if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
+                btnRequestFile.classList.remove("hidden");
+                document.getElementById("preview-loader-container").classList.add("hidden");
+                document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+                previewModal.classList.remove('hidden');
+            } else if (node.type === 'folder') {
+                if (node.isVault && !clientUnlockedVaults[node.id]) {
+                    vaultPasswordModal.classList.remove('hidden');
+                    vaultPasswordInput.value = '';
+                    const handleClientVaultUnlock = () => {
+                        const pass = vaultPasswordInput.value;
+                        if (!pass) return alert("Password required");
+                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                        clientUnlockedVaults[node.id] = pass;
+                        clientCurrentDir = node;
+                        renderClientExplorer();
+                    };
+                    btnConfirmVaultPassword.addEventListener('click', handleClientVaultUnlock);
+                    btnCloseVaultModal.addEventListener('click', () => {
+                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                    }, { once: true });
+                } else if (node.isLocked && !node.isUnlocked) {
+                    activeAuthFolderId = node.id;
+                    folderPasswordInput.value = '';
+                    folderPasswordError.classList.add('hidden');
+                    folderPasswordModal.classList.remove('hidden');
+                } else {
+                    clientCurrentDir = node;
+                    renderClientExplorer();
+                }
+            }
         }
+        
         contextTargetId = null;
         contextMenu.classList.add('hidden');
     });
 }
 
 if (ctxDownload) {
-    ctxDownload.addEventListener('click', () => {
+    ctxDownload.addEventListener('click', async () => {
         if (!contextTargetId) return;
-        const node = vfs.findNode(contextTargetId);
-        if (node && node.type === 'file' && node.fileObj) {
-            triggerDownload(node.fileObj, node.name, node.mime);
-        } else if (node && node.type === 'folder') {
-            alert("Folder download via context menu not implemented. Use 'Download Backup' for now.");
+        
+        if (isHost) {
+            const node = vfs.findNode(contextTargetId);
+            if (node && node.type === 'file' && node.fileObj) {
+                try {
+                    const decryptedObj = await getDecryptedFileObj(node);
+                    triggerDownload(decryptedObj, node.name, node.mime, node.id);
+                } catch(e) {
+                    alert("Failed to decrypt: " + e.message);
+                }
+            } else if (node && node.type === 'folder') {
+                alert("Folder download via context menu not implemented. Use 'Download Backup' for now.");
+            }
+        } else {
+            // Guest logic
+            const node = findClientNode(clientVFS, contextTargetId);
+            if (node && node.type === 'file') {
+                activePreviewFileId = null; // We are just downloading, not editing
+                if (hostConnection && hostConnection.open) {
+                    hostConnection.send({ type: 'REQUEST_FILE', id: node.id });
+                    const loaderContainer = document.getElementById('preview-loader-container');
+                    if (loaderContainer) loaderContainer.classList.remove('hidden');
+                }
+            }
         }
+        
         contextTargetId = null;
         contextMenu.classList.add('hidden');
     });
