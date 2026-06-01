@@ -614,6 +614,53 @@ window.onerror = function(msg, src, lineno, colno, error) {
         </div>
     </div>
 
+    <!-- CREATE FOLDER MODAL -->
+    <div id="create-folder-modal" class="modal hidden">
+        <div class="modal-content card" style="max-width: 400px; text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="color: var(--neon-blue); margin: 0; font-size: 1.2rem;">Create Folder</h3>
+                <button id="btn-close-create-folder" class="btn-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            
+            <input type="text" id="create-folder-name" class="custom-input" placeholder="Folder Name" style="margin-bottom: 1.5rem;" autocomplete="off">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding: 1rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 8px;">
+                <div>
+                    <span style="color: var(--neon-green); font-size: 1rem; display: block; margin-bottom: 0.2rem;">Secure Vault</span>
+                    <span style="color: var(--text-muted); font-size: 0.8rem;">E2E Encrypt all files uploaded here</span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="create-folder-is-vault">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <button id="btn-confirm-create-folder" class="custom-btn" style="width: 100%;">CREATE</button>
+        </div>
+    </div>
+
+    <!-- VAULT PASSWORD MODAL -->
+    <div id="vault-password-modal" class="modal hidden" style="z-index: 10001;">
+        <div class="modal-content card" style="max-width: 350px; text-align: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="color: var(--neon-green); margin: 0; font-size: 1.2rem;">Vault Password</h3>
+                <button id="btn-close-vault-modal" class="btn-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            
+            <p id="vault-password-desc" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
+                Enter a strong password. If you lose this password, your files cannot be recovered.
+            </p>
+            
+            <input type="password" id="vault-password-input" class="custom-input" placeholder="Password" style="margin-bottom: 1.5rem;" autocomplete="off">
+            
+            <button id="btn-confirm-vault-password" class="custom-btn" style="width: 100%; border-color: var(--neon-green); color: var(--neon-green);">UNLOCK</button>
+        </div>
+    </div>
+
     <!-- SCRIPTS -->
     <script src="app.js"></script>
     <script>
