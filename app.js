@@ -667,13 +667,7 @@ class VirtualFileSystem {
 const vfs = new VirtualFileSystem();
 let clientVFS = null; // Client's copy of the tree
 let clientCurrentDir = null;
-let clientSearchQuery = '';
-let activeAuthFolderId = null;
-let activePreviewFileId = null;
-let myPermissions = { upload: false, delete: false, edit: false };
-let incomingTransfers = {}; // track incoming file chunks
 let clientUnlockedVaults = {}; // track guest vault passwords
-let currentEditorFileId = null;
 
 // State
 let isHost = true;
