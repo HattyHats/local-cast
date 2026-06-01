@@ -6,7 +6,10 @@ Local-Cast transforms any modern browser into a secure, serverless networking hu
 
 ### 🚀 Core Features
 * **Zero-Server Architecture:** All data transfers and WebRTC Audio Comm-Links are strictly peer-to-peer. Your files never touch a central server.
-* **Proximity Radar:** Visually track all connected peers orbiting the Host device in real-time.
+* **Proximity Radar & Granular Permissions:** Visually track all connected peers orbiting the Host device in real-time. Click on any guest's radar blip to instantly toggle their specific upload, edit, and delete permissions on the fly.
+* **E2E Encrypted Vaults:** Need absolute security? Create a Secure Vault. Files dropped into a Vault are encrypted locally using true Zero-Knowledge AES-GCM encryption before they are ever stored or transmitted. Without the password, the data is mathematically unrecoverable.
+* **Live Collaborative Editor:** Double-click any `.txt` or `.md` file to open a real-time, peer-to-peer code editor. If multiple peers have the file open, keystrokes are instantly broadcast over the network with neon visual sync indicators.
+* **Magic Links:** Instantly share a secure, direct download tunnel to a single file, bypassing the main file explorer entirely—perfect for quick, drop-in file sharing.
 * **P2P Media Streaming:** Double-click media files (audio/video/images) to instantly stream them across the network without requiring a full download first.
 * **Dead Drops & Honey-Pots:** Hide files from guests using transparent Dead Drops, or set up explosive Honey-Pot traps that instantly sever an intruder's connection after 3 failed password attempts.
 * **Aesthetic Protocols:** Customize the network's visual interface with 4 built-in cyberpunk themes (Synthwave, Matrix Terminal, Night City, Blood Moon).
