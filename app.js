@@ -199,6 +199,70 @@ let activePreviewFileId = null;
 
 // Host Action Elements
 const btnNewFolder = document.getElementById('btn-new-folder');
+const createFolderModal = document.getElementById('create-folder-modal');
+const btnCloseCreateFolder = document.getElementById('btn-close-create-folder');
+const btnConfirmCreateFolder = document.getElementById('btn-confirm-create-folder');
+const createFolderNameInput = document.getElementById('create-folder-name');
+const createFolderIsVault = document.getElementById('create-folder-is-vault');
+
+const vaultPasswordModal = document.getElementById('vault-password-modal');
+const btnCloseVaultModal = document.getElementById('btn-close-vault-modal');
+const btnConfirmVaultPassword = document.getElementById('btn-confirm-vault-password');
+const vaultPasswordInput = document.getElementById('vault-password-input');
+
+let unlockedVaults = {}; // mapping: folderId -> password
+
+// Crypto Engine
+async function deriveKey(password, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']
+    );
+    return await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+}
+
+async function encryptFile(buffer, password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(password, salt);
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buffer);
+    return { encrypted: new Uint8Array(encrypted), salt, iv };
+}
+
+async function decryptFile(encryptedBuffer, password, salt, iv) {
+    const key = await deriveKey(password, salt);
+    try {
+        const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encryptedBuffer);
+        return new Uint8Array(decrypted);
+    } catch (e) {
+        throw new Error('Incorrect Password or Corrupted File');
+    }
+}
+
+async function getDecryptedFileObj(child) {
+    if (!child.isEncrypted) return child.fileObj;
+    let current = child.parent;
+    let password = null;
+    while (current && current.id !== 'root') {
+        if (current.isVault) {
+            password = unlockedVaults[current.id];
+            break;
+        }
+        current = current.parent;
+    }
+    if (!password) {
+        alert("Cannot decrypt file: Vault is locked!");
+        throw new Error("Vault is locked");
+    }
+    const buffer = await child.fileObj.arrayBuffer();
+    const decryptedBuffer = await decryptFile(buffer, password, child.salt, child.iv);
+    return new Blob([decryptedBuffer], { type: child.mime });
+}
+
+
 const btnUploadFiles = document.getElementById('btn-upload-files');
 const btnUploadFolder = document.getElementById('btn-upload-folder');
 const btnDownloadAllHost = document.getElementById('btn-download-all-host');
@@ -555,9 +619,13 @@ class VirtualFileSystem {
         this.currentDir = this.root;
     }
     
-    addFolder(name) {
+    addFolder(name, isVault = false, salt = null) {
         const id = 'folder_' + Math.random().toString(36).substr(2, 9);
         const folder = { id, name, type: 'folder', children: [], parent: this.currentDir };
+        if (isVault) {
+            folder.isVault = true;
+            folder.salt = salt;
+        }
         this.currentDir.children.push(folder);
         return folder;
     }
@@ -565,10 +633,14 @@ class VirtualFileSystem {
     getTree(unlockedSet = new Set()) {
         function clone(node) {
             if (node.isHidden && !showDeadDrops) return null;
-            const isUnlocked = unlockedSet.has(node.id);
-            const n = { id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, isLocked: !!node.password, isUnlocked, isHidden: node.isHidden };
+            const isUnlocked = unlockedSet.has(node.id) || unlockedVaults[node.id];
+            const n = { 
+                id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, 
+                isLocked: !!node.password, isVault: !!node.isVault, isUnlocked, isHidden: node.isHidden,
+                isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv
+            };
             if (node.children) {
-                if (node.password && !isUnlocked) {
+                if ((node.password || node.isVault) && !isUnlocked) {
                     n.children = []; // Hide contents
                 } else {
                     n.children = node.children.map(clone).filter(x => x !== null);
@@ -868,7 +940,7 @@ async function initHost() {
             } else if (data.type === 'REQUEST_FILE' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.id);
                 if (node && node.type === 'file') {
-                    sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'FILE_CHUNK');
+                    sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
                 }
             } else if (data.type === 'REQUEST_ZIP_ALL' && conn.isAuthenticated) {
                 generateZipBlob().then(blob => {
@@ -1027,12 +1099,52 @@ async function generateZipBlob() {
 
 function setupHostActions() {
     btnNewFolder.addEventListener('click', () => {
-        const name = prompt("Enter folder name:");
-        if (name) {
-            saveVFSToDB();
+        createFolderNameInput.value = '';
+        createFolderIsVault.checked = false;
+        createFolderModal.classList.remove('hidden');
+    });
+    
+    btnCloseCreateFolder.addEventListener('click', () => createFolderModal.classList.add('hidden'));
+    
+    btnConfirmCreateFolder.addEventListener('click', async () => {
+        const name = createFolderNameInput.value.trim();
+        const isVault = createFolderIsVault.checked;
+        if (!name) return;
+        
+        if (isVault) {
+            createFolderModal.classList.add('hidden');
+            vaultPasswordModal.classList.remove('hidden');
+            vaultPasswordInput.value = '';
+            
+            const handleVaultSubmit = async () => {
+                const pass = vaultPasswordInput.value;
+                if (!pass) return alert("Password required for Vault!");
+                
+                // Remove listener so it doesn't fire multiple times
+                btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
+                vaultPasswordModal.classList.add('hidden');
+                
+                // Create a dummy salt for the folder (files will have their own)
+                const salt = crypto.getRandomValues(new Uint8Array(16));
+                const folder = vfs.addFolder(name, true, salt);
+                unlockedVaults[folder.id] = pass; // auto-unlock for host on creation
+                
+                saveVFSToDB();
+                renderHostExplorer();
+                broadcastTree();
+            };
+            
+            btnConfirmVaultPassword.addEventListener('click', handleVaultSubmit);
+            btnCloseVaultModal.addEventListener('click', () => {
+                btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
+                vaultPasswordModal.classList.add('hidden');
+            }, { once: true });
+        } else {
             vfs.addFolder(name);
+            saveVFSToDB();
             renderHostExplorer();
             broadcastTree();
+            createFolderModal.classList.add('hidden');
         }
     });
     
@@ -1068,8 +1180,39 @@ function setupHostActions() {
     folderInput.addEventListener('change', (e) => processFiles(Array.from(e.target.files)));
 }
 
-function processFiles(files) {
-    files.forEach(file => {
+async function processFiles(files) {
+    const isVault = vfs.currentDir.isVault;
+    let password = null;
+    if (isVault) {
+        password = unlockedVaults[vfs.currentDir.id];
+        if (!password) {
+            alert("Please unlock this Vault before adding files.");
+            return;
+        }
+    }
+
+    for (const file of files) {
+        let finalFileObj = file;
+        let finalSize = file.size;
+        let isEncrypted = false;
+        let salt = null;
+        let iv = null;
+
+        if (isVault) {
+            try {
+                const buffer = await file.arrayBuffer();
+                const encData = await encryptFile(buffer, password);
+                finalFileObj = new Blob([encData.encrypted], { type: 'application/octet-stream' });
+                finalSize = finalFileObj.size;
+                isEncrypted = true;
+                salt = encData.salt;
+                iv = encData.iv;
+            } catch (e) {
+                console.error("Encryption failed for", file.name, e);
+                continue;
+            }
+        }
+
         if (file.webkitRelativePath) {
             const parts = file.webkitRelativePath.split('/');
             let current = vfs.currentDir;
@@ -1082,12 +1225,12 @@ function processFiles(files) {
                 }
                 current = existing;
             }
-            current.children.push({ id: 'file_' + Math.random().toString(36).substr(2), name: file.name, type: 'file', size: file.size, mime: file.type, fileObj: file, parent: current });
+            current.children.push({ id: 'file_' + Math.random().toString(36).substr(2), name: file.name, type: 'file', size: finalSize, mime: file.type, fileObj: finalFileObj, parent: current, isEncrypted, salt, iv });
         } else {
             const id = 'file_' + Math.random().toString(36).substr(2);
-            vfs.currentDir.children.push({ id, name: file.name, type: 'file', size: file.size, mime: file.type, fileObj: file, parent: vfs.currentDir });
+            vfs.currentDir.children.push({ id, name: file.name, type: 'file', size: finalSize, mime: file.type, fileObj: finalFileObj, parent: vfs.currentDir, isEncrypted, salt, iv });
         }
-    });
+    }
     saveVFSToDB();
     fileInput.value = '';
     folderInput.value = '';
@@ -1170,7 +1313,7 @@ function renderHostExplorer() {
         item.className = `file-item ${child.type}`;
         
         const icon = child.type === 'folder' ? 
-            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
+            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password || child.isVault ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
             
         item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>`;
@@ -1246,8 +1389,30 @@ function renderHostExplorer() {
             });
             
             item.addEventListener('dblclick', () => {
-                vfs.currentDir = child;
-                renderHostExplorer();
+                if (child.isVault && !unlockedVaults[child.id]) {
+                    vaultPasswordModal.classList.remove('hidden');
+                    vaultPasswordInput.value = '';
+                    
+                    const handleUnlock = async () => {
+                        const pass = vaultPasswordInput.value;
+                        if (!pass) return alert("Password required");
+                        btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                        
+                        unlockedVaults[child.id] = pass;
+                        vfs.currentDir = child;
+                        renderHostExplorer();
+                        broadcastTree();
+                    };
+                    btnConfirmVaultPassword.addEventListener('click', handleUnlock);
+                    btnCloseVaultModal.addEventListener('click', () => {
+                        btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                    }, { once: true });
+                } else {
+                    vfs.currentDir = child;
+                    renderHostExplorer();
+                }
             });
         }
         
@@ -1264,18 +1429,25 @@ function renderHostExplorer() {
         if (child.type === 'file' && (child.name.endsWith('.txt') || child.name.endsWith('.md'))) {
             item.addEventListener('dblclick', async () => {
                 if (child.fileObj) {
-                    const text = await child.fileObj.text();
-                    currentEditorFileId = child.id;
-                    editorFilename.value = child.name;
-                    editorTextarea.value = text;
-                    editorModal.classList.remove('hidden');
+                    try {
+                        const decryptedObj = await getDecryptedFileObj(child);
+                        const text = await decryptedObj.text();
+                        currentEditorFileId = child.id;
+                        editorFilename.value = child.name;
+                        editorTextarea.value = text;
+                        editorModal.classList.remove('hidden');
+                    } catch (e) {
+                        alert("Failed to decrypt: " + e.message);
+                    }
                 }
             });
         } else if (child.type === 'file' && child.mime && (child.mime.startsWith('image/') || child.mime.startsWith('video/') || child.mime.startsWith('audio/'))) {
-            item.addEventListener('dblclick', () => {
+            item.addEventListener('dblclick', async () => {
                 if (child.fileObj) {
-                    const url = URL.createObjectURL(child.fileObj);
-                    mediaModal.classList.remove('hidden');
+                    try {
+                        const decryptedObj = await getDecryptedFileObj(child);
+                        const url = URL.createObjectURL(decryptedObj);
+                        mediaModal.classList.remove('hidden');
                     mediaTitle.innerText = child.name;
                     mediaContainer.innerHTML = '';
                     if (btnDownloadMedia) {
@@ -1286,9 +1458,28 @@ function renderHostExplorer() {
                     if (child.mime.startsWith('video/')) {
                         mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
                     } else if (child.mime.startsWith('audio/')) {
-                        mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+                        mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%;"></audio>`;
                     } else {
-                        mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
+                        mediaContainer.innerHTML = `<img src="${url}" style="max-width:100%; max-height:70vh; display:block; margin:0 auto;" />`;
+                    }
+                    } catch (e) {
+                        alert("Failed to decrypt: " + e.message);
+                    }
+                }
+            });
+        } else if (child.type === 'file') {
+            item.addEventListener('dblclick', async () => {
+                if (child.fileObj) {
+                    try {
+                        const decryptedObj = await getDecryptedFileObj(child);
+                        const url = URL.createObjectURL(decryptedObj);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = child.name;
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    } catch (e) {
+                        alert("Failed to decrypt: " + e.message);
                     }
                 }
             });
@@ -1413,7 +1604,7 @@ function initClient() {
                 
                 renderClientExplorer();
             } else if (data.type === 'FILE_CHUNK_START' || data.type === 'ZIP_CHUNK_START') {
-                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size };
+                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size, isEncrypted: data.isEncrypted, salt: data.salt, iv: data.iv };
                 const pct = document.getElementById(data.type === 'ZIP_CHUNK_START' ? 'client-progress-text' : 'preview-progress-text');
                 if (pct) pct.textContent = '0%';
             } else if (data.type === 'FILE_CHUNK' || data.type === 'ZIP_CHUNK') {
@@ -1427,7 +1618,34 @@ function initClient() {
                     
                     if (transfer.received === transfer.total) {
                         const blob = new Blob(transfer.chunks, { type: transfer.mime });
-                        triggerDownload(blob, transfer.name, transfer.mime);
+                        if (transfer.isEncrypted) {
+                            vaultPasswordModal.classList.remove('hidden');
+                            vaultPasswordInput.value = '';
+                            
+                            const handleClientDecrypt = async () => {
+                                const pass = vaultPasswordInput.value;
+                                if (!pass) return alert("Password required to decrypt!");
+                                btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
+                                vaultPasswordModal.classList.add('hidden');
+                                
+                                try {
+                                    const buffer = await blob.arrayBuffer();
+                                    const decryptedBuffer = await decryptFile(buffer, pass, transfer.salt, transfer.iv);
+                                    const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
+                                    triggerDownload(decryptedBlob, transfer.name, transfer.mime);
+                                } catch (e) {
+                                    alert("Decryption failed: " + e.message);
+                                }
+                            };
+                            
+                            btnConfirmVaultPassword.addEventListener('click', handleClientDecrypt);
+                            btnCloseVaultModal.addEventListener('click', () => {
+                                btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
+                                vaultPasswordModal.classList.add('hidden');
+                            }, { once: true });
+                        } else {
+                            triggerDownload(blob, transfer.name, transfer.mime);
+                        }
                         delete incomingTransfers[data.id];
                     }
                 }
