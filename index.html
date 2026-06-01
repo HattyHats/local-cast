@@ -175,9 +175,13 @@ window.onerror = function(msg, src, lineno, colno, error) {
                             <button id="btn-view-toggle-client" class="btn-icon header-btn" title="Toggle List View">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
                             </button>
-                            <button id="btn-upload-client" class="custom-btn hidden" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-green); color: var(--neon-green);">
+                            <button id="btn-upload-files-client" class="custom-btn hidden" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-green); color: var(--neon-green);">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                                Upload
+                                Upload Files
+                            </button>
+                            <button id="btn-upload-folder-client" class="custom-btn hidden" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-purple); color: var(--neon-purple);">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                                Upload Folder
                             </button>
                             <button id="btn-download-all-client" class="custom-btn" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-blue);">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -196,6 +200,7 @@ window.onerror = function(msg, src, lineno, colno, error) {
                     <p id="client-progress-text" style="margin-top: 0.5rem; color: var(--text-main); font-size: 0.9rem;">0%</p>
                 </div>
                 <input type="file" id="client-file-input" multiple class="hidden-input">
+                <input type="file" id="client-folder-input" webkitdirectory directory multiple class="hidden-input">
             </div>
         </main>
 
@@ -382,10 +387,17 @@ window.onerror = function(msg, src, lineno, colno, error) {
         <div class="modal-content card" style="max-width: 400px; width: 90%;">
             <h2 class="neon-blue">AESTHETIC PROTOCOLS</h2>
             <div class="theme-options" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem;">
+                <h3 style="color: var(--text-main); font-size: 0.9rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">COLOR PALETTE</h3>
                 <button class="custom-btn theme-btn" data-theme="synthwave" style="background: transparent; border: 1px solid #00f0ff; color: #00f0ff;">SYNTHWAVE (DEFAULT)</button>
                 <button class="custom-btn theme-btn" data-theme="matrix" style="background: transparent; border: 1px solid #39ff14; color: #39ff14;">MATRIX TERMINAL</button>
                 <button class="custom-btn theme-btn" data-theme="nightcity" style="background: transparent; border: 1px solid #ff00ff; color: #ff00ff;">NIGHT CITY</button>
                 <button class="custom-btn theme-btn" data-theme="bloodmoon" style="background: transparent; border: 1px solid #ff003c; color: #ff003c;">BLOOD MOON</button>
+                
+                <h3 style="color: var(--text-main); font-size: 0.9rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-top: 1rem;">BACKGROUND</h3>
+                <button class="custom-btn bg-btn" data-bg="default" style="background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted);">DEFAULT (GRID)</button>
+                <button class="custom-btn bg-btn" data-bg="circuit" style="background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted);">CIRCUIT BOARD</button>
+                <button class="custom-btn bg-btn" data-bg="dots" style="background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted);">HACKER DOTS</button>
+                <button class="custom-btn bg-btn" data-bg="none" style="background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted);">SOLID COLOR</button>
             </div>
             <div class="modal-actions" style="margin-top: 1.5rem;">
                 <button class="custom-btn" id="btn-close-theme" style="width: 100%; background: transparent; border: 1px solid var(--border-color); color: var(--text-main);">CLOSE</button>

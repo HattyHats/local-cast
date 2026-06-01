@@ -173,8 +173,10 @@ const clientDownloading = document.getElementById('client-downloading');
 const downloadFilename = document.getElementById('download-filename');
 
 const toggleGuestUploads = document.getElementById('toggle-guest-uploads');
-const btnUploadClient = document.getElementById('btn-upload-client');
+const btnUploadFilesClient = document.getElementById('btn-upload-files-client');
+const btnUploadFolderClient = document.getElementById('btn-upload-folder-client');
 const clientFileInput = document.getElementById('client-file-input');
+const clientFolderInput = document.getElementById('client-folder-input');
 
 // --- SPLASH SCREEN ---
 const splashTitle = document.getElementById('splash-title');
@@ -672,7 +674,7 @@ async function initHost() {
                     sendFileInChunks(conn, 'zip-all', blob, 'local-cast-backup.zip', 'application/zip', 'ZIP_CHUNK');
                 });
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
-                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size };
+                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size, path: data.path, targetFolderId: data.targetFolderId };
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
                 const transfer = incomingTransfers[data.id];
                 if (transfer) {
@@ -682,12 +684,53 @@ async function initHost() {
                         const fileBlob = new Blob(transfer.chunks, { type: transfer.mime });
                         const fileObj = new File([fileBlob], transfer.name, { type: transfer.mime });
                         const newId = 'file_' + Math.random().toString(36).substr(2);
-                        vfs.currentDir.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: fileObj, parent: vfs.currentDir });
+                        
+                        let current = vfs.currentDir;
+                        if (transfer.targetFolderId) {
+                            const found = vfs.findNode(transfer.targetFolderId);
+                            if (found && found.type === 'folder') current = found;
+                        }
+                        
+                        if (transfer.path) {
+                            const parts = transfer.path.split('/');
+                            for(let i=0; i<parts.length-1; i++) {
+                                let folderName = parts[i];
+                                let existing = current.children.find(c => c.type === 'folder' && c.name === folderName);
+                                if (!existing) {
+                                    existing = { id: 'folder_' + Math.random().toString(36).substr(2), name: folderName, type: 'folder', children: [], parent: current };
+                                    current.children.push(existing);
+                                }
+                                current = existing;
+                            }
+                        }
+                        
+                        current.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: fileObj, parent: current });
                         saveVFSToDB();
                         renderHostExplorer();
                         broadcastTree();
                         delete incomingTransfers[data.id];
                         conn.send({ type: 'UPLOAD_COMPLETE' });
+                        notifyFileAdded(transfer.name);
+                    }
+                }
+            } else if (data.type === 'CLIENT_RENAME_NODE') {
+                if (toggleGuestUploads && toggleGuestUploads.checked) {
+                    const node = vfs.findNode(data.id);
+                    if (node && !node.isLocked) {
+                        node.name = data.newName;
+                        saveVFSToDB();
+                        renderHostExplorer();
+                        broadcastTree();
+                    }
+                }
+            } else if (data.type === 'CLIENT_DELETE_NODE') {
+                if (toggleGuestUploads && toggleGuestUploads.checked) {
+                    const node = vfs.findNode(data.id);
+                    if (node && node.parent && !node.isLocked && !node.parent.isLocked) {
+                        node.parent.children = node.parent.children.filter(c => c.id !== data.id);
+                        saveVFSToDB();
+                        renderHostExplorer();
+                        broadcastTree();
                     }
                 }
             }
@@ -806,22 +849,6 @@ function setupHostActions() {
         });
     }
 
-    // Global Drop Zone
-    document.body.addEventListener('dragover', (e) => {
-        e.preventDefault();
-    });
-    document.body.addEventListener('drop', (e) => {
-        e.preventDefault();
-        if (e.dataTransfer.items) {
-            const files = [];
-            for (let i = 0; i < e.dataTransfer.items.length; i++) {
-                if (e.dataTransfer.items[i].kind === 'file') {
-                    files.push(e.dataTransfer.items[i].getAsFile());
-                }
-            }
-            processFiles(files);
-        }
-    });
 }
 
 function processFiles(files) {
@@ -1008,6 +1035,7 @@ function renderHostExplorer() {
             contextMenu.style.left = `${e.clientX}px`;
             contextMenu.style.top = `${e.clientY}px`;
             contextMenu.classList.remove('hidden');
+            if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = 'block';
         });
         
         if (child.type === 'file' && (child.name.endsWith('.txt') || child.name.endsWith('.md'))) {
@@ -1180,7 +1208,8 @@ function initClient() {
                     }
                 }
             } else if (data.type === 'GUEST_UPLOAD_ENABLED') {
-                if (btnUploadClient) btnUploadClient.classList.toggle('hidden', !data.enabled);
+                if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !data.enabled);
+                if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !data.enabled);
             } else if (data.type === 'UPLOAD_COMPLETE') {
                 clientDownloading.classList.add('hidden');
                 alert("Upload complete!");
@@ -1255,16 +1284,24 @@ function initClient() {
         }
     });
     
-    if(btnUploadClient) btnUploadClient.addEventListener("click", () => clientFileInput.click());
-    if(clientFileInput) clientFileInput.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (file && hostConnection && hostConnection.open) {
-            clientDownloading.classList.remove("hidden");
-            downloadFilename.textContent = "Uploading " + file.name;
+    if(btnUploadFilesClient) btnUploadFilesClient.addEventListener("click", () => clientFileInput.click());
+    if(btnUploadFolderClient) btnUploadFolderClient.addEventListener("click", () => clientFolderInput.click());
+    
+    async function processClientFiles(files) {
+        if (!files.length || !hostConnection || !hostConnection.open) return;
+        clientDownloading.classList.remove("hidden");
+        
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            downloadFilename.textContent = `Uploading ${file.name} (${i + 1}/${files.length})`;
             document.getElementById("client-progress-text").textContent = "Starting...";
-            sendFileInChunks(hostConnection, "upload_" + Date.now(), file, file.name, file.type, "CLIENT_UPLOAD_CHUNK");
+            const extraData = { targetFolderId: clientCurrentDir.id, path: file.webkitRelativePath || '' };
+            await sendFileInChunks(hostConnection, "upload_" + Date.now() + "_" + i, file, file.name, file.type, "CLIENT_UPLOAD_CHUNK", extraData);
         }
-    });
+    }
+    
+    if(clientFileInput) clientFileInput.addEventListener("change", (e) => processClientFiles(Array.from(e.target.files)));
+    if(clientFolderInput) clientFolderInput.addEventListener("change", (e) => processClientFiles(Array.from(e.target.files)));
     
     btnDownloadAllClient.addEventListener('click', () => {
         if (hostConnection && hostConnection.open) {
@@ -1363,6 +1400,18 @@ function renderClientExplorer() {
                 previewModal.classList.remove('hidden');
             }
         });
+        item.addEventListener('contextmenu', (e) => {
+            if (btnUploadFilesClient && !btnUploadFilesClient.classList.contains('hidden')) {
+                e.preventDefault();
+                contextTargetId = child.id;
+                contextMenu.style.left = `${e.clientX}px`;
+                contextMenu.style.top = `${e.clientY}px`;
+                contextMenu.classList.remove('hidden');
+                
+                // Hide host-only options
+                if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = 'none';
+            }
+        });
         
         clientExplorerGrid.appendChild(item);
     });
@@ -1421,9 +1470,9 @@ async function triggerDownload(fileData, name, mime) {
 
 
 // --- UTILS ---
-async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, typeStr) {
+async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, typeStr, extraData = {}) {
     const totalChunks = Math.ceil(fileBlob.size / CHUNK_SIZE);
-    conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks });
+    conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks, ...extraData });
     for (let i = 0; i < totalChunks; i++) {
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, fileBlob.size);
@@ -1620,6 +1669,15 @@ ctxLock.addEventListener('click', () => {
 
 ctxDelete.addEventListener('click', () => {
     if (!contextTargetId) return;
+    
+    if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+        if (confirm("Are you sure you want to delete this?")) {
+            hostConnection.send({ type: 'CLIENT_DELETE_NODE', id: contextTargetId });
+            contextMenu.classList.add('hidden');
+        }
+        return;
+    }
+    
     const node = vfs.findNode(contextTargetId);
     if (node && node.parent) {
         node.parent.children = node.parent.children.filter(c => c.id !== contextTargetId);
@@ -1643,24 +1701,70 @@ if (ctxDeaddrop) {
             renderHostExplorer();
             broadcastTree();
         }
-        hideContextMenu();
+        contextMenu.classList.add('hidden');
     });
 }
 
+// Global Drop Zone
+document.body.addEventListener('dragover', (e) => e.preventDefault());
+document.body.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (!e.dataTransfer.items) return;
+    
+    const files = [];
+    async function traverseFileTree(item, path = '') {
+        if (item.isFile) {
+            const file = await new Promise(r => item.file(r));
+            Object.defineProperty(file, 'webkitRelativePath', { value: path + file.name });
+            files.push(file);
+        } else if (item.isDirectory) {
+            const dirReader = item.createReader();
+            const entries = await new Promise(r => dirReader.readEntries(r));
+            for (let i = 0; i < entries.length; i++) {
+                await traverseFileTree(entries[i], path + item.name + '/');
+            }
+        }
+    }
+    
+    for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i].webkitGetAsEntry();
+        if (item) await traverseFileTree(item);
+    }
+    
+    if (files.length > 0) {
+        if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+            // Guest drop
+            if (typeof processClientFiles === 'function') processClientFiles(files);
+        } else {
+            // Host drop
+            processFiles(files);
+        }
+    }
+});
+
 ctxRename.addEventListener('click', () => {
     if (!contextTargetId) return;
+    
+    if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+        const newName = prompt("Enter new name:");
+        if (newName && newName.trim()) {
+            hostConnection.send({ type: 'CLIENT_RENAME_NODE', id: contextTargetId, newName: newName.trim() });
+            contextMenu.classList.add('hidden');
+        }
+        return;
+    }
+    
     const node = vfs.findNode(contextTargetId);
     if (node) {
         const newName = prompt("Enter new name:", node.name);
         if (newName && newName.trim()) {
             node.name = newName.trim();
-            contextTargetId = null;
-            contextMenu.classList.add('hidden');
             saveVFSToDB();
             renderHostExplorer();
             broadcastTree();
         }
     }
+    contextMenu.classList.add('hidden');
 });
 
 function searchVFS(dir, query, results) {
@@ -2038,6 +2142,40 @@ if (btnCloseTheme) {
 document.querySelectorAll('.theme-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
         applyTheme(e.target.dataset.theme);
+        themeModal.classList.add('hidden');
+    });
+});
+
+const backgrounds = {
+    'default': 'linear-gradient(rgba(10, 10, 15, 0.9), rgba(10, 10, 15, 0.9)), linear-gradient(0deg, transparent 24%, var(--border-glow) 25%, var(--border-glow) 26%, transparent 27%, transparent 74%, var(--border-glow) 75%, var(--border-glow) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, var(--border-glow) 25%, var(--border-glow) 26%, transparent 27%, transparent 74%, var(--border-glow) 75%, var(--border-glow) 76%, transparent 77%, transparent)',
+    'circuit': 'radial-gradient(circle at 50% 50%, rgba(10, 10, 15, 0.9) 0%, rgba(5, 5, 10, 1) 100%), repeating-linear-gradient(45deg, var(--border-glow) 0, var(--border-glow) 1px, transparent 1px, transparent 20px), repeating-linear-gradient(-45deg, var(--border-glow) 0, var(--border-glow) 1px, transparent 1px, transparent 20px)',
+    'dots': 'radial-gradient(var(--border-glow) 1px, transparent 1px)',
+    'none': 'none'
+};
+
+function applyBackground(bgName) {
+    const bg = backgrounds[bgName];
+    if (bg !== undefined) {
+        if (bgName === 'dots') {
+            document.body.style.backgroundImage = bg;
+            document.body.style.backgroundSize = '20px 20px';
+        } else if (bgName === 'default') {
+            document.body.style.backgroundImage = bg;
+            document.body.style.backgroundSize = '100% 100%, 50px 50px, 50px 50px';
+        } else {
+            document.body.style.backgroundImage = bg;
+            document.body.style.backgroundSize = 'auto';
+        }
+        localStorage.setItem('localcast_bg', bgName);
+    }
+}
+
+const savedBg = localStorage.getItem('localcast_bg') || 'default';
+applyBackground(savedBg);
+
+document.querySelectorAll('.bg-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        applyBackground(e.target.dataset.bg);
         themeModal.classList.add('hidden');
     });
 });
