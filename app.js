@@ -78,6 +78,7 @@ const ctxDelete = document.getElementById('ctx-delete');
 const ctxLock = document.getElementById('ctx-lock');
 const ctxOpen = document.getElementById('ctx-open');
 const ctxDownload = document.getElementById('ctx-download');
+const ctxMagicLink = document.getElementById('ctx-magic-link');
 const folderPasswordModal = document.getElementById('folder-password-modal');
 const folderPasswordInput = document.getElementById('folder-password-input');
 const btnSubmitFolderPassword = document.getElementById('btn-submit-folder-password');
@@ -539,18 +540,86 @@ let hostPassword = null;
 
 const urlParams = new URLSearchParams(window.location.search);
 const roomCode = urlParams.get('room');
+const magicPeerId = urlParams.get('peer');
+const magicFileId = urlParams.get('file');
+
 if (roomCode) {
     isHost = false;
 }
 
 function initApp() {
-    if (isHost) {
+    if (magicPeerId && magicFileId) {
+        initMagicPeer(magicPeerId, magicFileId);
+    } else if (isHost) {
         hostView.classList.remove('hidden');
         initHost();
     } else {
         clientView.classList.remove('hidden');
         initClient();
     }
+}
+
+async function initMagicPeer(targetPeerId, targetFileId) {
+    document.getElementById('magic-link-modal').classList.remove('hidden');
+    const magicStatus = document.getElementById('magic-status');
+    const magicProgressBar = document.getElementById('magic-progress-fill');
+    const magicProgressText = document.getElementById('magic-progress-text');
+    const magicFilename = document.getElementById('magic-filename');
+    
+    const magicPeer = new Peer();
+    magicPeer.on('open', (id) => {
+        magicStatus.textContent = 'Connecting to Host...';
+        const conn = magicPeer.connect(targetPeerId, { reliable: true });
+        
+        conn.on('open', () => {
+            magicStatus.textContent = 'Requesting File...';
+            conn.send({ type: 'REQUEST_MAGIC_FILE', fileId: targetFileId });
+        });
+        
+        let fileTransfer = null;
+        
+        conn.on('data', (data) => {
+            if (data.type === 'MAGIC_FILE_ERROR') {
+                magicStatus.textContent = 'Error: ' + data.message;
+                magicStatus.style.color = 'var(--neon-red)';
+            } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
+                magicStatus.textContent = 'Receiving Data...';
+                magicFilename.textContent = data.name;
+                fileTransfer = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime };
+            } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
+                if (fileTransfer) {
+                    fileTransfer.chunks[data.index] = data.chunk;
+                    fileTransfer.received++;
+                    
+                    const pct = Math.floor((fileTransfer.received / fileTransfer.total) * 100);
+                    magicProgressBar.style.width = pct + '%';
+                    magicProgressText.textContent = pct + '%';
+                    
+                    if (fileTransfer.received === fileTransfer.total) {
+                        magicStatus.textContent = 'Download Complete!';
+                        magicStatus.style.color = 'var(--neon-green)';
+                        const fileBlob = new Blob(fileTransfer.chunks, { type: fileTransfer.mime });
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(fileBlob);
+                        a.download = fileTransfer.name;
+                        a.click();
+                        
+                        setTimeout(() => {
+                            conn.send({ type: 'UPLOAD_COMPLETE' });
+                            setTimeout(() => { conn.close(); }, 500);
+                        }, 1000);
+                    }
+                }
+            }
+        });
+        
+        conn.on('close', () => {
+            if (magicStatus.textContent !== 'Download Complete!') {
+                magicStatus.textContent = 'Connection lost.';
+                magicStatus.style.color = 'var(--neon-red)';
+            }
+        });
+    });
 }
 
 // --- HOST LOGIC ---
@@ -623,6 +692,19 @@ async function initHost() {
         conn.unlockedFolders = new Set();
         
         conn.on('data', (data) => {
+            if (data.type === 'REQUEST_MAGIC_FILE') {
+                const node = vfs.findNode(data.fileId);
+                if (node && node.type === 'file') {
+                    if (node.isLocked || node.password) {
+                        conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires a password.' });
+                    } else {
+                        sendFileInChunks(node, conn);
+                    }
+                } else {
+                    conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File not found or access denied.' });
+                }
+                return;
+            }
             if (data.type === 'AUTH_ATTEMPT') {
                 if (data.password === hostPassword) {
                     conn.isAuthenticated = true;
@@ -1094,7 +1176,8 @@ function renderHostExplorer() {
             contextMenu.style.left = `${e.clientX}px`;
             contextMenu.style.top = `${e.clientY}px`;
             contextMenu.classList.remove('hidden');
-            if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = 'block';
+            if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = child.type === 'folder' ? 'flex' : 'none';
+            if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = child.type === 'file' ? 'flex' : 'none';
         });
         
         if (child.type === 'file' && (child.name.endsWith('.txt') || child.name.endsWith('.md'))) {
@@ -1481,6 +1564,7 @@ function renderClientExplorer() {
                 
                 // Hide host-only options
                 if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = 'none';
+                if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = 'none';
             }
         });
         
@@ -2249,6 +2333,18 @@ document.querySelectorAll('.bg-btn').forEach(btn => {
         themeModal.classList.add('hidden');
     });
 });
+
+const ctxMagicLink = document.getElementById('ctx-magic-link');
+if (ctxMagicLink) {
+    ctxMagicLink.addEventListener('click', () => {
+        if (!contextTargetId) return;
+        const magicLink = `${window.location.origin}/?file=${contextTargetId}`;
+        navigator.clipboard.writeText(magicLink).then(() => {
+            alert("Magic link copied to clipboard!");
+        });
+        hideContextMenu();
+    });
+}
 
 const ctxHoneypot = document.getElementById('ctx-honeypot');
 if (ctxHoneypot) {
