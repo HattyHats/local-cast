@@ -667,7 +667,12 @@ class VirtualFileSystem {
 const vfs = new VirtualFileSystem();
 let clientVFS = null; // Client's copy of the tree
 let clientCurrentDir = null;
+let clientSearchQuery = '';
+let activeAuthFolderId = null;
+let activePreviewFileId = null;
 let myPermissions = { upload: false, delete: false, edit: false };
+let incomingTransfers = {}; // track incoming file chunks
+let clientUnlockedVaults = {}; // track guest vault passwords
 let currentEditorFileId = null;
 
 // State
@@ -1619,30 +1624,46 @@ function initClient() {
                     if (transfer.received === transfer.total) {
                         const blob = new Blob(transfer.chunks, { type: transfer.mime });
                         if (transfer.isEncrypted) {
-                            vaultPasswordModal.classList.remove('hidden');
-                            vaultPasswordInput.value = '';
-                            
-                            const handleClientDecrypt = async () => {
-                                const pass = vaultPasswordInput.value;
-                                if (!pass) return alert("Password required to decrypt!");
-                                btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
-                                vaultPasswordModal.classList.add('hidden');
+                            // Since they already unlocked the folder, they have the password!
+                            // Or they might have been sent the file directly.
+                            const pass = clientUnlockedVaults[clientCurrentDir.id];
+                            if (pass) {
+                                (async () => {
+                                    try {
+                                        const buffer = await blob.arrayBuffer();
+                                        const decryptedBuffer = await decryptFile(buffer, pass, transfer.salt, transfer.iv);
+                                        const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
+                                        triggerDownload(decryptedBlob, transfer.name, transfer.mime);
+                                    } catch (e) {
+                                        alert("Decryption failed: " + e.message);
+                                    }
+                                })();
+                            } else {
+                                vaultPasswordModal.classList.remove('hidden');
+                                vaultPasswordInput.value = '';
                                 
-                                try {
-                                    const buffer = await blob.arrayBuffer();
-                                    const decryptedBuffer = await decryptFile(buffer, pass, transfer.salt, transfer.iv);
-                                    const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
-                                    triggerDownload(decryptedBlob, transfer.name, transfer.mime);
-                                } catch (e) {
-                                    alert("Decryption failed: " + e.message);
-                                }
-                            };
-                            
-                            btnConfirmVaultPassword.addEventListener('click', handleClientDecrypt);
-                            btnCloseVaultModal.addEventListener('click', () => {
-                                btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
-                                vaultPasswordModal.classList.add('hidden');
-                            }, { once: true });
+                                const handleClientDecrypt = async () => {
+                                    const manualPass = vaultPasswordInput.value;
+                                    if (!manualPass) return alert("Password required to decrypt!");
+                                    btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
+                                    vaultPasswordModal.classList.add('hidden');
+                                    
+                                    try {
+                                        const buffer = await blob.arrayBuffer();
+                                        const decryptedBuffer = await decryptFile(buffer, manualPass, transfer.salt, transfer.iv);
+                                        const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
+                                        triggerDownload(decryptedBlob, transfer.name, transfer.mime);
+                                    } catch (e) {
+                                        alert("Decryption failed: " + e.message);
+                                    }
+                                };
+                                
+                                btnConfirmVaultPassword.addEventListener('click', handleClientDecrypt);
+                                btnCloseVaultModal.addEventListener('click', () => {
+                                    btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
+                                    vaultPasswordModal.classList.add('hidden');
+                                }, { once: true });
+                            }
                         } else {
                             triggerDownload(blob, transfer.name, transfer.mime);
                         }
@@ -1849,6 +1870,25 @@ function renderClientExplorer() {
                     folderPasswordInput.value = '';
                     folderPasswordError.classList.add('hidden');
                     folderPasswordModal.classList.remove('hidden');
+                } else if (child.isVault && !clientUnlockedVaults[child.id]) {
+                    vaultPasswordModal.classList.remove('hidden');
+                    vaultPasswordInput.value = '';
+                    
+                    const handleClientVaultUnlock = () => {
+                        const pass = vaultPasswordInput.value;
+                        if (!pass) return alert("Password required");
+                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                        
+                        clientUnlockedVaults[child.id] = pass;
+                        clientCurrentDir = child;
+                        renderClientExplorer();
+                    };
+                    btnConfirmVaultPassword.addEventListener('click', handleClientVaultUnlock);
+                    btnCloseVaultModal.addEventListener('click', () => {
+                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
+                        vaultPasswordModal.classList.add('hidden');
+                    }, { once: true });
                 } else {
                     clientCurrentDir = child;
                     renderClientExplorer();
