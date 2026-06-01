@@ -224,7 +224,7 @@ const joinUrl = document.getElementById('join-url');
 const clientDownloading = document.getElementById('client-downloading');
 const downloadFilename = document.getElementById('download-filename');
 
-const toggleGuestUploads = document.getElementById('toggle-guest-uploads');
+// Guest Permissions logic will be connection-specific
 const btnUploadFilesClient = document.getElementById('btn-upload-files-client');
 const btnUploadFolderClient = document.getElementById('btn-upload-folder-client');
 const clientFileInput = document.getElementById('client-file-input');
@@ -359,11 +359,76 @@ if (radarCanvas) {
             const dx = x - blip.x;
             const dy = y - blip.y;
             if (Math.sqrt(dx*dx + dy*dy) < 20) {
-                openWhisper(blip.id, blip.alias, blip.color);
+                if (isHost) {
+                    openRadarGuestModal(blip.id, blip.alias, blip.color);
+                } else {
+                    openWhisper(blip.id, blip.alias, blip.color);
+                }
                 break;
             }
         }
     });
+
+    let currentRadarGuestId = null;
+    let currentRadarGuestAlias = null;
+    let currentRadarGuestColor = null;
+    const radarGuestModal = document.getElementById('radar-guest-modal');
+    const radarGuestName = document.getElementById('radar-guest-name');
+    const radarGuestDot = document.getElementById('radar-guest-dot');
+    
+    if (radarGuestModal) {
+        document.getElementById('btn-close-radar-modal').addEventListener('click', () => {
+            radarGuestModal.classList.add('hidden');
+        });
+        
+        document.getElementById('btn-radar-whisper').addEventListener('click', () => {
+            radarGuestModal.classList.add('hidden');
+            openWhisper(currentRadarGuestId, currentRadarGuestAlias, currentRadarGuestColor);
+        });
+        
+        document.getElementById('btn-radar-call').addEventListener('click', () => {
+            radarGuestModal.classList.add('hidden');
+            openWhisper(currentRadarGuestId, currentRadarGuestAlias, currentRadarGuestColor);
+            // Wait a tick for whisper modal to open, then trigger call
+            setTimeout(() => {
+                document.getElementById('btn-call-peer').click();
+            }, 100);
+        });
+        
+        const bindPerm = (id, permKey) => {
+            document.getElementById(id).addEventListener('change', (e) => {
+                const conn = connections.find(c => c.peer === currentRadarGuestId);
+                if (conn) {
+                    if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false };
+                    conn.permissions[permKey] = e.target.checked;
+                    conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                }
+            });
+        };
+        
+        bindPerm('radar-perm-upload', 'upload');
+        bindPerm('radar-perm-delete', 'delete');
+        bindPerm('radar-perm-edit', 'edit');
+    }
+
+    function openRadarGuestModal(id, alias, color) {
+        currentRadarGuestId = id;
+        currentRadarGuestAlias = alias;
+        currentRadarGuestColor = color;
+        
+        radarGuestName.textContent = alias;
+        radarGuestDot.style.backgroundColor = color;
+        
+        const conn = connections.find(c => c.peer === id);
+        if (conn) {
+            if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false };
+            document.getElementById('radar-perm-upload').checked = conn.permissions.upload;
+            document.getElementById('radar-perm-delete').checked = conn.permissions.delete;
+            document.getElementById('radar-perm-edit').checked = conn.permissions.edit;
+        }
+        
+        radarGuestModal.classList.remove('hidden');
+    }
 
     function drawRadar() {
         requestAnimationFrame(drawRadar);
@@ -530,6 +595,8 @@ class VirtualFileSystem {
 const vfs = new VirtualFileSystem();
 let clientVFS = null; // Client's copy of the tree
 let clientCurrentDir = null;
+let myPermissions = { upload: false, delete: false, edit: false };
+let currentEditorFileId = null;
 
 // State
 let isHost = true;
@@ -690,6 +757,7 @@ async function initHost() {
         broadcastPeers();
         conn.isAuthenticated = !hostPassword;
         conn.unlockedFolders = new Set();
+        conn.permissions = { upload: false, delete: false, edit: false };
         
         conn.on('data', (data) => {
             if (data.type === 'REQUEST_MAGIC_FILE') {
@@ -710,7 +778,7 @@ async function initHost() {
                     conn.isAuthenticated = true;
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
-                    if (toggleGuestUploads) conn.send({ type: 'GUEST_UPLOAD_ENABLED', enabled: toggleGuestUploads.checked });
+                    conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                 } else {
                     conn.send({ type: 'AUTH_FAIL' });
                 }
@@ -807,11 +875,11 @@ async function initHost() {
                     sendFileInChunks(conn, 'zip-all', blob, 'local-cast-backup.zip', 'application/zip', 'ZIP_CHUNK');
                 });
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
-                if (toggleGuestUploads && toggleGuestUploads.checked) {
+                if (conn.permissions && conn.permissions.upload) {
                     incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size, path: data.path, targetFolderId: data.targetFolderId };
                 }
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
-                if (!toggleGuestUploads || !toggleGuestUploads.checked) return;
+                if (!conn.permissions || !conn.permissions.upload) return;
                 const transfer = incomingTransfers[data.id];
                 if (transfer) {
                     transfer.chunks[data.index] = data.chunk;
@@ -850,7 +918,7 @@ async function initHost() {
                     }
                 }
             } else if (data.type === 'CLIENT_RENAME_NODE') {
-                if (toggleGuestUploads && toggleGuestUploads.checked) {
+                if (conn.permissions && conn.permissions.delete) {
                     const node = vfs.findNode(data.id);
                     if (node && !node.isLocked) {
                         node.name = data.newName;
@@ -860,13 +928,35 @@ async function initHost() {
                     }
                 }
             } else if (data.type === 'CLIENT_DELETE_NODE') {
-                if (toggleGuestUploads && toggleGuestUploads.checked) {
+                if (conn.permissions && conn.permissions.delete) {
                     const node = vfs.findNode(data.id);
                     if (node && node.parent && !node.isLocked && !node.parent.isLocked) {
                         node.parent.children = node.parent.children.filter(c => c.id !== data.id);
                         saveVFSToDB();
                         renderHostExplorer();
                         broadcastTree();
+                    }
+                }
+            } else if (data.type === 'TEXT_EDIT_SYNC') {
+                if (conn.permissions && conn.permissions.edit) {
+                    const node = vfs.findNode(data.fileId);
+                    if (node && !node.isLocked) {
+                        const file = new File([new Blob([data.text], { type: 'text/plain' })], node.name, { type: 'text/plain' });
+                        node.fileObj = file;
+                        node.size = file.size;
+                        saveVFSToDB();
+                        
+                        if (currentEditorFileId === data.fileId && !editorModal.classList.contains('hidden')) {
+                            const selStart = editorTextarea.selectionStart;
+                            editorTextarea.value = data.text;
+                            editorTextarea.setSelectionRange(selStart, selStart);
+                            editorTextarea.style.borderColor = 'var(--neon-green)';
+                            setTimeout(() => editorTextarea.style.borderColor = 'var(--border-color)', 500);
+                        }
+                        
+                        connections.forEach(c => {
+                            if (c !== conn && c.open) c.send({ type: 'TEXT_EDIT_SYNC', fileId: data.fileId, text: data.text });
+                        });
                     }
                 }
             }
@@ -877,7 +967,7 @@ async function initHost() {
                 conn.send({ type: 'AUTH_REQUIRED' });
             } else {
                 conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
-                if (toggleGuestUploads) conn.send({ type: 'GUEST_UPLOAD_ENABLED', enabled: toggleGuestUploads.checked });
+                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
             }
         });
         
@@ -976,15 +1066,6 @@ function setupHostActions() {
     
     fileInput.addEventListener('change', (e) => processFiles(Array.from(e.target.files)));
     folderInput.addEventListener('change', (e) => processFiles(Array.from(e.target.files)));
-
-    if (toggleGuestUploads) {
-        toggleGuestUploads.addEventListener("change", (e) => {
-            connections.forEach(conn => {
-                if (conn.open) conn.send({ type: "GUEST_UPLOAD_ENABLED", enabled: e.target.checked });
-            });
-        });
-    }
-
 }
 
 function processFiles(files) {
@@ -1184,6 +1265,7 @@ function renderHostExplorer() {
             item.addEventListener('dblclick', async () => {
                 if (child.fileObj) {
                     const text = await child.fileObj.text();
+                    currentEditorFileId = child.id;
                     editorFilename.value = child.name;
                     editorTextarea.value = text;
                     editorModal.classList.remove('hidden');
@@ -1349,9 +1431,16 @@ function initClient() {
                         delete incomingTransfers[data.id];
                     }
                 }
-            } else if (data.type === 'GUEST_UPLOAD_ENABLED') {
-                if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !data.enabled);
-                if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !data.enabled);
+            } else if (data.type === 'GUEST_PERMISSIONS') {
+                myPermissions = data.permissions;
+                if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !myPermissions.upload);
+                if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !myPermissions.upload);
+                
+                // Hide context menu rename/delete buttons if not allowed
+                const ctxRename = document.getElementById('ctx-rename');
+                const ctxDelete = document.getElementById('ctx-delete');
+                if (ctxRename) ctxRename.style.display = myPermissions.delete ? 'flex' : 'none';
+                if (ctxDelete) ctxDelete.style.display = myPermissions.delete ? 'flex' : 'none';
             } else if (data.type === 'UPLOAD_COMPLETE') {
                 // Let the processClientFiles loop handle the UI and final alert
             } else if (data.type === 'WHITEBOARD_DRAW') {
@@ -1361,6 +1450,14 @@ function initClient() {
                 }
             } else if (data.type === 'WHITEBOARD_CLEAR') {
                 if (wbCtx) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+            } else if (data.type === 'TEXT_EDIT_SYNC') {
+                if (currentEditorFileId === data.fileId && !editorModal.classList.contains('hidden')) {
+                    const selStart = editorTextarea.selectionStart;
+                    editorTextarea.value = data.text;
+                    editorTextarea.setSelectionRange(selStart, selStart);
+                    editorTextarea.style.borderColor = 'var(--neon-blue)';
+                    setTimeout(() => editorTextarea.style.borderColor = 'var(--border-color)', 500);
+                }
             } else if (data.type === 'INTERCOM_LIST') {
                 data.users.forEach(id => {
                     if (id !== peer.id && inIntercom) {
@@ -1696,11 +1793,38 @@ hostSearch.addEventListener('input', (e) => { hostSearchQuery = e.target.value.t
 clientSearch.addEventListener('input', (e) => { clientSearchQuery = e.target.value.toLowerCase(); renderClientExplorer(); });
 
 btnNewNote.addEventListener('click', () => {
+    currentEditorFileId = null;
     editorFilename.value = 'Untitled.txt';
     editorTextarea.value = '';
     editorModal.classList.remove('hidden');
 });
-btnCloseEditor.addEventListener('click', () => editorModal.classList.add('hidden'));
+btnCloseEditor.addEventListener('click', () => {
+    currentEditorFileId = null;
+    editorModal.classList.add('hidden');
+});
+
+editorTextarea.addEventListener('input', () => {
+    if (!currentEditorFileId) return; // Don't sync completely new unsaved files
+    const text = editorTextarea.value;
+    if (isHost) {
+        connections.forEach(conn => {
+            if (conn.open) conn.send({ type: 'TEXT_EDIT_SYNC', fileId: currentEditorFileId, text: text });
+        });
+        
+        // Host live saves to its own VFS instantly
+        const node = vfs.findNode(currentEditorFileId);
+        if (node && !node.isLocked) {
+            const file = new File([new Blob([text], { type: 'text/plain' })], node.name, { type: 'text/plain' });
+            node.fileObj = file;
+            node.size = file.size;
+            saveVFSToDB();
+        }
+    } else {
+        if (hostConnection && hostConnection.open && myPermissions.edit) {
+            hostConnection.send({ type: 'TEXT_EDIT_SYNC', fileId: currentEditorFileId, text: text });
+        }
+    }
+});
 
 btnSaveNote.addEventListener('click', async () => {
     const text = editorTextarea.value;
@@ -1758,8 +1882,10 @@ if (ctxOpen) {
             } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
                 if (node.fileObj) {
                     const text = await node.fileObj.text();
+                    currentEditorFileId = node.id;
                     editorFilename.value = node.name;
                     editorTextarea.value = text;
+                    editorTextarea.readOnly = !myPermissions.edit; // Set readOnly if no edit permission
                     editorModal.classList.remove('hidden');
                 }
             } else {
