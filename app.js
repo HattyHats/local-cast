@@ -698,7 +698,7 @@ async function initHost() {
                     if (node.isLocked || node.password) {
                         conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires a password.' });
                     } else {
-                        sendFileInChunks(node, conn);
+                        sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK');
                     }
                 } else {
                     conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File not found or access denied.' });
