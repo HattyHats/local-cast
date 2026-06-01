@@ -32,4 +32,4 @@ Local-Cast transforms any modern browser into a secure, serverless networking hu
 * **Is the connection secure?** Yes. WebRTC mandates End-to-End Encryption (E2EE) using DTLS and SRTP protocols. No middleman (not even the signaling server) can intercept, read, or listen to your files or audio calls. The browser sandbox also prevents the app from accessing your hard drive or OS.
 * **Can this be used with strangers?** Yes, BUT it is **NOT anonymous**. Because this is a Peer-to-Peer network, the browsers must exchange IP addresses to establish a connection. Anyone you connect with can see your public IP address using basic networking tools. If you need to stay completely anonymous, all parties must use a VPN before connecting.
 
-* Disclaimer: This is a work and progress. Please use at your own risk.
+* Disclaimer: This is a work and progress. 
