@@ -674,8 +674,11 @@ async function initHost() {
                     sendFileInChunks(conn, 'zip-all', blob, 'local-cast-backup.zip', 'application/zip', 'ZIP_CHUNK');
                 });
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
-                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size, path: data.path, targetFolderId: data.targetFolderId };
+                if (toggleGuestUploads && toggleGuestUploads.checked) {
+                    incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size, path: data.path, targetFolderId: data.targetFolderId };
+                }
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
+                if (!toggleGuestUploads || !toggleGuestUploads.checked) return;
                 const transfer = incomingTransfers[data.id];
                 if (transfer) {
                     transfer.chunks[data.index] = data.chunk;
@@ -1301,6 +1304,12 @@ function initClient() {
 
 async function processClientFiles(files) {
     if (!files.length || !hostConnection || !hostConnection.open) return;
+    const btnUploadFilesClient = document.getElementById('btn-upload-files-client');
+    if (btnUploadFilesClient && btnUploadFilesClient.classList.contains('hidden')) {
+        alert("The host has disabled guest uploads.");
+        return;
+    }
+    
     clientDownloading.classList.remove("hidden");
     
     for (let i = 0; i < files.length; i++) {
