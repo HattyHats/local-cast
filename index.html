@@ -2,6 +2,22 @@
 <html lang="en">
 <head>
 <script>
+window.addEventListener('error', function(e) {
+    const err = document.createElement('div');
+    err.style.position = 'fixed';
+    err.style.top = '0';
+    err.style.left = '0';
+    err.style.zIndex = '999999';
+    err.style.background = 'red';
+    err.style.color = 'white';
+    err.style.fontSize = '20px';
+    err.style.padding = '20px';
+    err.textContent = 'JS Error: ' + e.message + ' at ' + e.filename + ':' + e.lineno;
+    document.body.appendChild(err);
+});
+</script>
+
+<script>
 window.onerror = function(msg, src, lineno, colno, error) {
     console.log("ERROR INTERCEPTED:", msg);
     fetch('/log_error?msg=' + encodeURIComponent(msg + ' at ' + lineno + ':' + colno));
