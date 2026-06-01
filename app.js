@@ -2334,17 +2334,6 @@ document.querySelectorAll('.bg-btn').forEach(btn => {
     });
 });
 
-const ctxMagicLink = document.getElementById('ctx-magic-link');
-if (ctxMagicLink) {
-    ctxMagicLink.addEventListener('click', () => {
-        if (!contextTargetId) return;
-        const magicLink = `${window.location.origin}/?file=${contextTargetId}`;
-        navigator.clipboard.writeText(magicLink).then(() => {
-            alert("Magic link copied to clipboard!");
-        });
-        hideContextMenu();
-    });
-}
 
 const ctxHoneypot = document.getElementById('ctx-honeypot');
 if (ctxHoneypot) {

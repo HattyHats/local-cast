@@ -267,6 +267,10 @@ window.onerror = function(msg, src, lineno, colno, error) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Download
         </div>
+        <div class="context-item" id="ctx-magic-link" style="color: var(--neon-blue);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            Copy Magic Link
+        </div>
         <div class="context-item" id="ctx-lock">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
             Lock / Unlock
@@ -556,7 +560,22 @@ window.onerror = function(msg, src, lineno, colno, error) {
     <script src="./localforage.min.js"></script>
     <script src="./qrcode.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <script src="./app.js"></script>
+    <!-- MAGIC LINK MODAL -->
+    <div id="magic-link-modal" class="modal-overlay hidden" style="background-color: var(--bg-dark); z-index: 10000;">
+        <div class="modal" style="text-align: center; max-width: 500px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--neon-blue)" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            <h2 class="neon-blue" style="margin-bottom: 1rem;">SECURE MAGIC LINK</h2>
+            <p style="color: var(--text-main); font-size: 1rem; margin-bottom: 0.5rem;" id="magic-filename">Connecting to peer...</p>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;" id="magic-status">Establishing encrypted WebRTC channel...</p>
+            <div id="magic-progress-bar" style="width: 100%; height: 10px; background: #1a1a1a; border-radius: 5px; overflow: hidden; margin-bottom: 1rem; border: 1px solid var(--border-color);">
+                <div id="magic-progress-fill" style="height: 100%; width: 0%; background: var(--neon-blue); transition: width 0.2s;"></div>
+            </div>
+            <p id="magic-progress-text" style="color: var(--text-muted); font-size: 0.8rem; font-family: var(--font-mono);">0%</p>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
