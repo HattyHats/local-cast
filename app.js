@@ -1037,10 +1037,26 @@ async function initHost() {
                 if (conn.permissions && conn.permissions.edit) {
                     const node = vfs.findNode(data.fileId);
                     if (node && !node.isLocked) {
-                        const file = new File([new Blob([data.text], { type: 'text/plain' })], node.name, { type: 'text/plain' });
-                        node.fileObj = file;
-                        node.size = file.size;
-                        saveVFSToDB();
+                        (async () => {
+                            let fileBlob = new Blob([data.text], { type: 'text/plain' });
+                            if (node.isEncrypted) {
+                                let vaultDir = node.parent;
+                                while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
+                                if (vaultDir && vaultDir.isVault) {
+                                    const pass = unlockedVaults[vaultDir.id];
+                                    if (pass) {
+                                        const buffer = await fileBlob.arrayBuffer();
+                                        const iv = crypto.getRandomValues(new Uint8Array(12));
+                                        const encryptedBuffer = await encryptFile(buffer, pass, node.salt, iv);
+                                        fileBlob = new Blob([encryptedBuffer], { type: 'text/plain' });
+                                        node.iv = iv;
+                                    }
+                                }
+                            }
+                            node.fileObj = new File([fileBlob], node.name, { type: 'text/plain' });
+                            node.size = fileBlob.size;
+                            saveVFSToDB();
+                        })();
                         
                         if (currentEditorFileId === data.fileId && !editorModal.classList.contains('hidden')) {
                             const selStart = editorTextarea.selectionStart;
@@ -2100,10 +2116,26 @@ editorTextarea.addEventListener('input', () => {
         // Host live saves to its own VFS instantly
         const node = vfs.findNode(currentEditorFileId);
         if (node && !node.isLocked) {
-            const file = new File([new Blob([text], { type: 'text/plain' })], node.name, { type: 'text/plain' });
-            node.fileObj = file;
-            node.size = file.size;
-            saveVFSToDB();
+            (async () => {
+                let fileBlob = new Blob([text], { type: 'text/plain' });
+                if (node.isEncrypted) {
+                    let vaultDir = node.parent;
+                    while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
+                    if (vaultDir && vaultDir.isVault) {
+                        const pass = unlockedVaults[vaultDir.id];
+                        if (pass) {
+                            const buffer = await fileBlob.arrayBuffer();
+                            const iv = crypto.getRandomValues(new Uint8Array(12));
+                            const encryptedBuffer = await encryptFile(buffer, pass, node.salt, iv);
+                            fileBlob = new Blob([encryptedBuffer], { type: 'text/plain' });
+                            node.iv = iv;
+                        }
+                    }
+                }
+                node.fileObj = new File([fileBlob], node.name, { type: 'text/plain' });
+                node.size = fileBlob.size;
+                saveVFSToDB();
+            })();
         }
     } else {
         if (hostConnection && hostConnection.open && myPermissions.edit) {
@@ -2120,23 +2152,71 @@ btnSaveNote.addEventListener('click', async () => {
     const blob = new Blob([text], { type: 'text/plain' });
     const file = new File([blob], name, { type: 'text/plain' });
     
-    const id = "file_" + Date.now();
-    const node = { id, type: 'file', name, size: file.size, mime: file.type, parent: vfs.currentDir, fileObj: file };
-    
-    // if editing existing, overwrite
-    const existing = vfs.currentDir.children.find(c => c.name === name);
-    if (existing) {
-        existing.fileObj = file;
-        existing.size = file.size;
+    if (isHost) {
+        const id = "file_" + Date.now();
+        const node = { id, type: 'file', name, size: file.size, mime: file.type, parent: vfs.currentDir, fileObj: file };
+        
+        // if editing existing, overwrite
+        const existing = vfs.currentDir.children.find(c => c.name === name);
+        if (existing) {
+            let finalBlob = blob;
+            if (existing.isEncrypted) {
+                let vaultDir = existing.parent;
+                while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
+                if (vaultDir && vaultDir.isVault) {
+                    const pass = unlockedVaults[vaultDir.id];
+                    if (pass) {
+                        const buffer = await file.arrayBuffer();
+                        const iv = crypto.getRandomValues(new Uint8Array(12));
+                        const encryptedBuffer = await encryptFile(buffer, pass, existing.salt, iv);
+                        finalBlob = new Blob([encryptedBuffer], { type: file.type });
+                        existing.iv = iv;
+                    }
+                }
+            }
+            existing.fileObj = new File([finalBlob], existing.name, { type: file.type });
+            existing.size = finalBlob.size;
+        } else {
+            if (vfs.currentDir.isVault || (vfs.currentDir.parent && vfs.currentDir.parent.isVault)) {
+                let vaultDir = vfs.currentDir;
+                while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
+                if (vaultDir && vaultDir.isVault) {
+                    const pass = unlockedVaults[vaultDir.id];
+                    if (pass) {
+                        const salt = crypto.getRandomValues(new Uint8Array(16));
+                        const iv = crypto.getRandomValues(new Uint8Array(12));
+                        const buffer = await file.arrayBuffer();
+                        const encryptedBuffer = await encryptFile(buffer, pass, salt, iv);
+                        const encryptedBlob = new Blob([encryptedBuffer], { type: file.type });
+                        
+                        node.fileObj = new File([encryptedBlob], name, { type: file.type });
+                        node.size = encryptedBlob.size;
+                        node.isEncrypted = true;
+                        node.salt = salt;
+                        node.iv = iv;
+                    }
+                }
+            }
+            vfs.currentDir.children.push(node);
+        }
+        
+        editorModal.classList.add('hidden');
+        saveVFSToDB();
+        renderHostExplorer();
+        broadcastTree();
+        notifyFileAdded(name);
     } else {
-        vfs.currentDir.children.push(node);
+        // GUEST
+        if (!currentEditorFileId) {
+            // New file! Upload it!
+            if (hostConnection && hostConnection.open && myPermissions.upload) {
+                if (typeof processClientFiles === 'function') processClientFiles([file]);
+            } else {
+                alert("You do not have permission to upload files.");
+            }
+        }
+        editorModal.classList.add('hidden');
     }
-    
-    editorModal.classList.add('hidden');
-    saveVFSToDB();
-    renderHostExplorer();
-    broadcastTree();
-    notifyFileAdded(name);
 });
 
 document.addEventListener('click', (e) => {
@@ -2449,6 +2529,7 @@ window.onload = runBootSequence;
 const profileModal = document.getElementById('profile-modal');
 const profileNameInput = document.getElementById('profile-name-input');
 const btnSaveProfile = document.getElementById('btn-save-profile');
+const btnEditProfile = document.getElementById('btn-edit-profile');
 let guestAlias = localStorage.getItem('localcast_alias') || '';
 let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
 
@@ -2477,6 +2558,22 @@ if (profileModal) {
             }
         }
     });
+    
+    if (btnEditProfile) {
+        btnEditProfile.addEventListener('click', () => {
+            profileNameInput.value = guestAlias;
+            document.querySelectorAll('.color-swatch').forEach(s => {
+                if (s.dataset.color === guestColor) {
+                    s.classList.add('selected');
+                    s.style.borderColor = '#fff';
+                } else {
+                    s.classList.remove('selected');
+                    s.style.borderColor = 'transparent';
+                }
+            });
+            profileModal.classList.remove('hidden');
+        });
+    }
 }
 
 
