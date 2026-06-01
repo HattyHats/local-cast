@@ -18,7 +18,59 @@ const btnCloseEditor = document.getElementById('btn-close-editor');
 const hostSearch = document.getElementById('host-search');
 const clientSearch = document.getElementById('client-search');
 const btnViewToggleHost = document.getElementById('btn-view-toggle-host');
+
+const sortSelectHost = document.getElementById('sort-select-host');
+const sortSelectClient = document.getElementById('sort-select-client');
+
+btnViewToggleHost.addEventListener('click', () => {
+    isListView = !isListView;
+    localStorage.setItem('localcast_listview', isListView);
+    renderHostExplorer();
+});
+
+if (sortSelectHost) {
+    sortSelectHost.addEventListener('change', () => {
+        renderHostExplorer();
+    });
+}
+if (sortSelectClient) {
+    sortSelectClient.addEventListener('change', () => {
+        renderClientExplorer();
+    });
+}
+
 const btnViewToggleClient = document.getElementById('btn-view-toggle-client');
+
+btnViewToggleClient.addEventListener('click', () => {
+    isListView = !isListView;
+    localStorage.setItem('localcast_listview', isListView);
+    renderClientExplorer();
+});
+
+function sortNodes(nodes, criteria) {
+    // Return a new sorted array so we don't mutate original
+    let sorted = [...nodes];
+    sorted.sort((a, b) => {
+        if (criteria === 'name-asc') {
+            return a.name.localeCompare(b.name);
+        } else if (criteria === 'name-desc') {
+            return b.name.localeCompare(a.name);
+        } else if (criteria === 'type') {
+            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        } else if (criteria === 'size-asc') {
+            const sizeA = a.size || 0;
+            const sizeB = b.size || 0;
+            return sizeA - sizeB;
+        } else if (criteria === 'size-desc') {
+            const sizeA = a.size || 0;
+            const sizeB = b.size || 0;
+            return sizeB - sizeA;
+        }
+        return 0;
+    });
+    return sorted;
+}
 
 const contextMenu = document.getElementById('context-menu');
 const ctxRename = document.getElementById('ctx-rename');
@@ -77,8 +129,7 @@ function notifyFileAdded(filename) {
 
 
 let contextTargetId = null;
-let isListViewHost = false;
-let isListViewClient = false;
+let isListView = localStorage.getItem('localcast_listview') === 'true';
 let hostSearchQuery = '';
 let clientSearchQuery = '';
 
@@ -528,7 +579,7 @@ async function initHost() {
         } else {
             if (confirm("Remove password protection?")) {
                 hostPassword = null;
-                iconUnlocked.classList.remove('hidden');
+                iconUnlocked.classList.add('hidden');
                 iconLocked.classList.add('hidden');
                 connections.forEach(conn => {
                     if (!conn.isAuthenticated) {
@@ -946,6 +997,11 @@ function renderHostExplorer() {
         itemsToRender = [];
         searchVFS(vfs.root, hostSearchQuery, itemsToRender);
     }
+    
+    if (sortSelectHost) {
+        itemsToRender = sortNodes(itemsToRender, sortSelectHost.value);
+    }
+    
     itemsToRender.forEach(child => {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
@@ -1372,6 +1428,11 @@ function renderClientExplorer() {
         itemsToRender = [];
         searchVFS(clientVFS, clientSearchQuery, itemsToRender);
     }
+    
+    if (sortSelectClient) {
+        itemsToRender = sortNodes(itemsToRender, sortSelectClient.value);
+    }
+    
     itemsToRender.forEach(child => {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
@@ -1549,15 +1610,6 @@ chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') btnSendCha
 
 hostSearch.addEventListener('input', (e) => { hostSearchQuery = e.target.value.toLowerCase(); renderHostExplorer(); });
 clientSearch.addEventListener('input', (e) => { clientSearchQuery = e.target.value.toLowerCase(); renderClientExplorer(); });
-
-btnViewToggleHost.addEventListener('click', () => {
-    isListViewHost = !isListViewHost;
-    hostExplorerGrid.classList.toggle('list-view', isListViewHost);
-});
-btnViewToggleClient.addEventListener('click', () => {
-    isListViewClient = !isListViewClient;
-    clientExplorerGrid.classList.toggle('list-view', isListViewClient);
-});
 
 btnNewNote.addEventListener('click', () => {
     editorFilename.value = 'Untitled.txt';
