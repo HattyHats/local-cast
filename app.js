@@ -1211,8 +1211,7 @@ function initClient() {
                 if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !data.enabled);
                 if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !data.enabled);
             } else if (data.type === 'UPLOAD_COMPLETE') {
-                clientDownloading.classList.add('hidden');
-                alert("Upload complete!");
+                // Let the processClientFiles loop handle the UI and final alert
             } else if (data.type === 'WHITEBOARD_DRAW') {
                 if (wbCtx) {
                     const w = wbCanvas.width; const h = wbCanvas.height;
@@ -1287,19 +1286,6 @@ function initClient() {
     if(btnUploadFilesClient) btnUploadFilesClient.addEventListener("click", () => clientFileInput.click());
     if(btnUploadFolderClient) btnUploadFolderClient.addEventListener("click", () => clientFolderInput.click());
     
-    async function processClientFiles(files) {
-        if (!files.length || !hostConnection || !hostConnection.open) return;
-        clientDownloading.classList.remove("hidden");
-        
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            downloadFilename.textContent = `Uploading ${file.name} (${i + 1}/${files.length})`;
-            document.getElementById("client-progress-text").textContent = "Starting...";
-            const extraData = { targetFolderId: clientCurrentDir.id, path: file.webkitRelativePath || '' };
-            await sendFileInChunks(hostConnection, "upload_" + Date.now() + "_" + i, file, file.name, file.type, "CLIENT_UPLOAD_CHUNK", extraData);
-        }
-    }
-    
     if(clientFileInput) clientFileInput.addEventListener("change", (e) => processClientFiles(Array.from(e.target.files)));
     if(clientFolderInput) clientFolderInput.addEventListener("change", (e) => processClientFiles(Array.from(e.target.files)));
     
@@ -1311,7 +1297,22 @@ function initClient() {
         }
     });
     
+}
+
+async function processClientFiles(files) {
+    if (!files.length || !hostConnection || !hostConnection.open) return;
+    clientDownloading.classList.remove("hidden");
     
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        downloadFilename.textContent = `Uploading ${file.name} (${i + 1}/${files.length})`;
+        document.getElementById("client-progress-text").textContent = "Starting...";
+        const extraData = { targetFolderId: clientCurrentDir.id, path: file.webkitRelativePath || '' };
+        await sendFileInChunks(hostConnection, "upload_" + Date.now() + "_" + i, file, file.name, file.type, "CLIENT_UPLOAD_CHUNK", extraData);
+    }
+    
+    clientDownloading.classList.add('hidden');
+    alert("Upload complete!");
 }
 
 if (btnCloseMedia) {
@@ -2079,6 +2080,8 @@ const themes = {
         '--bg-dark': '#050507',
         '--bg-card': '#0a0b10',
         '--bg-card-hover': '#101218',
+        '--text-main': '#e2e8f0',
+        '--text-muted': '#64748b',
         '--neon-blue': '#00f0ff',
         '--neon-green': '#39ff14',
         '--neon-red': '#ff003c',
@@ -2088,6 +2091,8 @@ const themes = {
         '--bg-dark': '#000000',
         '--bg-card': '#001100',
         '--bg-card-hover': '#002200',
+        '--text-main': '#39ff14',
+        '--text-muted': '#1b8a06',
         '--neon-blue': '#39ff14',
         '--neon-green': '#39ff14',
         '--neon-red': '#39ff14',
@@ -2097,6 +2102,8 @@ const themes = {
         '--bg-dark': '#0f0f1a',
         '--bg-card': '#1a0b1c',
         '--bg-card-hover': '#2a112c',
+        '--text-main': '#e2e8f0',
+        '--text-muted': '#64748b',
         '--neon-blue': '#fce205', // Yellow
         '--neon-green': '#00f0ff',
         '--neon-red': '#ff00ff', // Pink
@@ -2106,6 +2113,8 @@ const themes = {
         '--bg-dark': '#050000',
         '--bg-card': '#1a0000',
         '--bg-card-hover': '#330000',
+        '--text-main': '#ffcccc',
+        '--text-muted': '#cc6666',
         '--neon-blue': '#ff003c',
         '--neon-green': '#ff003c',
         '--neon-red': '#ff003c',
@@ -2147,8 +2156,8 @@ document.querySelectorAll('.theme-btn').forEach(btn => {
 });
 
 const backgrounds = {
-    'default': 'linear-gradient(rgba(10, 10, 15, 0.9), rgba(10, 10, 15, 0.9)), linear-gradient(0deg, transparent 24%, var(--border-glow) 25%, var(--border-glow) 26%, transparent 27%, transparent 74%, var(--border-glow) 75%, var(--border-glow) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, var(--border-glow) 25%, var(--border-glow) 26%, transparent 27%, transparent 74%, var(--border-glow) 75%, var(--border-glow) 76%, transparent 77%, transparent)',
-    'circuit': 'radial-gradient(circle at 50% 50%, rgba(10, 10, 15, 0.9) 0%, rgba(5, 5, 10, 1) 100%), repeating-linear-gradient(45deg, var(--border-glow) 0, var(--border-glow) 1px, transparent 1px, transparent 20px), repeating-linear-gradient(-45deg, var(--border-glow) 0, var(--border-glow) 1px, transparent 1px, transparent 20px)',
+    'default': 'linear-gradient(0deg, transparent 24%, var(--border-glow) 25%, var(--border-glow) 26%, transparent 27%, transparent 74%, var(--border-glow) 75%, var(--border-glow) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, var(--border-glow) 25%, var(--border-glow) 26%, transparent 27%, transparent 74%, var(--border-glow) 75%, var(--border-glow) 76%, transparent 77%, transparent)',
+    'circuit': 'repeating-linear-gradient(45deg, var(--border-glow) 0, var(--border-glow) 1px, transparent 1px, transparent 20px), repeating-linear-gradient(-45deg, var(--border-glow) 0, var(--border-glow) 1px, transparent 1px, transparent 20px)',
     'dots': 'radial-gradient(var(--border-glow) 1px, transparent 1px)',
     'none': 'none'
 };
