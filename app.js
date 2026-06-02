@@ -2304,12 +2304,26 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
     const totalChunks = Math.ceil(fileBlob.size / CHUNK_SIZE);
     conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks, ...extraData });
     for (let i = 0; i < totalChunks; i++) {
+        // Prevent WebRTC buffer overflow by waiting for the data channel buffer to drain
+        if (conn.dataChannel) {
+            while (conn.dataChannel.bufferedAmount > 1024 * 128) { // Wait if buffer > 128KB
+                await new Promise(r => setTimeout(r, 50));
+            }
+        }
+        
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, fileBlob.size);
         const chunk = fileBlob.slice(start, end);
         const arrayBuffer = await chunk.arrayBuffer();
-        conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
-        await new Promise(r => setTimeout(r, 10)); // Prevent WebRTC buffer overflow
+        
+        try {
+            conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
+        } catch (e) {
+            console.warn("Chunk send error, retrying...", e);
+            await new Promise(r => setTimeout(r, 500));
+            conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
+        }
+        await new Promise(r => setTimeout(r, 2)); // Tiny yield to event loop
     }
 }
 
