@@ -92,8 +92,13 @@ window.onerror = function(msg, src, lineno, colno, error) {
                         </div>
                     </div>
                     <div class="join-info hidden" id="join-info">
-                        <p class="join-url" id="join-url"></p>
-                        <p class="join-instruction">Scan to connect client device</p>
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: rgba(0, 0, 0, 0.4); padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-light); margin-bottom: 0.5rem;">
+                            <p class="join-url" id="join-url" style="margin: 0; white-space: nowrap; overflow-x: auto; font-family: var(--font-mono); font-size: 0.75rem; color: var(--neon-blue); padding-bottom: 2px; scrollbar-width: none;"></p>
+                            <button id="btn-copy-url" class="btn-icon" style="color: #fff; padding: 0.2rem; flex-shrink: 0;" title="Copy Link">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
+                        <p class="join-instruction">Scan or copy to connect client device</p>
                     </div>
                 </div>
 
@@ -116,6 +121,11 @@ window.onerror = function(msg, src, lineno, colno, error) {
                         <button id="btn-whiteboard" class="custom-btn action-btn" style="border-color: #fcee0a; color: #fcee0a;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
                             Whiteboard
+                        </button>
+                        
+                        <button id="btn-mount-native" class="custom-btn action-btn" style="border-color: #00f0ff; color: #00f0ff;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>
+                            Mount Native Vault
                         </button>
                         
                         <button id="btn-upload-files" class="custom-btn action-btn">
@@ -678,6 +688,63 @@ window.onerror = function(msg, src, lineno, colno, error) {
             <input type="password" id="vault-password-input" class="custom-input" placeholder="Password" style="margin-bottom: 1.5rem;" autocomplete="off">
             
             <button id="btn-confirm-vault-password" class="custom-btn" style="width: 100%; border-color: var(--neon-green); color: var(--neon-green);">UNLOCK</button>
+        </div>
+    </div>
+
+    <!-- HOST APPROVAL MODAL -->
+    <div id="host-approval-modal" class="modal hidden" style="z-index: 10001;">
+        <div class="modal-content card" style="max-width: 400px; text-align: center;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--neon-green)" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <h3 style="color: var(--neon-green); margin-bottom: 0.5rem; font-size: 1.2rem;">ACCESS REQUEST</h3>
+            <p style="color: var(--text-main); font-size: 1rem; margin-bottom: 1.5rem;"><strong id="requesting-guest-name" style="color: #fff;">Unknown</strong> is requesting access to the Native Vault.</p>
+            
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; justify-content: center;">
+                <label style="color: var(--text-muted); font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="radio" name="vault-permission" value="read" checked> Read-Only
+                </label>
+                <label style="color: var(--text-muted); font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="radio" name="vault-permission" value="write"> Read/Write
+                </label>
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <button id="btn-approve-vault" class="custom-btn" style="flex: 1; border-color: var(--neon-green); color: var(--neon-green); background: transparent;">APPROVE</button>
+                <button id="btn-deny-vault" class="custom-btn" style="flex: 1; border-color: var(--neon-red); color: var(--neon-red); background: transparent;">DENY</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HOST OTP DISPLAY MODAL -->
+    <div id="host-otp-display-modal" class="modal hidden" style="z-index: 10002;">
+        <div class="modal-content card" style="max-width: 400px; text-align: center;">
+            <h3 style="color: var(--neon-blue); margin-bottom: 0.5rem; font-size: 1.2rem;">ONE-TIME PASSWORD</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">Give this PIN to <strong id="otp-guest-name">the guest</strong> securely. It will expire when they disconnect.</p>
+            
+            <div id="host-otp-code" style="font-size: 3rem; letter-spacing: 10px; font-weight: 800; color: #fff; background: #000; padding: 1rem; border-radius: 8px; border: 1px dashed var(--neon-blue); margin-bottom: 1.5rem; font-family: var(--font-mono);">
+                000000
+            </div>
+
+            <button id="btn-close-otp-display" class="custom-btn" style="width: 100%;">DONE</button>
+        </div>
+    </div>
+
+    <!-- GUEST OTP ENTRY MODAL -->
+    <div id="guest-otp-entry-modal" class="modal hidden" style="z-index: 10003;">
+        <div class="modal-content card" style="max-width: 350px; text-align: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="color: #fff; margin: 0; font-size: 1.2rem;">ENTER VAULT PIN</h3>
+                <button id="btn-close-guest-otp" class="btn-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
+                The Host must provide you with a 6-digit One-Time Password for this session.
+            </p>
+            
+            <input type="text" id="guest-otp-input" class="custom-input" placeholder="000000" maxlength="6" style="margin-bottom: 1.5rem; font-size: 2rem; text-align: center; letter-spacing: 10px; font-family: var(--font-mono);" autocomplete="off">
+            
+            <button id="btn-submit-guest-otp" class="custom-btn" style="width: 100%; border-color: var(--neon-blue); color: var(--neon-blue);">UNLOCK</button>
         </div>
     </div>
 

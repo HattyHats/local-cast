@@ -284,6 +284,7 @@ header {
     position: relative;
     overflow: hidden;
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    flex-shrink: 0;
 }
 .card:hover {
     border-color: var(--neon-blue);

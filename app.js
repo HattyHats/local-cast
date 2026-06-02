@@ -243,6 +243,13 @@ async function decryptFile(encryptedBuffer, password, salt, iv) {
 }
 
 async function getDecryptedFileObj(child) {
+    if (child.isNative && child.type === 'file') {
+        if (!nativeVaultPassword) throw new Error("Native Vault is locked");
+        const file = await child.nativeHandle.getFile();
+        const buffer = await file.arrayBuffer();
+        const decryptedBuffer = await decryptNativeFile(buffer, nativeVaultPassword);
+        return new Blob([decryptedBuffer], { type: child.mime });
+    }
     if (!child.isEncrypted) return child.fileObj;
     let current = child.parent;
     let password = null;
@@ -265,7 +272,22 @@ async function getDecryptedFileObj(child) {
 
 const btnUploadFiles = document.getElementById('btn-upload-files');
 const btnUploadFolder = document.getElementById('btn-upload-folder');
+const btnMountNative = document.getElementById('btn-mount-native');
 const btnDownloadAllHost = document.getElementById('btn-download-all-host');
+
+// Native Vault Modals
+const hostApprovalModal = document.getElementById('host-approval-modal');
+const hostOtpDisplayModal = document.getElementById('host-otp-display-modal');
+const guestOtpEntryModal = document.getElementById('guest-otp-entry-modal');
+const btnApproveVault = document.getElementById('btn-approve-vault');
+const btnDenyVault = document.getElementById('btn-deny-vault');
+const btnCloseOtpDisplay = document.getElementById('btn-close-otp-display');
+const btnCloseGuestOtp = document.getElementById('btn-close-guest-otp');
+const btnSubmitGuestOtp = document.getElementById('btn-submit-guest-otp');
+const requestingGuestName = document.getElementById('requesting-guest-name');
+const otpGuestName = document.getElementById('otp-guest-name');
+const hostOtpCode = document.getElementById('host-otp-code');
+const guestOtpInput = document.getElementById('guest-otp-input');
 
 const btnBurn = document.getElementById('btn-burn');
 const burnOverlay = document.getElementById('burn-overlay');
@@ -613,6 +635,139 @@ async function saveVFSToDB() {
     await localforage.setItem("vfs_root", stripParents(vfs.root));
 }
 
+
+// --- NATIVE VAULT ENGINE ---
+let nativeVaultHandle = null;
+let nativeVaultPassword = null;
+let nativeVaultOTP = null; // Generated for guest
+let guestNativePermissions = {}; // e.g. { 'peerId': 'read' | 'write' }
+
+async function encryptNativeFile(buffer, password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(password, salt);
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buffer);
+    const finalBuffer = new Uint8Array(16 + 12 + encrypted.byteLength);
+    finalBuffer.set(salt, 0);
+    finalBuffer.set(iv, 16);
+    finalBuffer.set(new Uint8Array(encrypted), 28);
+    return finalBuffer;
+}
+
+async function decryptNativeFile(finalBuffer, password) {
+    if (finalBuffer.byteLength < 28) throw new Error('Invalid Native Vault file format');
+    const salt = finalBuffer.slice(0, 16);
+    const iv = finalBuffer.slice(16, 28);
+    const encrypted = finalBuffer.slice(28);
+    const key = await deriveKey(password, salt);
+    return await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted);
+}
+
+// Recursively builds the VFS tree from a native directory handle
+async function scanNativeVault(handle, parentNode) {
+    for await (const entry of handle.values()) {
+        if (entry.kind === 'file') {
+            if (entry.name.endsWith('.loc')) {
+                const originalName = entry.name.replace('.loc', '');
+                const fileHandle = entry;
+                const file = await fileHandle.getFile();
+                parentNode.children.push({
+                    id: 'native_' + Math.random().toString(36).substr(2, 9),
+                    name: originalName,
+                    type: 'file',
+                    size: file.size, 
+                    mime: 'application/octet-stream', 
+                    isNative: true,
+                    nativeHandle: fileHandle,
+                    parent: parentNode
+                });
+            }
+        } else if (entry.kind === 'directory') {
+            const dirNode = {
+                id: 'native_dir_' + Math.random().toString(36).substr(2, 9),
+                name: entry.name,
+                type: 'folder',
+                isNative: true,
+                nativeHandle: entry,
+                children: [],
+                parent: parentNode
+            };
+            parentNode.children.push(dirNode);
+            await scanNativeVault(entry, dirNode);
+        }
+    }
+}
+
+if (btnMountNative) {
+    btnMountNative.addEventListener('click', async () => {
+        try {
+            if (!window.showDirectoryPicker) {
+                alert("Native Vault is not supported in this browser. Please use Chrome, Edge, or Brave.");
+                return;
+            }
+            const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            
+            // Ask for password
+            vaultModal.classList.remove('hidden');
+            vaultPasswordDesc.textContent = "Create a strong password to encrypt this Native Vault folder.";
+            vaultPasswordInput.value = '';
+            
+            const handleVaultSubmit = async () => {
+                const pass = vaultPasswordInput.value;
+                if (!pass) return;
+                
+                nativeVaultPassword = pass;
+                nativeVaultHandle = handle;
+                
+                // Add the root Native Vault node
+                const nativeRoot = {
+                    id: 'native_root',
+                    name: 'NATIVE VAULT',
+                    type: 'folder',
+                    isNative: true,
+                    isNativeRoot: true,
+                    nativeHandle: handle,
+                    children: [],
+                    parent: vfs.root
+                };
+                vfs.root.children.push(nativeRoot);
+                await scanNativeVault(handle, nativeRoot);
+                
+                renderHostExplorer();
+                vaultModal.classList.add('hidden');
+                btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
+                btnCloseVaultModal.removeEventListener('click', handleVaultClose);
+                
+                // Save handle for next load
+                try {
+                    if (typeof localforage !== 'undefined') {
+                        await localforage.setItem('native_vault_handle', handle);
+                    }
+                } catch(e) { console.warn('Could not save native handle', e); }
+            };
+            
+            const handleVaultClose = () => {
+                vaultModal.classList.add('hidden');
+                btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
+                btnCloseVaultModal.removeEventListener('click', handleVaultClose);
+            };
+            
+            btnConfirmVaultPassword.addEventListener('click', handleVaultSubmit);
+            btnCloseVaultModal.addEventListener('click', handleVaultClose);
+            
+        } catch (err) {
+            console.error('Mount Native Vault aborted:', err);
+        }
+    });
+}
+// --- END NATIVE VAULT ENGINE ---
+
+
+if (btnCloseOtpDisplay) {
+    btnCloseOtpDisplay.addEventListener('click', () => {
+        hostOtpDisplayModal.classList.add('hidden');
+    });
+}
 class VirtualFileSystem {
     constructor() {
         this.root = { id: 'root', name: 'Home', type: 'folder', children: [], parent: null };
@@ -846,6 +1001,15 @@ async function initHost() {
         new QRCode(qrcodeEl, { text: connectUrl, width: 130, height: 130, colorDark : "#00f0ff", colorLight : "#0a0b10", correctLevel : QRCode.CorrectLevel.L });
         joinInfo.classList.remove('hidden');
         joinUrl.textContent = connectUrl;
+        
+        const btnCopyUrl = document.getElementById('btn-copy-url');
+        if (btnCopyUrl) {
+            btnCopyUrl.onclick = () => {
+                navigator.clipboard.writeText(connectUrl);
+                btnCopyUrl.style.color = 'var(--neon-green)';
+                setTimeout(() => btnCopyUrl.style.color = '#fff', 2000);
+            };
+        }
     });
 
     peer.on('connection', (conn) => {
@@ -861,6 +1025,12 @@ async function initHost() {
                 if (node && node.type === 'file') {
                     if (node.isLocked || node.password) {
                         conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires a password.' });
+                    } else if (node.isNative) {
+                        getDecryptedFileObj(node).then(blob => {
+                            sendFileInChunks(conn, node.id, blob, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: false });
+                        }).catch(e => {
+                            conn.send({ type: 'MAGIC_FILE_ERROR', message: 'Failed to access native file.' });
+                        });
                     } else {
                         sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
                     }
@@ -943,6 +1113,44 @@ async function initHost() {
                         c.send({ type: 'CHAT_MSG', sender: 'System', text: `${data.name} joined the network`, color: 'var(--text-muted)' });
                     }
                 });
+            } else if (data.type === 'REQUEST_NATIVE_VAULT_ACCESS' && conn.isAuthenticated) {
+                requestingGuestName.textContent = conn.profile ? conn.profile.name : 'Unknown Guest';
+                hostApprovalModal.classList.remove('hidden');
+                
+                const handleApprove = () => {
+                    hostApprovalModal.classList.add('hidden');
+                    nativeVaultOTP = Math.floor(100000 + Math.random() * 900000).toString();
+                    hostOtpCode.textContent = nativeVaultOTP;
+                    otpGuestName.textContent = conn.profile ? conn.profile.name : 'Guest';
+                    
+                    const permission = document.querySelector('input[name="vault-permission"]:checked').value;
+                    guestNativePermissions[conn.peer] = permission;
+                    
+                    hostOtpDisplayModal.classList.remove('hidden');
+                    
+                    btnApproveVault.removeEventListener('click', handleApprove);
+                    btnDenyVault.removeEventListener('click', handleDeny);
+                };
+                
+                const handleDeny = () => {
+                    hostApprovalModal.classList.add('hidden');
+                    conn.send({ type: 'NATIVE_VAULT_ACCESS_DENIED' });
+                    btnApproveVault.removeEventListener('click', handleApprove);
+                    btnDenyVault.removeEventListener('click', handleDeny);
+                };
+                
+                btnApproveVault.addEventListener('click', handleApprove);
+                btnDenyVault.addEventListener('click', handleDeny);
+                
+            } else if (data.type === 'SUBMIT_NATIVE_VAULT_OTP' && conn.isAuthenticated) {
+                if (data.pin === nativeVaultOTP && nativeVaultOTP !== null) {
+                    conn.unlockedFolders.add(data.folderId);
+                    conn.send({ type: 'NATIVE_VAULT_AUTH_SUCCESS', folderId: data.folderId, permission: guestNativePermissions[conn.peer] });
+                    conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders) });
+                    nativeVaultOTP = null; 
+                } else {
+                    conn.send({ type: 'NATIVE_VAULT_AUTH_FAIL' });
+                }
             } else if (data.type === 'FOLDER_AUTH_ATTEMPT' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.folderId);
                 if (node && node.type === 'folder') {
@@ -964,7 +1172,13 @@ async function initHost() {
             } else if (data.type === 'REQUEST_FILE' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.id);
                 if (node && node.type === 'file') {
-                    sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
+                    if (node.isNative) {
+                        getDecryptedFileObj(node).then(blob => {
+                            sendFileInChunks(conn, node.id, blob, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: false });
+                        }).catch(e => console.error('Native read error:', e));
+                    } else {
+                        sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
+                    }
                 }
             } else if (data.type === 'REQUEST_ZIP_ALL' && conn.isAuthenticated) {
                 generateZipBlob().then(blob => {
@@ -1222,6 +1436,7 @@ function setupHostActions() {
 
 async function processFiles(files) {
     const isVault = vfs.currentDir.isVault;
+    const isNativeDir = vfs.currentDir.isNative || (() => { let c=vfs.currentDir; while(c){ if(c.isNative)return true; c=c.parent; } return false; })();
     let password = null;
     if (isVault) {
         password = unlockedVaults[vfs.currentDir.id];
@@ -1230,6 +1445,10 @@ async function processFiles(files) {
             return;
         }
     }
+    if (isNativeDir && !nativeVaultPassword) {
+        alert("Native Vault is locked!");
+        return;
+    }
 
     for (const file of files) {
         let finalFileObj = file;
@@ -1237,8 +1456,32 @@ async function processFiles(files) {
         let isEncrypted = false;
         let salt = null;
         let iv = null;
+        let nativeHandle = null;
 
-        if (isVault) {
+        if (isNativeDir) {
+            try {
+                const buffer = await file.arrayBuffer();
+                const encryptedBuffer = await encryptNativeFile(buffer, nativeVaultPassword);
+                
+                // Write to Native FS
+                let dirHandle = vfs.currentDir.nativeHandle;
+                if (!dirHandle && vfs.currentDir.isNativeRoot) dirHandle = nativeVaultHandle;
+                
+                const fileHandle = await dirHandle.getFileHandle(file.name + '.loc', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(encryptedBuffer);
+                await writable.close();
+                
+                nativeHandle = fileHandle;
+                finalSize = encryptedBuffer.byteLength;
+                isEncrypted = true;
+                // For VFS representation, we don't need a Blob since we read directly from OS
+                finalFileObj = null; 
+            } catch (e) {
+                console.error("Native write failed", e);
+                continue;
+            }
+        } else if (isVault) {
             try {
                 const buffer = await file.arrayBuffer();
                 const encData = await encryptFile(buffer, password);
@@ -1763,6 +2006,19 @@ function initClient() {
                 appendChatMessage(data.sender, data.text, data.sender === 'System' ? 'system' : 'other', data.color);
             } else if (data.type === 'FILE_ADDED_TOAST') {
                 showToast(`New file: ${data.filename}`);
+            } else if (data.type === 'NATIVE_VAULT_AUTH_SUCCESS') {
+                clientUnlockedVaults[data.folderId] = true;
+                clientCurrentDir = clientVFS.root.children.find(c => c.id === data.folderId) || clientCurrentDir;
+                if (data.permission === 'write' && btnUploadFilesClient) {
+                    myPermissions.upload = true; // Temp upload permit
+                    btnUploadFilesClient.classList.remove('hidden');
+                }
+                renderClientExplorer();
+            } else if (data.type === 'NATIVE_VAULT_AUTH_FAIL') {
+                alert("Incorrect Native Vault PIN.");
+            } else if (data.type === 'NATIVE_VAULT_ACCESS_DENIED') {
+                alert("The Host denied your request to access the Native Vault.");
+                guestOtpEntryModal.classList.add('hidden');
             } else if (data.type === 'FOLDER_AUTH_SUCCESS') {
                 folderPasswordModal.classList.add('hidden');
                 autoEnterFolderId = activeAuthFolderId;
@@ -1905,6 +2161,26 @@ function renderClientExplorer() {
                     folderPasswordInput.value = '';
                     folderPasswordError.classList.add('hidden');
                     folderPasswordModal.classList.remove('hidden');
+                } else if (child.isNativeRoot && !clientUnlockedVaults[child.id]) {
+                    hostConnection.send({ type: 'REQUEST_NATIVE_VAULT_ACCESS' });
+                    guestOtpEntryModal.classList.remove('hidden');
+                    guestOtpInput.value = '';
+                    
+                    const handleGuestOtpSubmit = () => {
+                        const pin = guestOtpInput.value;
+                        if (!pin) return;
+                        hostConnection.send({ type: 'SUBMIT_NATIVE_VAULT_OTP', pin: pin, folderId: child.id });
+                        guestOtpEntryModal.classList.add('hidden');
+                        btnSubmitGuestOtp.removeEventListener('click', handleGuestOtpSubmit);
+                        btnCloseGuestOtp.removeEventListener('click', handleGuestOtpClose);
+                    };
+                    const handleGuestOtpClose = () => {
+                        guestOtpEntryModal.classList.add('hidden');
+                        btnSubmitGuestOtp.removeEventListener('click', handleGuestOtpSubmit);
+                        btnCloseGuestOtp.removeEventListener('click', handleGuestOtpClose);
+                    };
+                    btnSubmitGuestOtp.addEventListener('click', handleGuestOtpSubmit);
+                    btnCloseGuestOtp.addEventListener('click', handleGuestOtpClose);
                 } else if (child.isVault && !clientUnlockedVaults[child.id]) {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
