@@ -592,8 +592,6 @@ if (radarCanvas) {
             if (conn) {
                 conn.send({ type: 'KICK' });
                 setTimeout(() => conn.close(), 100);
-                connections = connections.filter(c => c.peer !== currentGCId);
-                renderConnections();
             }
         });
         
@@ -602,7 +600,7 @@ if (radarCanvas) {
             if (conn) {
                 if (!conn.permissions) conn.permissions = { upload: true, chat: true };
                 conn.permissions.chat = e.target.checked;
-                conn.send({ type: 'PRIVILEGE_UPDATE', permissions: conn.permissions });
+                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
             }
         });
         
@@ -611,7 +609,7 @@ if (radarCanvas) {
             if (conn) {
                 if (!conn.permissions) conn.permissions = { upload: true, chat: true };
                 conn.permissions.upload = e.target.checked;
-                conn.send({ type: 'PRIVILEGE_UPDATE', permissions: conn.permissions });
+                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
             }
         });
     }
@@ -1091,6 +1089,7 @@ async function initHost() {
                     if (!conn.isAuthenticated) {
                         conn.isAuthenticated = true;
                         conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                        conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                     }
                 });
             }
@@ -1136,7 +1135,7 @@ async function initHost() {
         broadcastPeers();
         conn.isAuthenticated = !hostPassword;
         conn.unlockedFolders = new Set();
-        conn.permissions = { upload: false, delete: false, edit: false };
+        conn.permissions = { upload: true, chat: true, delete: false, edit: false };
         
         conn.on('data', (data) => {
             if (data.type === 'REQUEST_MAGIC_FILE') {
@@ -2099,6 +2098,8 @@ function initClient() {
                 myPermissions = data.permissions;
                 if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !myPermissions.upload);
                 if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !myPermissions.upload);
+                if (btnChatToggle) btnChatToggle.classList.toggle('hidden', myPermissions.chat === false);
+                if (chatSidebar && myPermissions.chat === false) chatSidebar.classList.add('hidden');
                 
                 // Hide context menu rename/delete buttons if not allowed
                 const ctxRename = document.getElementById('ctx-rename');
@@ -2144,7 +2145,9 @@ function initClient() {
                     scratchpadTextarea.value = data.text;
                     scratchpadTextarea.setSelectionRange(start, end);
                 }
-                        } else if (data.type === 'PEER_LIST') {
+            } else if (data.type === 'KICK') {
+                window.location.reload();
+            } else if (data.type === 'PEER_LIST') {
                 activePeers = {};
                 data.peers.forEach(p => activePeers[p.id] = p);
             } else if (data.type === 'WHISPER') {
