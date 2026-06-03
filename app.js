@@ -729,7 +729,7 @@ function triggerBurnSequence() {
     if (typeof localforage !== 'undefined') localforage.clear();
     connections.forEach(conn => conn.close());
     connections = [];
-    document.body.innerHTML = '<div style="background:#000; color:#f00; height:100vh; width:100vw; display:flex; justify-content:center; align-items:center; flex-direction:column;"><h1 style="font-size:10vw; margin:0; text-shadow: 0 0 50px #f00;">NETWORK DESTROYED</h1><p>All traces wiped from memory.</p></div>';
+    document.body.innerHTML = '<div style="background:#000; color:#f00; height:100vh; width:100vw; display:flex; justify-content:center; align-items:center; flex-direction:column; font-family: \'Courier New\', monospace;"><h1 style="font-size:10vw; margin:0; text-shadow: 0 0 50px #f00; text-align: center;">NETWORK DESTROYED</h1><p style="font-size: 1.5rem; margin-bottom: 2rem;">All traces wiped from memory.</p><button onclick="window.location.reload()" style="background: transparent; border: 2px solid #f00; color: #f00; padding: 1rem 2rem; font-size: 1.2rem; cursor: pointer; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.2s; box-shadow: 0 0 15px rgba(255,0,0,0.3);">Initialize New Server</button></div>';
 }
 
 
@@ -935,7 +935,7 @@ class VirtualFileSystem {
     }
 }
 
-const vfs = new VirtualFileSystem();
+let vfs = new VirtualFileSystem();
 let clientVFS = null; // Client's copy of the tree
 let clientCurrentDir = null;
 let clientUnlockedVaults = {}; // track guest vault passwords
