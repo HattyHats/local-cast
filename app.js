@@ -1129,10 +1129,28 @@ async function initHost() {
         }
     });
 
-    peer.on('connection', (conn) => {
+    peer.on('connection', async (conn) => {
+        if (hostPassword) {
+            if (!conn.metadata || !conn.metadata.secureProfile) {
+                console.warn("Connection rejected: Missing secure metadata");
+                setTimeout(() => conn.close(), 500);
+                return;
+            }
+            const decryptedProfile = await decryptMetadata(conn.metadata.secureProfile, hostPassword);
+            if (!decryptedProfile) {
+                console.warn("Connection rejected: Invalid password or decryption failed");
+                setTimeout(() => conn.close(), 500);
+                return;
+            }
+            // Decryption successful!
+            conn.profile = { name: decryptedProfile.name, color: decryptedProfile.color, avatar: decryptedProfile.avatar };
+            conn.isAuthenticated = true;
+        } else {
+            conn.isAuthenticated = true; // No password required
+        }
         connections.push(conn);
         broadcastPeers();
-        conn.isAuthenticated = !hostPassword;
+
         conn.unlockedFolders = new Set();
         conn.permissions = { upload: false, chat: true, delete: false, edit: false };
         
@@ -1157,6 +1175,12 @@ async function initHost() {
                 return;
             }
             if (data.type === 'AUTH_ATTEMPT') {
+                if (conn.isAuthenticated) {
+                    conn.send({ type: 'AUTH_SUCCESS' });
+                    conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                    conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                    return;
+                }
                 if (data.password === hostPassword) {
                     conn.isAuthenticated = true;
                     conn.send({ type: 'AUTH_SUCCESS' });
@@ -1303,7 +1327,7 @@ async function initHost() {
                 });
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
                 if (conn.permissions && conn.permissions.upload) {
-                    incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size || (data.totalChunks * CHUNK_SIZE), path: data.path, targetFolderId: data.targetFolderId };
+                    incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size || (data.totalChunks * CHUNK_SIZE), path: data.path, targetFolderId: data.targetFolderId, thumbnail: data.thumbnail };
                     createTransferItem(data.id, data.name, 'download');
                 }
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
@@ -1554,6 +1578,55 @@ function setupHostActions() {
     folderInput.addEventListener('change', (e) => processFiles(Array.from(e.target.files)));
 }
 
+
+async function generateThumbnail(file) {
+    if (!file || !file.type) return null;
+    if (file.type.startsWith('image/')) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_SIZE = 256;
+                let width = img.width; let height = img.height;
+                if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
+                else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                canvas.width = width; canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                URL.revokeObjectURL(url);
+                resolve(canvas.toDataURL('image/jpeg', 0.6));
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+            img.src = url;
+        });
+    } else if (file.type.startsWith('video/')) {
+        return new Promise((resolve) => {
+            const video = document.createElement('video');
+            const url = URL.createObjectURL(file);
+            video.src = url;
+            video.muted = true;
+            video.playsInline = true;
+            video.currentTime = 1;
+            video.onloadeddata = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_SIZE = 256;
+                let width = video.videoWidth; let height = video.videoHeight;
+                if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
+                else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                canvas.width = width; canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, width, height);
+                URL.revokeObjectURL(url);
+                resolve(canvas.toDataURL('image/jpeg', 0.6));
+            };
+            video.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+            video.load();
+        });
+    }
+    return null;
+}
+
 async function processFiles(files) {
     const isVault = vfs.currentDir.isVault;
     const isNativeDir = vfs.currentDir.isNative || (() => { let c=vfs.currentDir; while(c){ if(c.isNative)return true; c=c.parent; } return false; })();
@@ -1571,6 +1644,7 @@ async function processFiles(files) {
     }
 
     for (const file of files) {
+        let thumbnailData = await generateThumbnail(file);
         const localTransferId = "local_" + Date.now() + "_" + Math.floor(Math.random()*1000);
         createTransferItem(localTransferId, (isNativeDir || isVault) ? ("Encrypting " + file.name) : file.name, "upload");
         updateTransferProgress(localTransferId, 0, file.size || 1);
@@ -1640,7 +1714,8 @@ async function processFiles(files) {
                 mime: file.type,
                 fileObj: finalFileObj,
                 isEncrypted, salt, iv,
-                nativeHandle
+                nativeHandle,
+                thumbnail: thumbnailData
             });
         } else {
             vfs.addNode(vfs.currentDir, {
@@ -1737,9 +1812,9 @@ function renderHostExplorer() {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
         
-        const icon = child.type === 'folder' ? 
+        const icon = child.thumbnail ? `<div class="item-thumbnail" style="background-image: url('${child.thumbnail}');"></div>` : (child.type === 'folder' ? 
             `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password || child.isVault ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
-            `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+            `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
         item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>`;
         item.draggable = true;
@@ -1965,7 +2040,7 @@ function renderBreadcrumbs(currentDir, container, onClick) {
 }
 
 // --- CLIENT LOGIC ---
-function initClient() {
+async function initClient() {
     updateStatus('CONNECTING...', 'offline');
     
     peer = new Peer({ debug: 2 });
@@ -2229,7 +2304,8 @@ async function processClientFiles(files) {
         const file = files[i];
         downloadFilename.textContent = `Uploading ${file.name} (${i + 1}/${files.length})`;
         document.getElementById("client-progress-text").textContent = "Starting...";
-        const extraData = { targetFolderId: clientCurrentDir.id, path: file.webkitRelativePath || '' };
+        const thumbnailData = await generateThumbnail(file);
+        const extraData = { targetFolderId: clientCurrentDir.id, path: file.webkitRelativePath || '', thumbnail: thumbnailData };
         await sendFileInChunks(hostConnection, "upload_" + Date.now() + "_" + i, file, file.name, file.type, "CLIENT_UPLOAD_CHUNK", extraData);
     }
     
@@ -2293,9 +2369,9 @@ function renderClientExplorer() {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
         
-        const icon = child.type === 'folder' ? 
+        const icon = child.thumbnail ? `<div class="item-thumbnail" style="background-image: url('${child.thumbnail}');"></div>` : (child.type === 'folder' ? 
             `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
-            `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+            `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
         const sizeText = child.size ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
         item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>${sizeText}`;

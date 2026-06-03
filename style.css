@@ -911,3 +911,21 @@ input:checked + .slider:before {
 .slider.round:before {
   border-radius: 50%;
 }
+
+.item-thumbnail {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    margin-bottom: 0.5rem;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.file-grid.list-view .item-thumbnail {
+    width: 24px;
+    height: 24px;
+    margin-right: 1rem;
+    margin-bottom: 0;
+}
