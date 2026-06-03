@@ -1582,50 +1582,67 @@ function setupHostActions() {
 
 async function generateThumbnail(file) {
     if (!file || !file.type) return null;
-    if (file.type.startsWith('image/')) {
-        return new Promise((resolve) => {
-            const img = new Image();
-            const url = URL.createObjectURL(file);
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const MAX_SIZE = 256;
-                let width = img.width; let height = img.height;
-                if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
-                else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
-                canvas.width = width; canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-                URL.revokeObjectURL(url);
-                resolve(canvas.toDataURL('image/jpeg', 0.6));
-            };
-            img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
-            img.src = url;
-        });
-    } else if (file.type.startsWith('video/')) {
-        return new Promise((resolve) => {
-            const video = document.createElement('video');
-            const url = URL.createObjectURL(file);
-            video.src = url;
-            video.muted = true;
-            video.playsInline = true;
-            video.currentTime = 1;
-            video.onloadeddata = () => {
-                const canvas = document.createElement('canvas');
-                const MAX_SIZE = 256;
-                let width = video.videoWidth; let height = video.videoHeight;
-                if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
-                else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
-                canvas.width = width; canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, width, height);
-                URL.revokeObjectURL(url);
-                resolve(canvas.toDataURL('image/jpeg', 0.6));
-            };
-            video.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
-            video.load();
-        });
-    }
-    return null;
+    return new Promise((resolve) => {
+        let timeout = setTimeout(() => { resolve(null); }, 2000);
+        try {
+            if (file.type.startsWith('image/')) {
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                img.onload = () => {
+                    clearTimeout(timeout);
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const MAX_SIZE = 256;
+                        let width = img.width; let height = img.height;
+                        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
+                        else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                        canvas.width = width; canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        URL.revokeObjectURL(url);
+                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                    } catch(e) { resolve(null); }
+                };
+                img.onerror = () => { clearTimeout(timeout); URL.revokeObjectURL(url); resolve(null); };
+                img.src = url;
+            } else if (file.type.startsWith('video/')) {
+                const video = document.createElement('video');
+                const url = URL.createObjectURL(file);
+                video.src = url;
+                video.muted = true;
+                video.playsInline = true;
+                
+                const processVideo = () => {
+                    clearTimeout(timeout);
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const MAX_SIZE = 256;
+                        let width = video.videoWidth; let height = video.videoHeight;
+                        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
+                        else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                        canvas.width = width || 256; canvas.height = height || 256;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        URL.revokeObjectURL(url);
+                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                    } catch(e) { resolve(null); }
+                };
+
+                video.onloadedmetadata = () => {
+                    video.currentTime = Math.min(1, video.duration / 2);
+                };
+                video.onseeked = processVideo;
+                video.onerror = () => { clearTimeout(timeout); URL.revokeObjectURL(url); resolve(null); };
+                video.load();
+            } else {
+                clearTimeout(timeout);
+                resolve(null);
+            }
+        } catch(e) {
+            clearTimeout(timeout);
+            resolve(null);
+        }
+    });
 }
 
 async function processFiles(files) {
