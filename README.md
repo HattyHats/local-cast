@@ -2,6 +2,8 @@
 
 **A decentralized, browser-based peer-to-peer network for secure and ephemeral file sharing.**
 
+(This is a work in progress) Hard refresh browser every day to see new changes I made. I will make a post on X, Focus, and The Arena when the app is fully functional. I will also change this readme and remove this section.
+
 Local-Cast transforms any modern browser into a secure, serverless networking hub. By leveraging WebRTC data channels and peer-to-peer architecture, Local-Cast enables hosts and guests to instantly transfer files, communicate securely, and stream media directly between devices on the same network—no backend servers or cloud storage required.
 
 ### 🚀 Core Features
