@@ -1363,7 +1363,7 @@ async function initHost() {
                             }
                         }
                         
-                        current.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: fileObj, parent: current });
+                        current.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: fileObj, parent: current, thumbnail: transfer.thumbnail });
                         saveVFSToDB();
                         renderHostExplorer();
                         broadcastTree();
@@ -1725,7 +1725,8 @@ async function processFiles(files) {
                 mime: file.type,
                 fileObj: finalFileObj,
                 isEncrypted, salt, iv,
-                nativeHandle
+                nativeHandle,
+                thumbnail: thumbnailData
             });
         }
         updateTransferProgress(localTransferId, finalSize, finalSize);
