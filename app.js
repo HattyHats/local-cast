@@ -1302,7 +1302,8 @@ async function initHost() {
                 });
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
                 if (conn.permissions && conn.permissions.upload) {
-                    incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size, path: data.path, targetFolderId: data.targetFolderId };
+                    incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size || (data.totalChunks * CHUNK_SIZE), path: data.path, targetFolderId: data.targetFolderId };
+                    createTransferItem(data.id, data.name, 'download');
                 }
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
                 if (!conn.permissions || !conn.permissions.upload) return;
@@ -1310,7 +1311,9 @@ async function initHost() {
                 if (transfer) {
                     transfer.chunks[data.index] = data.chunk;
                     transfer.received++;
+                    updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
                     if (transfer.received === transfer.total) {
+                        finishTransfer(data.id);
                         const fileBlob = new Blob(transfer.chunks, { type: transfer.mime });
                         const fileObj = new File([fileBlob], transfer.name, { type: transfer.mime });
                         const newId = 'file_' + Math.random().toString(36).substr(2);
@@ -2003,7 +2006,8 @@ function initClient() {
                 
                 renderClientExplorer();
             } else if (data.type === 'FILE_CHUNK_START' || data.type === 'ZIP_CHUNK_START') {
-                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size, isEncrypted: data.isEncrypted, salt: data.salt, iv: data.iv };
+                incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size || (data.totalChunks * CHUNK_SIZE), isEncrypted: data.isEncrypted, salt: data.salt, iv: data.iv };
+                createTransferItem(data.id, data.name, 'download');
                 const pct = document.getElementById(data.type === 'ZIP_CHUNK_START' ? 'client-progress-text' : 'preview-progress-text');
                 if (pct) pct.textContent = '0%';
             } else if (data.type === 'FILE_CHUNK' || data.type === 'ZIP_CHUNK') {
@@ -2011,11 +2015,13 @@ function initClient() {
                 if (transfer) {
                     transfer.chunks[data.index] = data.chunk;
                     transfer.received++;
+                    updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
                     const pctVal = Math.floor((transfer.received / transfer.total) * 100);
                     const pct = document.getElementById(data.type === 'ZIP_CHUNK' ? 'client-progress-text' : 'preview-progress-text');
                     if (pct) pct.textContent = `${pctVal}%`;
                     
                     if (transfer.received === transfer.total) {
+                        finishTransfer(data.id);
                         const blob = new Blob(transfer.chunks, { type: transfer.mime });
                         if (transfer.isEncrypted) {
                             // Since they already unlocked the folder, they have the password!
