@@ -891,6 +891,14 @@ class VirtualFileSystem {
         this.currentDir = this.root;
     }
     
+    
+    addNode(parent, node) {
+        if (!node.id) node.id = (node.type === 'folder' ? 'folder_' : 'file_') + Math.random().toString(36).substr(2, 9);
+        node.parent = parent;
+        parent.children.push(node);
+        return node;
+    }
+
     addFolder(name, isVault = false, salt = null) {
         const id = 'folder_' + Math.random().toString(36).substr(2, 9);
         const folder = { id, name, type: 'folder', children: [], parent: this.currentDir };
