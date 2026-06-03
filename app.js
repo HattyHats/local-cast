@@ -590,7 +590,7 @@ if (radarCanvas) {
         document.getElementById('gc-toggle-chat').addEventListener('change', (e) => {
             const conn = connections.find(c => c.peer === currentGCId);
             if (conn) {
-                if (!conn.permissions) conn.permissions = { upload: true, chat: true };
+                if (!conn.permissions) conn.permissions = { upload: false, chat: true };
                 conn.permissions.chat = e.target.checked;
                 conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
             }
@@ -599,7 +599,7 @@ if (radarCanvas) {
         document.getElementById('gc-toggle-upload').addEventListener('change', (e) => {
             const conn = connections.find(c => c.peer === currentGCId);
             if (conn) {
-                if (!conn.permissions) conn.permissions = { upload: true, chat: true };
+                if (!conn.permissions) conn.permissions = { upload: false, chat: true };
                 conn.permissions.upload = e.target.checked;
                 conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
             }
@@ -624,9 +624,9 @@ if (radarCanvas) {
         
         const conn = connections.find(c => c.peer === id);
         if (conn) {
-            if (!conn.permissions) conn.permissions = { upload: true, chat: true };
+            if (!conn.permissions) conn.permissions = { upload: false, chat: true };
             document.getElementById('gc-toggle-chat').checked = conn.permissions.chat !== false;
-            document.getElementById('gc-toggle-upload').checked = conn.permissions.upload !== false;
+            document.getElementById('gc-toggle-upload').checked = conn.permissions.upload === true;
         }
         
         gcModal.classList.remove('hidden');
@@ -1134,7 +1134,7 @@ async function initHost() {
         broadcastPeers();
         conn.isAuthenticated = !hostPassword;
         conn.unlockedFolders = new Set();
-        conn.permissions = { upload: true, chat: true, delete: false, edit: false };
+        conn.permissions = { upload: false, chat: true, delete: false, edit: false };
         
         conn.on('data', (data) => {
             if (data.type === 'REQUEST_MAGIC_FILE') {
@@ -2983,7 +2983,10 @@ let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
 
 const avatarPreview = document.getElementById('profile-avatar-preview');
 if (avatarPreview) {
-    if (guestAvatar) avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
+    if (guestAvatar) guestAvatar = canvas.toDataURL('image/jpeg', 0.8);
+                avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
+                avatarPreview.innerHTML = '';
+                avatarPreview.style.borderColor = 'var(--neon-green)';
     avatarPreview.addEventListener('click', () => avatarInput.click());
     avatarInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
