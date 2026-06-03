@@ -1570,6 +1570,10 @@ async function processFiles(files) {
     }
 
     for (const file of files) {
+        const localTransferId = "local_" + Date.now() + "_" + Math.floor(Math.random()*1000);
+        createTransferItem(localTransferId, (isNativeDir || isVault) ? ("Encrypting " + file.name) : file.name, "upload");
+        updateTransferProgress(localTransferId, 0, file.size || 1);
+
         let finalFileObj = file;
         let finalSize = file.size;
         let isEncrypted = false;
@@ -1598,6 +1602,7 @@ async function processFiles(files) {
                 finalFileObj = null; 
             } catch (e) {
                 console.error("Native write failed", e);
+                finishTransfer(localTransferId);
                 continue;
             }
         } else if (isVault) {
@@ -1611,6 +1616,7 @@ async function processFiles(files) {
                 iv = encData.iv;
             } catch (e) {
                 console.error("Encryption failed for", file.name, e);
+                finishTransfer(localTransferId);
                 continue;
             }
         }
@@ -1623,15 +1629,31 @@ async function processFiles(files) {
                 let existing = current.children.find(c => c.type === 'folder' && c.name === folderName);
                 if (!existing) {
                     existing = { id: 'folder_' + Math.random().toString(36).substr(2), name: folderName, type: 'folder', children: [], parent: current };
-                    current.children.push(existing);
+                    vfs.addNode(current, existing);
                 }
                 current = existing;
             }
-            current.children.push({ id: 'file_' + Math.random().toString(36).substr(2), name: file.name, type: 'file', size: finalSize, mime: file.type, fileObj: finalFileObj, parent: current, isEncrypted, salt, iv });
+            vfs.addNode(current, {
+                name: file.name,
+                size: finalSize,
+                mime: file.type,
+                fileObj: finalFileObj,
+                isEncrypted, salt, iv,
+                nativeHandle
+            });
         } else {
-            const id = 'file_' + Math.random().toString(36).substr(2);
-            vfs.currentDir.children.push({ id, name: file.name, type: 'file', size: finalSize, mime: file.type, fileObj: finalFileObj, parent: vfs.currentDir, isEncrypted, salt, iv });
+            vfs.addNode(vfs.currentDir, {
+                name: file.name,
+                size: finalSize,
+                mime: file.type,
+                fileObj: finalFileObj,
+                isEncrypted, salt, iv,
+                nativeHandle
+            });
         }
+        updateTransferProgress(localTransferId, finalSize, finalSize);
+        finishTransfer(localTransferId);
+        renderHostExplorer();
     }
     saveVFSToDB();
     fileInput.value = '';
@@ -2198,8 +2220,6 @@ async function processClientFiles(files) {
         return;
     }
     
-    clientDownloading.classList.remove("hidden");
-    
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         downloadFilename.textContent = `Uploading ${file.name} (${i + 1}/${files.length})`;
@@ -2208,8 +2228,7 @@ async function processClientFiles(files) {
         await sendFileInChunks(hostConnection, "upload_" + Date.now() + "_" + i, file, file.name, file.type, "CLIENT_UPLOAD_CHUNK", extraData);
     }
     
-    clientDownloading.classList.add('hidden');
-    alert("Upload complete!");
+    // Upload complete
 }
 
 if (btnCloseMedia) {
