@@ -562,7 +562,7 @@ if (radarCanvas) {
             const dy = y - blip.y;
             if (Math.sqrt(dx*dx + dy*dy) < 20) {
                 if (isHost) {
-                    openGuestControlModal(blip.id, blip.alias, blip.color);
+                    openGuestControlModal(blip.id, blip.alias, blip.color, blip.avatar);
                 } else {
                     openWhisper(blip.id, blip.alias, blip.color);
                 }
@@ -614,10 +614,17 @@ if (radarCanvas) {
         });
     }
 
-    function openGuestControlModal(id, alias, color) {
+    function openGuestControlModal(id, alias, color, avatar) {
         currentGCId = id;
         currentGCAlias = alias;
         currentGCColor = color;
+        const gcAvatarEl = document.getElementById('gc-avatar');
+        if (avatar) {
+            gcAvatarEl.style.backgroundImage = `url('${avatar}')`;
+            gcAvatarEl.style.backgroundSize = 'cover';
+        } else {
+            gcAvatarEl.style.backgroundImage = 'none';
+        }
         
         document.getElementById('gc-name').textContent = alias;
         document.getElementById('gc-id').textContent = id;
@@ -677,7 +684,7 @@ if (radarCanvas) {
                 const x = cx + Math.cos(angle) * dist;
                 const y = cy + Math.sin(angle) * dist;
                 
-                radarBlips.push({ id, x, y, alias: data.alias, color: data.color });
+                radarBlips.push({ id, x, y, alias: data.alias, color: data.color, avatar: data.avatar });
                 ctx.fillStyle = data.color || '#39ff14';
                 ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
                 ctx.fillStyle = 'rgba(255,255,255,0.7)';
@@ -1223,7 +1230,7 @@ async function initHost() {
             } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
                 conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
             } else if (data.type === 'PROFILE_UPDATE' && conn.isAuthenticated) {
-                conn.profile = { name: data.name, color: data.color };
+                conn.profile = { name: data.name, color: data.color, avatar: data.avatar };
                 broadcastPeers();
                 appendChatMessage('System', `${data.name} joined the network`, 'system', 'var(--text-muted)');
                 Object.values(connections).forEach(c => {
@@ -1437,7 +1444,7 @@ async function initHost() {
 
 function broadcastPeers() {
     if (!isHost) return;
-    const peers = connections.filter(c => c.open && c.profile).map(c => ({ id: c.peer, alias: c.profile.name, color: c.profile.color }));
+    const peers = connections.filter(c => c.open && c.profile).map(c => ({ id: c.peer, alias: c.profile.name, color: c.profile.color, avatar: c.profile.avatar }));
     connections.forEach(c => {
         if (c.open) c.send({ type: 'PEER_LIST', peers });
     });
@@ -2000,7 +2007,7 @@ function initClient() {
             } else if (data.type === 'AUTH_FAIL') {
                 passwordError.classList.remove('hidden');
             } else if (data.type === 'TREE') {
-                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor });
+                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor, avatar: guestAvatar });
                 clientVFS = data.tree;
                 
                 // Reconstruct parent links for client navigation
@@ -2979,6 +2986,7 @@ const profileModal = document.getElementById('profile-modal');
 const profileNameInput = document.getElementById('profile-name-input');
 const btnSaveProfile = document.getElementById('btn-save-profile');
 const btnEditProfile = document.getElementById('btn-edit-profile');
+let guestAvatar = localStorage.getItem('localcast_avatar') || '';
 let guestAlias = localStorage.getItem('localcast_alias') || '';
 let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
 
@@ -3001,9 +3009,10 @@ if (profileModal) {
             guestAlias = val;
             localStorage.setItem('localcast_alias', guestAlias);
             localStorage.setItem('localcast_color', guestColor);
+            localStorage.setItem('localcast_avatar', guestAvatar);
             profileModal.classList.add('hidden');
             if (hostConnection && hostConnection.open) {
-                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor });
+                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor, avatar: guestAvatar });
             }
         }
     });

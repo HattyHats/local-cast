@@ -448,16 +448,25 @@ window.onerror = function(msg, src, lineno, colno, error) {
     </div>
 
     <!-- PROFILE MODAL (GUEST) -->
-    <div id="profile-modal" class="modal-overlay hidden">
-        <div class="modal">
-            <h2>SET YOUR ALIAS</h2>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Choose a hacker alias and neon color so the host knows who you are.</p>
+    <div id="profile-modal" class="modal hidden">
+        <div class="modal-content card" style="max-width: 400px;">
+            <h2 style="color: var(--neon-blue); margin-bottom: 0.5rem;">SET YOUR PROFILE</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;">Choose your hacker alias, neon color, and upload an avatar.</p>
             
-            <div class="input-group">
-                <input type="text" id="profile-name-input" class="custom-input" placeholder="e.g. Neo, Trinity..." maxlength="15">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; margin-bottom: 2rem;">
+                <div style="position: relative; width: 100px; height: 100px;">
+                    <div id="profile-avatar-preview" style="width: 100px; height: 100px; border-radius: 50%; border: 2px solid var(--neon-blue); background-color: rgba(255,255,255,0.05); background-size: cover; background-position: center; display: flex; justify-content: center; align-items: center; cursor: pointer;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--neon-blue)" stroke-width="2" style="width: 32px; height: 32px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    </div>
+                    <input type="file" id="profile-avatar-input" accept="image/*" style="display: none;">
+                </div>
+            </div>
+
+            <div class="input-group" style="margin-bottom: 1.5rem;">
+                <input type="text" id="profile-name-input" class="custom-input" placeholder="e.g. Neo, Trinity..." maxlength="15" style="width: 100%; text-align: center;">
             </div>
             
-            <div class="color-picker-container" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; justify-content: center;">
+            <div class="color-picker-container" style="display: flex; gap: 1rem; margin-bottom: 2rem; justify-content: center;">
                 <div class="color-swatch selected" data-color="#00f0ff" style="background: #00f0ff; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid #fff;"></div>
                 <div class="color-swatch" data-color="#ff003c" style="background: #ff003c; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
                 <div class="color-swatch" data-color="#39ff14" style="background: #39ff14; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
@@ -465,8 +474,8 @@ window.onerror = function(msg, src, lineno, colno, error) {
                 <div class="color-swatch" data-color="#b026ff" style="background: #b026ff; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
             </div>
 
-            <div class="modal-actions">
-                <button id="btn-save-profile" class="custom-btn primary-btn" style="width: 100%;">SAVE PROFILE</button>
+            <div class="modal-actions" style="margin-top: 1rem;">
+                <button id="btn-save-profile" class="btn" style="width: 100%; border: 1px solid var(--neon-blue); color: var(--neon-blue); background: transparent;">SAVE PROFILE</button>
             </div>
         </div>
     </div>
