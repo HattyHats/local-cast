@@ -326,15 +326,7 @@ document.addEventListener('drop', (e) => {
         dragOverlay.classList.add('hidden');
         dragOverlay.style.display = 'none';
     }
-    const files = Array.from(e.dataTransfer.files);
-    if (!files.length) return;
-    
-    // Detect if we are host or guest
-    if (isHost && typeof processFiles === 'function') {
-        processFiles(files);
-    } else if (!isHost && typeof processClientFiles === 'function') {
-        processClientFiles(files);
-    }
+    // File processing is handled by the global body drop listener to support folders
 });
 
 if (btnMinimizeTransfers) {
@@ -2984,6 +2976,34 @@ window.onload = runBootSequence;
 // --- GUEST PROFILE LOGIC ---
 const profileModal = document.getElementById('profile-modal');
 const profileNameInput = document.getElementById('profile-name-input');
+const avatarInput = document.getElementById('profile-avatar-input');
+const avatarPreview = document.getElementById('profile-avatar-preview');
+if (avatarPreview) {
+    if (guestAvatar) avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
+    avatarPreview.addEventListener('click', () => avatarInput.click());
+    avatarInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_SIZE = 128;
+                let width = img.width; let height = img.height;
+                if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
+                else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                canvas.width = width; canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                guestAvatar = canvas.toDataURL('image/jpeg', 0.8);
+                avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
 const btnSaveProfile = document.getElementById('btn-save-profile');
 const btnEditProfile = document.getElementById('btn-edit-profile');
 let guestAvatar = localStorage.getItem('localcast_avatar') || '';
