@@ -2977,6 +2977,10 @@ window.onload = runBootSequence;
 const profileModal = document.getElementById('profile-modal');
 const profileNameInput = document.getElementById('profile-name-input');
 const avatarInput = document.getElementById('profile-avatar-input');
+let guestAvatar = localStorage.getItem('localcast_avatar') || '';
+let guestAlias = localStorage.getItem('localcast_alias') || '';
+let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
+
 const avatarPreview = document.getElementById('profile-avatar-preview');
 if (avatarPreview) {
     if (guestAvatar) avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
@@ -3006,9 +3010,6 @@ if (avatarPreview) {
 }
 const btnSaveProfile = document.getElementById('btn-save-profile');
 const btnEditProfile = document.getElementById('btn-edit-profile');
-let guestAvatar = localStorage.getItem('localcast_avatar') || '';
-let guestAlias = localStorage.getItem('localcast_alias') || '';
-let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
 
 if (profileModal) {
     document.querySelectorAll('.color-swatch').forEach(swatch => {
