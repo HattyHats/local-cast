@@ -744,6 +744,7 @@ async function saveVFSToDB() {
             type: node.type,
             size: node.size,
             mime: node.mime,
+            thumbnail: node.thumbnail,
             fileObj: node.fileObj,
             children: node.children ? node.children.map(stripParents) : []
         };
@@ -906,7 +907,7 @@ class VirtualFileSystem {
             if (node.isHidden && !showDeadDrops) return null;
             const isUnlocked = unlockedSet.has(node.id) || unlockedVaults[node.id];
             const n = { 
-                id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, 
+                id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, thumbnail: node.thumbnail,
                 isLocked: !!node.password, isVault: !!node.isVault, isUnlocked, isHidden: node.isHidden,
                 isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv
             };
