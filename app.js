@@ -1735,6 +1735,7 @@ async function processFiles(files) {
                 current = existing;
             }
             vfs.addNode(current, {
+                type: 'file',
                 name: file.name,
                 size: finalSize,
                 mime: file.type,
@@ -1745,6 +1746,7 @@ async function processFiles(files) {
             });
         } else {
             vfs.addNode(vfs.currentDir, {
+                type: 'file',
                 name: file.name,
                 size: finalSize,
                 mime: file.type,
