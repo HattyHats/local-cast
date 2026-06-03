@@ -562,7 +562,7 @@ if (radarCanvas) {
             const dy = y - blip.y;
             if (Math.sqrt(dx*dx + dy*dy) < 20) {
                 if (isHost) {
-                    openRadarGuestModal(blip.id, blip.alias, blip.color);
+                    openGuestControlModal(blip.id, blip.alias, blip.color);
                 } else {
                     openWhisper(blip.id, blip.alias, blip.color);
                 }
@@ -571,65 +571,68 @@ if (radarCanvas) {
         }
     });
 
-    let currentRadarGuestId = null;
-    let currentRadarGuestAlias = null;
-    let currentRadarGuestColor = null;
-    const radarGuestModal = document.getElementById('radar-guest-modal');
-    const radarGuestName = document.getElementById('radar-guest-name');
-    const radarGuestDot = document.getElementById('radar-guest-dot');
+    let currentGCId = null;
+    let currentGCAlias = null;
+    let currentGCColor = null;
+    const gcModal = document.getElementById('guest-control-modal');
     
-    if (radarGuestModal) {
-        document.getElementById('btn-close-radar-modal').addEventListener('click', () => {
-            radarGuestModal.classList.add('hidden');
+    if (gcModal) {
+        document.getElementById('btn-close-guest-control').addEventListener('click', () => {
+            gcModal.classList.add('hidden');
         });
         
-        document.getElementById('btn-radar-whisper').addEventListener('click', () => {
-            radarGuestModal.classList.add('hidden');
-            openWhisper(currentRadarGuestId, currentRadarGuestAlias, currentRadarGuestColor);
+        document.getElementById('btn-gc-whisper').addEventListener('click', () => {
+            gcModal.classList.add('hidden');
+            openWhisper(currentGCId, currentGCAlias, currentGCColor);
         });
         
-        document.getElementById('btn-radar-call').addEventListener('click', () => {
-            radarGuestModal.classList.add('hidden');
-            openWhisper(currentRadarGuestId, currentRadarGuestAlias, currentRadarGuestColor);
-            // Wait a tick for whisper modal to open, then trigger call
-            setTimeout(() => {
-                document.getElementById('btn-call-peer').click();
-            }, 100);
+        document.getElementById('btn-gc-kick').addEventListener('click', () => {
+            gcModal.classList.add('hidden');
+            const conn = connections.find(c => c.peer === currentGCId);
+            if (conn) {
+                conn.send({ type: 'KICK' });
+                setTimeout(() => conn.close(), 100);
+                connections = connections.filter(c => c.peer !== currentGCId);
+                renderConnections();
+            }
         });
         
-        const bindPerm = (id, permKey) => {
-            document.getElementById(id).addEventListener('change', (e) => {
-                const conn = connections.find(c => c.peer === currentRadarGuestId);
-                if (conn) {
-                    if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false };
-                    conn.permissions[permKey] = e.target.checked;
-                    conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
-                }
-            });
-        };
+        document.getElementById('gc-toggle-chat').addEventListener('change', (e) => {
+            const conn = connections.find(c => c.peer === currentGCId);
+            if (conn) {
+                if (!conn.permissions) conn.permissions = { upload: true, chat: true };
+                conn.permissions.chat = e.target.checked;
+                conn.send({ type: 'PRIVILEGE_UPDATE', permissions: conn.permissions });
+            }
+        });
         
-        bindPerm('radar-perm-upload', 'upload');
-        bindPerm('radar-perm-delete', 'delete');
-        bindPerm('radar-perm-edit', 'edit');
+        document.getElementById('gc-toggle-upload').addEventListener('change', (e) => {
+            const conn = connections.find(c => c.peer === currentGCId);
+            if (conn) {
+                if (!conn.permissions) conn.permissions = { upload: true, chat: true };
+                conn.permissions.upload = e.target.checked;
+                conn.send({ type: 'PRIVILEGE_UPDATE', permissions: conn.permissions });
+            }
+        });
     }
 
-    function openRadarGuestModal(id, alias, color) {
-        currentRadarGuestId = id;
-        currentRadarGuestAlias = alias;
-        currentRadarGuestColor = color;
+    function openGuestControlModal(id, alias, color) {
+        currentGCId = id;
+        currentGCAlias = alias;
+        currentGCColor = color;
         
-        radarGuestName.textContent = alias;
-        radarGuestDot.style.backgroundColor = color;
+        document.getElementById('gc-name').textContent = alias;
+        document.getElementById('gc-id').textContent = id;
+        document.getElementById('gc-avatar').style.borderColor = color;
         
         const conn = connections.find(c => c.peer === id);
         if (conn) {
-            if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false };
-            document.getElementById('radar-perm-upload').checked = conn.permissions.upload;
-            document.getElementById('radar-perm-delete').checked = conn.permissions.delete;
-            document.getElementById('radar-perm-edit').checked = conn.permissions.edit;
+            if (!conn.permissions) conn.permissions = { upload: true, chat: true };
+            document.getElementById('gc-toggle-chat').checked = conn.permissions.chat !== false;
+            document.getElementById('gc-toggle-upload').checked = conn.permissions.upload !== false;
         }
         
-        radarGuestModal.classList.remove('hidden');
+        gcModal.classList.remove('hidden');
     }
 
     function drawRadar() {
@@ -2442,7 +2445,8 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
 
 // --- UTILS ---
 async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, typeStr, extraData = {}) {
-    const totalChunks = Math.ceil(fileBlob.size / CHUNK_SIZE);
+    let totalChunks = Math.ceil(fileBlob.size / CHUNK_SIZE);
+    if (totalChunks === 0) totalChunks = 1; // Ensure at least 1 chunk for 0-byte files
     conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks, ...extraData });
     createTransferItem(fileId, fileName, 'upload');
     for (let i = 0; i < totalChunks; i++) {
@@ -2464,10 +2468,16 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
             if (i === totalChunks - 1) finishTransfer(fileId);
         } catch (e) {
             console.warn("Chunk send error, retrying...", e);
-            await new Promise(r => setTimeout(r, 500));
-            conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
-            updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
-            if (i === totalChunks - 1) finishTransfer(fileId);
+            try {
+                await new Promise(r => setTimeout(r, 500));
+                conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
+                updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
+                if (i === totalChunks - 1) finishTransfer(fileId);
+            } catch (err) {
+                console.error("Unrecoverable chunk error", err);
+                finishTransfer(fileId);
+                break;
+            }
         }
         await new Promise(r => setTimeout(r, 2)); // Tiny yield to event loop
     }
