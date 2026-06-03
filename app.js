@@ -1371,10 +1371,61 @@ async function initHost() {
                             }
                         }
                         
-                        current.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: fileObj, parent: current, thumbnail: transfer.thumbnail });
-                        saveVFSToDB();
-                        renderHostExplorer();
-                        broadcastTree();
+                        
+                        (async () => {
+                            let finalFileObj = fileObj;
+                            let isEncrypted = false;
+                            let salt = null;
+                            let iv = null;
+                            let nativeHandle = null;
+                            let isNative = false;
+
+                            let c = current;
+                            let vaultNode = null;
+                            let nativeNode = null;
+                            while(c) {
+                                if (c.isNative) { nativeNode = c; break; }
+                                if (c.isVault) { vaultNode = c; break; }
+                                c = c.parent;
+                            }
+
+                            if (nativeNode) {
+                                try {
+                                    const buffer = await fileBlob.arrayBuffer();
+                                    const encryptedBuffer = await encryptNativeFile(buffer, nativeVaultPassword);
+                                    let dirHandle = current.nativeHandle;
+                                    if (!dirHandle && current.isNativeRoot) dirHandle = nativeVaultHandle;
+                                    if (dirHandle) {
+                                        const fileHandle = await dirHandle.getFileHandle(transfer.name + '.loc', { create: true });
+                                        const writable = await fileHandle.createWritable();
+                                        await writable.write(encryptedBuffer);
+                                        await writable.close();
+                                        nativeHandle = fileHandle;
+                                        finalFileObj = null;
+                                        isEncrypted = true;
+                                        isNative = true;
+                                    }
+                                } catch (e) { console.error("Native save failed", e); }
+                            } else if (vaultNode) {
+                                try {
+                                    const buffer = await fileBlob.arrayBuffer();
+                                    const pass = unlockedVaults[vaultNode.id];
+                                    if (pass) {
+                                        const encData = await encryptFile(buffer, pass);
+                                        finalFileObj = new Blob([encData.encrypted], { type: 'application/octet-stream' });
+                                        isEncrypted = true;
+                                        salt = encData.salt;
+                                        iv = encData.iv;
+                                    }
+                                } catch(e) { console.error("Guest Vault upload failed:", e); }
+                            }
+
+                            current.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: finalFileObj, parent: current, thumbnail: transfer.thumbnail, isEncrypted, salt, iv, nativeHandle, isNative });
+                            saveVFSToDB();
+                            renderHostExplorer();
+                            broadcastTree();
+                        })();
+
                         delete incomingTransfers[data.id];
                         conn.send({ type: 'UPLOAD_COMPLETE' });
                         notifyFileAdded(transfer.name);
@@ -1742,6 +1793,7 @@ async function processFiles(files) {
                 fileObj: finalFileObj,
                 isEncrypted, salt, iv,
                 nativeHandle,
+                isNative: !!nativeHandle,
                 thumbnail: thumbnailData
             });
         } else {
@@ -1753,6 +1805,7 @@ async function processFiles(files) {
                 fileObj: finalFileObj,
                 isEncrypted, salt, iv,
                 nativeHandle,
+                isNative: !!nativeHandle,
                 thumbnail: thumbnailData
             });
         }
@@ -1957,7 +2010,6 @@ function renderHostExplorer() {
         
         if (child.type === 'file' && (child.name.endsWith('.txt') || child.name.endsWith('.md'))) {
             item.addEventListener('dblclick', async () => {
-                if (child.fileObj) {
                     try {
                         const decryptedObj = await getDecryptedFileObj(child);
                         const text = await decryptedObj.text();
@@ -1968,11 +2020,9 @@ function renderHostExplorer() {
                     } catch (e) {
                         alert("Failed to decrypt: " + e.message);
                     }
-                }
             });
         } else if (child.type === 'file' && child.mime && (child.mime.startsWith('image/') || child.mime.startsWith('video/') || child.mime.startsWith('audio/'))) {
             item.addEventListener('dblclick', async () => {
-                if (child.fileObj) {
                     try {
                         const decryptedObj = await getDecryptedFileObj(child);
                         const url = URL.createObjectURL(decryptedObj);
@@ -1994,11 +2044,9 @@ function renderHostExplorer() {
                     } catch (e) {
                         alert("Failed to decrypt: " + e.message);
                     }
-                }
             });
         } else if (child.type === 'file') {
             item.addEventListener('dblclick', async () => {
-                if (child.fileObj) {
                     try {
                         const decryptedObj = await getDecryptedFileObj(child);
                         const url = URL.createObjectURL(decryptedObj);
@@ -2010,7 +2058,6 @@ function renderHostExplorer() {
                     } catch (e) {
                         alert("Failed to decrypt: " + e.message);
                     }
-                }
             });
         }
         
