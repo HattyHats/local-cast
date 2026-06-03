@@ -748,6 +748,25 @@ window.onerror = function(msg, src, lineno, colno, error) {
         </div>
     </div>
 
+
+    <!-- DRAG AND DROP OVERLAY -->
+    <div id="drag-overlay" class="hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 240, 255, 0.2); z-index: 10001; backdrop-filter: blur(5px); display: flex; justify-content: center; align-items: center; border: 4px dashed var(--neon-blue); box-sizing: border-box; pointer-events: none;">
+        <h1 style="color: var(--neon-blue); font-size: 3rem; text-shadow: 0 0 20px var(--neon-blue); font-family: var(--font-mono); pointer-events: none;">DROP TO SECURE UPLOAD</h1>
+    </div>
+
+    <!-- ACTIVE TRANSFER DASHBOARD -->
+    <div id="transfer-dashboard" class="hidden" style="position: fixed; bottom: 20px; right: 20px; width: 350px; background: rgba(10, 11, 16, 0.95); border: 1px solid var(--border-color); border-radius: 8px; z-index: 9000; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px); display: flex; flex-direction: column; overflow: hidden; font-family: var(--font-mono);">
+        <div style="background: rgba(255,255,255,0.05); padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #fff; font-size: 0.8rem; font-weight: bold; letter-spacing: 1px;">NETWORK TRAFFIC</span>
+            <button id="btn-minimize-transfers" class="btn-icon" style="width: 24px; height: 24px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+        </div>
+        <div id="transfer-list" style="max-height: 250px; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <!-- Transfer Items will go here -->
+        </div>
+    </div>
+
     <!-- SCRIPTS -->
     <script src="app.js"></script>
     <script>

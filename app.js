@@ -294,6 +294,122 @@ const burnOverlay = document.getElementById('burn-overlay');
 const burnCountdown = document.getElementById('burn-countdown');
 
 const btnDownloadAllClient = document.getElementById('btn-download-all-client');
+
+// --- TRANSFER DASHBOARD & DRAG/DROP ---
+const dragOverlay = document.getElementById('drag-overlay');
+const transferDashboard = document.getElementById('transfer-dashboard');
+const transferList = document.getElementById('transfer-list');
+const btnMinimizeTransfers = document.getElementById('btn-minimize-transfers');
+
+let dragCounter = 0;
+document.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    if (dragOverlay) {
+        dragOverlay.classList.remove('hidden');
+        dragOverlay.style.display = 'flex';
+    }
+});
+document.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter === 0 && dragOverlay) {
+        dragOverlay.classList.add('hidden');
+        dragOverlay.style.display = 'none';
+    }
+});
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    if (dragOverlay) {
+        dragOverlay.classList.add('hidden');
+        dragOverlay.style.display = 'none';
+    }
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    
+    // Detect if we are host or guest
+    if (isHost && typeof processFiles === 'function') {
+        processFiles(files);
+    } else if (!isHost && typeof processClientFiles === 'function') {
+        processClientFiles(files);
+    }
+});
+
+if (btnMinimizeTransfers) {
+    btnMinimizeTransfers.addEventListener('click', () => {
+        if (transferList.style.display === 'none') {
+            transferList.style.display = 'flex';
+        } else {
+            transferList.style.display = 'none';
+        }
+    });
+}
+
+const activeTransfers = {};
+function createTransferItem(id, name, type) { // type: 'upload' or 'download'
+    if (transferDashboard) {
+        transferDashboard.classList.remove('hidden');
+    }
+    const el = document.createElement('div');
+    el.className = 'transfer-item ' + type;
+    el.id = 'transfer-' + id;
+    el.innerHTML = `
+        <div class="transfer-header">
+            <span class="transfer-filename" title="${name}">${name}</span>
+            <span class="transfer-speed" id="speed-${id}">0 MB/s</span>
+        </div>
+        <div class="transfer-progress-bg">
+            <div class="transfer-progress-fill" id="prog-${id}"></div>
+        </div>
+    `;
+    if (transferList) {
+        transferList.prepend(el); // newest on top
+    }
+    activeTransfers[id] = {
+        el,
+        bytes: 0,
+        lastBytes: 0,
+        lastTime: Date.now(),
+        speedEl: el.querySelector('#speed-' + id),
+        progEl: el.querySelector('#prog-' + id),
+        totalSize: 1 // prevent div by zero
+    };
+}
+function updateTransferProgress(id, newBytesSent, totalSize) {
+    const t = activeTransfers[id];
+    if (!t) return;
+    t.bytes += newBytesSent;
+    t.totalSize = totalSize;
+    
+    const now = Date.now();
+    const dt = now - t.lastTime;
+    if (dt >= 500) { // Update speed every 500ms
+        const dBytes = t.bytes - t.lastBytes;
+        const speedMBps = (dBytes / (1024 * 1024)) / (dt / 1000);
+        t.speedEl.textContent = speedMBps.toFixed(2) + ' MB/s';
+        t.lastBytes = t.bytes;
+        t.lastTime = now;
+    }
+    const percent = Math.min(100, (t.bytes / totalSize) * 100);
+    t.progEl.style.width = percent + '%';
+}
+function finishTransfer(id) {
+    const t = activeTransfers[id];
+    if (t) {
+        t.progEl.style.width = '100%';
+        t.speedEl.textContent = 'DONE';
+        setTimeout(() => {
+            if (t.el.parentNode) t.el.parentNode.removeChild(t.el);
+            delete activeTransfers[id];
+            if (Object.keys(activeTransfers).length === 0 && transferDashboard) {
+                transferDashboard.classList.add('hidden');
+            }
+        }, 3000);
+    }
+}
+
 const fileInput = document.getElementById('file-input');
 const folderInput = document.getElementById('folder-input');
 
@@ -2303,6 +2419,7 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
 async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, typeStr, extraData = {}) {
     const totalChunks = Math.ceil(fileBlob.size / CHUNK_SIZE);
     conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks, ...extraData });
+    createTransferItem(fileId, fileName, 'upload');
     for (let i = 0; i < totalChunks; i++) {
         // Prevent WebRTC buffer overflow by waiting for the data channel buffer to drain
         if (conn.dataChannel) {
@@ -2318,10 +2435,14 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
         
         try {
             conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
+            updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
+            if (i === totalChunks - 1) finishTransfer(fileId);
         } catch (e) {
             console.warn("Chunk send error, retrying...", e);
             await new Promise(r => setTimeout(r, 500));
             conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
+            updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
+            if (i === totalChunks - 1) finishTransfer(fileId);
         }
         await new Promise(r => setTimeout(r, 2)); // Tiny yield to event loop
     }
