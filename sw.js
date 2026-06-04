@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v69';
+const CACHE_NAME = 'localcast-v70';
 const ASSETS = [
     './',
     './index.html',
@@ -21,9 +21,22 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+    // We don't want to cache API calls or WebRTC signaling, only GET requests
+    if (e.request.method !== 'GET') {
+        return;
+    }
+
     e.respondWith(
-        caches.match(e.request).then((response) => {
-            return response || fetch(e.request);
+        fetch(e.request).then((response) => {
+            // Network First: If we get a valid response, cache it and return it
+            const resClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+                cache.put(e.request, resClone);
+            });
+            return response;
+        }).catch(() => {
+            // Offline fallback: use cache
+            return caches.match(e.request);
         })
     );
 });
