@@ -2549,17 +2549,17 @@ function renderClientExplorer() {
             }
         });
         item.addEventListener('contextmenu', (e) => {
-            if (btnUploadFilesClient && !btnUploadFilesClient.classList.contains('hidden')) {
-                e.preventDefault();
-                contextTargetId = child.id;
-                contextMenu.style.left = `${e.clientX}px`;
-                contextMenu.style.top = `${e.clientY}px`;
-                contextMenu.classList.remove('hidden');
-                
-                // Hide host-only options
-                if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = 'none';
-                if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = 'none';
-            }
+            e.preventDefault();
+            contextTargetId = child.id;
+            contextMenu.style.left = `${e.clientX}px`;
+            contextMenu.style.top = `${e.clientY}px`;
+            contextMenu.classList.remove('hidden');
+            
+            // Hide host-only options
+            if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = 'none';
+            if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = 'none';
+            if (document.getElementById('ctx-lock')) document.getElementById('ctx-lock').style.display = 'none';
+            if (document.getElementById('ctx-honeypot')) document.getElementById('ctx-honeypot').style.display = 'none';
         });
         
         clientExplorerGrid.appendChild(item);
