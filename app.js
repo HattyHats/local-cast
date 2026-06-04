@@ -1079,18 +1079,28 @@ async function initHost() {
         vfs.root = savedRoot;
         vfs.currentDir = vfs.root;
     }
+    
+    const savedHostPass = await localforage.getItem("host_password");
+    if (savedHostPass) {
+        hostPassword = savedHostPass;
+        iconUnlocked.classList.add('hidden');
+        iconLocked.classList.remove('hidden');
+    }
+
     btnLock.classList.remove('hidden');
     btnLock.addEventListener('click', () => {
         if (!hostPassword) {
             const pwd = prompt("Enter a password to lock this session:");
             if (pwd) {
                 hostPassword = pwd;
+                localforage.setItem("host_password", hostPassword);
                 iconUnlocked.classList.add('hidden');
                 iconLocked.classList.remove('hidden');
             }
         } else {
             if (confirm("Remove password protection?")) {
                 hostPassword = null;
+                localforage.removeItem("host_password");
                 iconUnlocked.classList.add('hidden');
                 iconLocked.classList.add('hidden');
                 connections.forEach(conn => {
@@ -1104,7 +1114,13 @@ async function initHost() {
         }
     });
 
-    peer = new Peer({ debug: 2 });
+    const savedPeerId = await localforage.getItem("host_peer_id");
+    if (savedPeerId) {
+        peer = new Peer(savedPeerId, { debug: 2 });
+    } else {
+        peer = new Peer({ debug: 2 });
+    }
+
     peer.on('call', async (call) => {
         if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
         try {
@@ -1120,6 +1136,7 @@ async function initHost() {
     });
 
     peer.on('open', (id) => {
+        localforage.setItem("host_peer_id", id);
         updateStatus('HOST ACTIVE', 'online');
         const connectUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
         
