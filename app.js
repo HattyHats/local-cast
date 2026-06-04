@@ -599,8 +599,18 @@ if (radarCanvas) {
         document.getElementById('gc-toggle-upload').addEventListener('change', (e) => {
             const conn = connections.find(c => c.peer === currentGCId);
             if (conn) {
-                if (!conn.permissions) conn.permissions = { upload: false, chat: true };
+                if (!conn.permissions) conn.permissions = { upload: false, chat: true, edit: false, delete: false };
                 conn.permissions.upload = e.target.checked;
+                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+            }
+        });
+
+        document.getElementById('gc-toggle-edit').addEventListener('change', (e) => {
+            const conn = connections.find(c => c.peer === currentGCId);
+            if (conn) {
+                if (!conn.permissions) conn.permissions = { upload: false, chat: true, edit: false, delete: false };
+                conn.permissions.edit = e.target.checked;
+                conn.permissions.delete = e.target.checked;
                 conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
             }
         });
@@ -627,6 +637,7 @@ if (radarCanvas) {
             if (!conn.permissions) conn.permissions = { upload: false, chat: true };
             document.getElementById('gc-toggle-chat').checked = conn.permissions.chat !== false;
             document.getElementById('gc-toggle-upload').checked = conn.permissions.upload === true;
+            document.getElementById('gc-toggle-edit').checked = (conn.permissions.edit === true || conn.permissions.delete === true);
         }
         
         gcModal.classList.remove('hidden');
@@ -985,6 +996,7 @@ async function initMagicPeer(targetPeerId, targetFileId) {
     const magicFilename = document.getElementById('magic-filename');
     
     const magicPeer = new Peer();
+        magicPeer.on("error", err => console.error("PeerJS Magic Error:", err));
     magicPeer.on('open', (id) => {
         magicStatus.textContent = 'Connecting to Host...';
         const conn = magicPeer.connect(targetPeerId, { reliable: true });
@@ -2137,6 +2149,7 @@ async function initClient() {
     updateStatus('CONNECTING...', 'offline');
     
     peer = new Peer({ debug: 2 });
+    peer.on("error", err => console.error("PeerJS Client Error:", err));
     peer.on('call', async (call) => {
         if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
         try {
