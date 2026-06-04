@@ -1466,7 +1466,11 @@ async function initHost() {
                         saveVFSToDB();
                         renderHostExplorer();
                         broadcastTree();
+                    } else {
+                        conn.send({ type: 'ALERT', message: 'Move failed: Invalid node or target.' });
                     }
+                } else {
+                    conn.send({ type: 'ALERT', message: 'Move failed: No delete permission on Host.' });
                 }
             } else if (data.type === 'CLIENT_RENAME_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
@@ -1476,7 +1480,11 @@ async function initHost() {
                         saveVFSToDB();
                         renderHostExplorer();
                         broadcastTree();
+                    } else {
+                        conn.send({ type: 'ALERT', message: 'Rename failed: Node not found or locked.' });
                     }
+                } else {
+                    conn.send({ type: 'ALERT', message: 'Rename failed: No delete permission on Host. Permissions object: ' + JSON.stringify(conn.permissions) });
                 }
             } else if (data.type === 'CLIENT_DELETE_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
@@ -2282,6 +2290,8 @@ async function initClient() {
                         delete incomingTransfers[data.id];
                     }
                 }
+            } else if (data.type === 'ALERT') {
+                alert(data.message);
             } else if (data.type === 'GUEST_PERMISSIONS') {
                 myPermissions = data.permissions;
                 if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !myPermissions.upload);
@@ -2489,6 +2499,28 @@ function renderClientExplorer() {
             
         const sizeText = child.size ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
         item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>${sizeText}`;
+        item.draggable = true;
+        
+        item.addEventListener('dragstart', (e) => {
+            if (!myPermissions || !myPermissions.delete) { e.preventDefault(); return; }
+            e.dataTransfer.setData('text/plain', child.id);
+            e.dataTransfer.effectAllowed = 'move';
+        });
+
+        if (child.type === 'folder') {
+            item.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; item.style.background = 'rgba(255,255,255,0.1)'; });
+            item.addEventListener('dragleave', () => item.style.background = 'transparent');
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                item.style.background = 'transparent';
+                const nodeId = e.dataTransfer.getData('text/plain');
+                if (nodeId && nodeId !== child.id) {
+                    if (hostConnection && hostConnection.open) {
+                        hostConnection.send({ type: 'CLIENT_MOVE_NODE', id: nodeId, targetFolderId: child.id });
+                    }
+                }
+            });
+        }
         
         item.addEventListener('click', () => {
             if (child.type === 'folder') {
