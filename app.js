@@ -1460,6 +1460,14 @@ async function initHost() {
                         notifyFileAdded(transfer.name);
                     }
                 }
+            } else if (data.type === 'CLIENT_MOVE_NODE') {
+                if (conn.permissions && conn.permissions.delete) {
+                    if (moveNode(data.id, data.targetFolderId)) {
+                        saveVFSToDB();
+                        renderHostExplorer();
+                        broadcastTree();
+                    }
+                }
             } else if (data.type === 'CLIENT_RENAME_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
                     const node = vfs.findNode(data.id);
@@ -2578,6 +2586,13 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
         const url = URL.createObjectURL(fileData);
         const loaderContainer = document.getElementById('preview-loader-container');
         if (loaderContainer) loaderContainer.classList.add('hidden');
+
+        if (activePreviewFileId === null) {
+            const a = document.createElement('a');
+            a.href = url; a.download = name; document.body.appendChild(a); a.click();
+            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+            return;
+        }
         
         const lowerName = name.toLowerCase();
         const isMedia = (mime && (mime.startsWith('video/') || mime.startsWith('audio/') || mime.startsWith('image/'))) || 
