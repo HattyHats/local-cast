@@ -3152,10 +3152,11 @@ let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
 
 const avatarPreview = document.getElementById('profile-avatar-preview');
 if (avatarPreview) {
-    if (guestAvatar) guestAvatar = canvas.toDataURL('image/jpeg', 0.8);
-                avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
-                avatarPreview.innerHTML = '';
-                avatarPreview.style.borderColor = 'var(--neon-green)';
+    if (guestAvatar) {
+        avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
+        avatarPreview.innerHTML = '';
+        avatarPreview.style.borderColor = 'var(--neon-green)';
+    }
     avatarPreview.addEventListener('click', () => avatarInput.click());
     avatarInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
