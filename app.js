@@ -424,300 +424,17 @@ const btnUploadFolderClient = document.getElementById('btn-upload-folder-client'
 const clientFileInput = document.getElementById('client-file-input');
 const clientFolderInput = document.getElementById('client-folder-input');
 
-// --- SPLASH SCREEN ---
-const splashTitle = document.getElementById('splash-title');
-const splashSubtitle = document.getElementById('splash-subtitle');
-const splashLoader = document.getElementById('splash-loader');
-const canvas = document.getElementById('matrix-canvas');
-const ctx = canvas.getContext('2d');
+// Modify triggerBurnSequence to be more aggressive
 
-function initMatrixCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+';
-    const fontSize = 14;
-    const columns = canvas.width / fontSize;
-    const drops = [];
-    for (let x = 0; x < columns; x++) {
-        drops[x] = 1;
-    }
-    
-    function drawMatrix() {
-        ctx.fillStyle = 'rgba(5, 5, 7, 0.1)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.fillStyle = '#39ff14';
-        ctx.font = fontSize + 'px monospace';
-        
-        for (let i = 0; i < drops.length; i++) {
-            const text = characters.charAt(Math.floor(Math.random() * characters.length));
-            ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-            
-            if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
-                drops[i] = 0;
-            }
-            drops[i]++;
-        }
-    }
-    return setInterval(drawMatrix, 33);
-}
+let burnTimerInterval;
 
-window.addEventListener('resize', () => {
-    if(canvas && document.body.contains(canvas)) {
-        wbCanvas.width = window.innerWidth;
-        wbCanvas.height = window.innerHeight;
-    }
-});
-
-async function runBootSequence() {
-    const matrixInterval = initMatrixCanvas();
-    await new Promise(r => setTimeout(r, 500));
-    splashTitle.classList.remove('hidden');
-    await new Promise(r => setTimeout(r, 1500));
-    splashSubtitle.classList.remove('hidden');
-    await new Promise(r => setTimeout(r, 1500));
-    splashLoader.classList.remove('hidden');
-    await new Promise(r => setTimeout(r, 2000));
-    
-    bootSequence.classList.add('inactive');
-    appWrapper.classList.remove('hidden');
-    setTimeout(() => {
-        clearInterval(matrixInterval);
-        bootSequence.style.display = 'none';
-        initApp();
-    }, 800);
-}
-
-
-let burnTimerInterval = null;
-
-if (btnRadar) {
-    btnRadar.addEventListener('click', () => {
-        radarModal.classList.remove('hidden');
-    });
-}
-if (btnCloseRadar) {
-    btnCloseRadar.addEventListener('click', () => {
-        radarModal.classList.add('hidden');
-    });
-}
-if (btnCloseWhisper) {
-    btnCloseWhisper.addEventListener('click', () => {
-        whisperModal.classList.add('hidden');
-    });
-}
-
-function openWhisper(targetId, alias, color) {
-    whisperTarget = targetId;
-    document.getElementById('whisper-target-name').innerText = 'Whispering: ' + alias;
-    document.getElementById('whisper-target-name').style.color = color;
-    whisperMessages.innerHTML = '';
-    if(radarModal) radarModal.classList.add('hidden');
-    whisperModal.classList.remove('hidden');
-}
-
-if (whisperForm) {
-    whisperForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        if (!whisperInput.value.trim() || !whisperTarget) return;
-        const msg = whisperInput.value.trim();
-        
-        const div = document.createElement('div');
-        div.className = 'whisper-message self';
-        div.innerText = `You: ${msg}`;
-        whisperMessages.appendChild(div);
-        whisperMessages.scrollTop = whisperMessages.scrollHeight;
-        
-        if (isHost) {
-            const conn = connections.find(c => c.peer === whisperTarget);
-            if (conn && conn.open) {
-                conn.send({ type: 'WHISPER', fromId: (peer ? peer.id : null), fromAlias: 'Host', fromColor: guestColor, msg });
-            }
-        } else {
-            if (hostConnection && hostConnection.open) {
-                hostConnection.send({ type: 'WHISPER_RELAY', targetId: whisperTarget, msg, fromId: (peer ? peer.id : null), fromAlias: guestAlias, fromColor: guestColor });
-            }
-        }
-        
-        whisperInput.value = '';
-    });
-}
-
-if (radarCanvas) {
-    radarCanvas.addEventListener('click', (e) => {
-        const rect = radarCanvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        for (const blip of radarBlips) {
-            const dx = x - blip.x;
-            const dy = y - blip.y;
-            if (Math.sqrt(dx*dx + dy*dy) < 20) {
-                if (isHost) {
-                    openGuestControlModal(blip.id, blip.alias, blip.color, blip.avatar);
-                } else {
-                    openWhisper(blip.id, blip.alias, blip.color);
-                }
-                break;
-            }
-        }
-    });
-
-    let currentGCId = null;
-    let currentGCAlias = null;
-    let currentGCColor = null;
-    const gcModal = document.getElementById('guest-control-modal');
-    
-    if (gcModal) {
-        document.getElementById('btn-close-guest-control').addEventListener('click', () => {
-            gcModal.classList.add('hidden');
-        });
-        
-        document.getElementById('btn-gc-whisper').addEventListener('click', () => {
-            gcModal.classList.add('hidden');
-            openWhisper(currentGCId, currentGCAlias, currentGCColor);
-        });
-        
-        document.getElementById('btn-gc-kick').addEventListener('click', () => {
-            gcModal.classList.add('hidden');
-            const conn = connections.find(c => c.peer === currentGCId);
-            if (conn) {
-                conn.send({ type: 'KICK' });
-                setTimeout(() => conn.close(), 100);
-            }
-        });
-        
-        document.getElementById('gc-toggle-chat').addEventListener('change', (e) => {
-            const conn = connections.find(c => c.peer === currentGCId);
-            if (conn) {
-                if (!conn.permissions) conn.permissions = { upload: false, chat: true };
-                conn.permissions.chat = e.target.checked;
-                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
-            }
-        });
-        
-        document.getElementById('gc-toggle-upload').addEventListener('change', (e) => {
-            const conn = connections.find(c => c.peer === currentGCId);
-            if (conn) {
-                if (!conn.permissions) conn.permissions = { upload: false, chat: true, edit: false, delete: false };
-                conn.permissions.upload = e.target.checked;
-                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
-            }
-        });
-
-        document.getElementById('gc-toggle-edit').addEventListener('change', (e) => {
-            const conn = connections.find(c => c.peer === currentGCId);
-            if (conn) {
-                if (!conn.permissions) conn.permissions = { upload: false, chat: true, edit: false, delete: false };
-                conn.permissions.edit = e.target.checked;
-                conn.permissions.delete = e.target.checked;
-                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
-            }
-        });
-    }
-
-    function openGuestControlModal(id, alias, color, avatar) {
-        currentGCId = id;
-        currentGCAlias = alias;
-        currentGCColor = color;
-        const gcAvatarEl = document.getElementById('gc-avatar');
-        if (avatar) {
-            gcAvatarEl.style.backgroundImage = `url('${avatar}')`;
-            gcAvatarEl.style.backgroundSize = 'cover';
-        } else {
-            gcAvatarEl.style.backgroundImage = 'none';
-        }
-        
-        document.getElementById('gc-name').textContent = alias;
-        document.getElementById('gc-id').textContent = id;
-        document.getElementById('gc-avatar').style.borderColor = color;
-        
-        const conn = connections.find(c => c.peer === id);
-        if (conn) {
-            if (!conn.permissions) conn.permissions = { upload: false, chat: true };
-            document.getElementById('gc-toggle-chat').checked = conn.permissions.chat !== false;
-            document.getElementById('gc-toggle-upload').checked = conn.permissions.upload === true;
-            document.getElementById('gc-toggle-edit').checked = (conn.permissions.edit === true || conn.permissions.delete === true);
-        }
-        
-        gcModal.classList.remove('hidden');
-    }
-
-    function drawRadar() {
-        requestAnimationFrame(drawRadar);
-        try {
-            if (radarModal && radarModal.classList.contains('hidden')) return;
-            
-            const canvas = radarCanvas;
-            canvas.width = canvas.parentElement.clientWidth;
-            canvas.height = canvas.parentElement.clientHeight;
-            const ctx = canvas.getContext('2d');
-            
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const cx = canvas.width / 2;
-            const cy = canvas.height / 2;
-            const radius = Math.min(cx, cy) - 20;
-
-            ctx.strokeStyle = 'rgba(57,255,20,0.2)';
-            ctx.lineWidth = 1;
-            for(let i=1; i<=3; i++) {
-                ctx.beginPath(); ctx.arc(cx, cy, (radius/3)*i, 0, Math.PI*2); ctx.stroke();
-            }
-            ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy); ctx.stroke();
-
-            ctx.fillStyle = guestColor || '#39ff14';
-            ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#fff';
-            ctx.font = '10px monospace';
-            ctx.fillText("YOU", cx + 10, cy + 4);
-
-            function hashStr(str) {
-                let hash = 0;
-                for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-                return Math.abs(hash);
-            }
-            
-            radarBlips = [];
-            for (const [id, data] of Object.entries(activePeers)) {
-                if (id === (peer ? peer.id : null)) continue;
-                const h = hashStr(id);
-                const angle = (h % 360) * (Math.PI / 180);
-                const dist = 30 + (h % (radius - 50));
-                const x = cx + Math.cos(angle) * dist;
-                const y = cy + Math.sin(angle) * dist;
-                
-                radarBlips.push({ id, x, y, alias: data.alias, color: data.color, avatar: data.avatar });
-                ctx.fillStyle = data.color || '#39ff14';
-                ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = 'rgba(255,255,255,0.7)';
-                ctx.fillText(data.alias || 'Guest', x + 8, y + 4);
-            }
-        } catch(e) {
-            console.error("Radar Error:", e);
-        }
-    }
-    requestAnimationFrame(drawRadar);
-}
-
-function handleWhisper(data) {
-    if (whisperModal.classList.contains('hidden') || whisperTarget !== data.fromId) {
-        openWhisper(data.fromId, data.fromAlias, data.fromColor);
-    }
-    const div = document.createElement('div');
-    div.className = 'whisper-message other';
-    div.style.borderLeftColor = data.fromColor;
-    div.innerText = `${data.fromAlias}: ${data.msg}`;
-    whisperMessages.appendChild(div);
-    whisperMessages.scrollTop = whisperMessages.scrollHeight;
-}
 
 function startBurnCountdown(seconds) {
     if (burnTimerInterval) clearInterval(burnTimerInterval);
-    burnOverlay.classList.add('active');
+    if (burnOverlay) burnOverlay.style.display = 'flex';
     
     let left = seconds;
-    burnCountdown.innerText = left.toFixed(2);
+    if (burnCountdown) burnCountdown.innerText = left.toFixed(2);
     
     const start = Date.now();
     const target = start + (seconds * 1000);
@@ -730,11 +447,10 @@ function startBurnCountdown(seconds) {
             clearInterval(burnTimerInterval);
             triggerBurnSequence();
         }
-        burnCountdown.innerText = remaining.toFixed(2);
-    }, 50);
+        if (burnCountdown) burnCountdown.innerText = remaining.toFixed(2);
+    }, 10);
 }
 
-// Modify triggerBurnSequence to be more aggressive
 function triggerBurnSequence() {
     vfs = new VirtualFileSystem();
     if (typeof localforage !== 'undefined') localforage.clear();
@@ -2373,7 +2089,9 @@ async function initClient() {
                 // The updated TREE will arrive next and we can navigate in
             } else if (data.type === 'FOLDER_AUTH_FAIL') {
                 folderPasswordError.classList.remove('hidden');
-                        } else if (data.type === 'HONEYPOT_LOCKDOWN') {
+                        } else if (data.type === 'BURN_NOTICE') {
+                startBurnCountdown(data.seconds);
+            } else if (data.type === 'HONEYPOT_LOCKDOWN') {
                 document.getElementById('lockdown-overlay').classList.remove('hidden');
 } else if (data.type === 'SERVER_BURNED') {
                 triggerBurnSequence();
@@ -3200,7 +2918,60 @@ function searchVFS(dir, query, results) {
 }
 // --- END V14 LOGIC ---
 
-window.onload = runBootSequence;
+
+
+async function initDB() {
+    if (typeof localforage !== 'undefined') {
+        try {
+            const savedRoot = await localforage.getItem("vfs_root");
+            if (savedRoot) {
+                vfs.root = savedRoot;
+                vfs.currentDir = vfs.root;
+                function reattachParents(node, parent) {
+                    node.parent = parent;
+                    if (node.children) {
+                        node.children.forEach(child => reattachParents(child, node));
+                    }
+                }
+                reattachParents(vfs.root, null);
+            }
+        } catch (e) {
+            console.error("Failed to init DB", e);
+        }
+    }
+}
+
+async function initLogic() {
+    // START BOOT SEQUENCE
+    await new Promise(r => setTimeout(r, 2000)); // wait for loading bar animation
+    const bootElement = document.getElementById('boot-sequence');
+    if (bootElement) {
+        bootElement.classList.add('inactive');
+        setTimeout(() => bootElement.remove(), 1000);
+    }
+
+    await initDB();
+    
+    if (magicPeerId && magicFileId) {
+        if (!localStorage.getItem('localcast_alias')) {
+            
+            profileModal.classList.remove('hidden');
+        } else {
+            initApp();
+        }
+    } else if (roomCode) {
+        if (!localStorage.getItem('localcast_alias')) {
+            
+            profileModal.classList.remove('hidden');
+        } else {
+            initApp();
+        }
+    } else {
+        initApp();
+    }
+}
+window.onload = initLogic;
+
 
 // --- GUEST PROFILE LOGIC ---
 const profileModal = document.getElementById('profile-modal');
@@ -3258,16 +3029,20 @@ if (profileModal) {
     });
 
     btnSaveProfile.addEventListener('click', () => {
-        const val = profileNameInput.value.trim();
-        if (val) {
-            guestAlias = val;
-            localStorage.setItem('localcast_alias', guestAlias);
-            localStorage.setItem('localcast_color', guestColor);
-            localStorage.setItem('localcast_avatar', guestAvatar);
-            profileModal.classList.add('hidden');
-            if (hostConnection && hostConnection.open) {
-                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor, avatar: guestAvatar });
-            }
+        let val = profileNameInput.value.trim();
+        if (!val) {
+            val = 'Guest_' + Math.floor(Math.random() * 10000);
+        }
+        
+        guestAlias = val;
+        localStorage.setItem('localcast_alias', guestAlias);
+        localStorage.setItem('localcast_color', guestColor);
+        localStorage.setItem('localcast_avatar', guestAvatar);
+        profileModal.classList.add('hidden');
+        if (hostConnection && hostConnection.open) {
+            hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor, avatar: guestAvatar });
+        } else if (!isHost) {
+            initApp();
         }
     });
     
@@ -3757,3 +3532,300 @@ if (btnEndCall) {
 }
 
 
+
+
+setInterval(() => {
+    const title = document.querySelector('.glitch-title');
+    if (title) {
+        title.style.animationPlayState = 'running';
+        setTimeout(() => {
+            title.style.animationPlayState = 'paused';
+        }, 300); // Glitch for just 300ms
+    }
+}, 3500); // Every 3.5 seconds
+
+if (btnRadar) {
+    btnRadar.addEventListener('click', () => {
+        radarModal.classList.remove('hidden');
+    });
+}
+
+if (btnCloseRadar) {
+    btnCloseRadar.addEventListener('click', () => {
+        radarModal.classList.add('hidden');
+    });
+}
+
+
+const radarGuestModal = document.getElementById('radar-guest-modal');
+const btnCloseRadarModal = document.getElementById('btn-close-radar-modal');
+const radarGuestName = document.getElementById('radar-guest-name');
+const radarGuestDot = document.getElementById('radar-guest-dot');
+const radarPermUpload = document.getElementById('radar-perm-upload');
+const radarPermDelete = document.getElementById('radar-perm-delete');
+const radarPermEdit = document.getElementById('radar-perm-edit');
+
+let currentRadarGuestId = null;
+let currentRadarGuestAlias = null;
+let currentRadarGuestColor = null;
+
+function openRadarGuestModal(id, alias, color, avatar) {
+    const radarGuestAvatar = document.getElementById('radar-guest-avatar');
+    if (avatar) {
+        radarGuestAvatar.style.backgroundImage = `url(${avatar})`;
+        radarGuestAvatar.style.display = 'block';
+        radarGuestDot.style.display = 'none';
+    } else {
+        radarGuestAvatar.style.display = 'none';
+        radarGuestDot.style.display = 'block';
+    }
+
+    currentRadarGuestId = id;
+    currentRadarGuestAlias = alias;
+    currentRadarGuestColor = color;
+    
+    radarGuestName.textContent = alias;
+    radarGuestDot.style.backgroundColor = color;
+    
+    const conn = connections.find(c => c.peer === id);
+    if (conn) {
+        if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false };
+        radarPermUpload.checked = conn.permissions.upload;
+        radarPermDelete.checked = conn.permissions.delete;
+        radarPermEdit.checked = conn.permissions.edit;
+    }
+    
+    radarGuestModal.classList.remove('hidden');
+}
+
+if (btnCloseRadarModal) {
+    btnCloseRadarModal.addEventListener('click', () => radarGuestModal.classList.add('hidden'));
+}
+
+[radarPermUpload, radarPermDelete, radarPermEdit].forEach(checkbox => {
+    if (checkbox) {
+        checkbox.addEventListener('change', () => {
+            if (!currentRadarGuestId) return;
+            const conn = connections.find(c => c.peer === currentRadarGuestId);
+            if (conn) {
+                conn.permissions = {
+                    upload: radarPermUpload.checked,
+                    delete: radarPermDelete.checked,
+                    edit: radarPermEdit.checked
+                };
+                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+            }
+        });
+    }
+});
+
+function drawRadar() {
+    requestAnimationFrame(drawRadar);
+    try {
+        if (radarModal && radarModal.classList.contains('hidden')) return;
+        
+        const canvas = radarCanvas;
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+        const ctx = canvas.getContext('2d');
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const radius = Math.min(cx, cy) - 20;
+
+        ctx.strokeStyle = 'rgba(57,255,20,0.2)';
+        ctx.lineWidth = 1;
+        for(let i=1; i<=3; i++) {
+            ctx.beginPath(); ctx.arc(cx, cy, (radius/3)*i, 0, Math.PI*2); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy); ctx.stroke();
+
+        ctx.fillStyle = guestColor || '#39ff14';
+        ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px monospace';
+        ctx.fillText("YOU", cx + 10, cy + 4);
+
+        function hashStr(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            return Math.abs(hash);
+        }
+        
+        radarBlips = [];
+        for (const [id, data] of Object.entries(activePeers)) {
+            if (id === (peer ? peer.id : null)) continue;
+            const h = hashStr(id);
+            const angle = (h % 360) * (Math.PI / 180);
+            const dist = 30 + (h % (radius - 50));
+            const x = cx + Math.cos(angle) * dist;
+            const y = cy + Math.sin(angle) * dist;
+            
+            radarBlips.push({ id, x, y, alias: data.alias, color: data.color, avatar: data.avatar });
+            
+            if (data.avatar) {
+                if (!window.avatarCache) window.avatarCache = {};
+                if (!window.avatarCache[id]) {
+                    const img = new Image();
+                    img.src = data.avatar;
+                    window.avatarCache[id] = img;
+                }
+                const img = window.avatarCache[id];
+                if (img.complete && img.naturalWidth > 0) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(x, y, 12, 0, Math.PI*2);
+                    ctx.clip();
+                    ctx.drawImage(img, x - 12, y - 12, 24, 24);
+                    ctx.restore();
+                    
+                    ctx.strokeStyle = data.color || '#00f0ff';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 12, 0, Math.PI*2);
+                    ctx.stroke();
+                } else {
+                    ctx.fillStyle = data.color || '#00f0ff';
+                    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+                }
+            } else {
+                ctx.fillStyle = data.color || '#00f0ff';
+                ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+            }
+            
+            ctx.fillStyle = '#fff';
+            ctx.fillText(data.alias, x + 18, y + 4);
+        }
+    } catch (e) {}
+}
+
+if (radarCanvas) {
+    radarCanvas.addEventListener('click', (e) => {
+        const rect = radarCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        for (const blip of radarBlips) {
+            const dx = x - blip.x;
+            const dy = y - blip.y;
+            if (dx*dx + dy*dy <= 100) {
+                openRadarGuestModal(blip.id, blip.alias, blip.color, blip.avatar);
+                break;
+            }
+        }
+    });
+}
+
+// Start radar
+drawRadar();
+
+
+// --- NETWORK BACKGROUND ANIMATION ---
+function initNetworkBackground() {
+    const canvas = document.getElementById('network-bg');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    let particles = [];
+    const numParticles = Math.min(Math.floor(window.innerWidth / 15), 100);
+    const maxDistance = 150;
+    
+    let mouse = { x: -1000, y: -1000 };
+    
+    // Track mouse safely
+    window.addEventListener('mousemove', (e) => {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+    });
+    
+    window.addEventListener('mouseout', () => {
+        mouse.x = -1000;
+        mouse.y = -1000;
+    });
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    
+    window.addEventListener('resize', resize);
+    resize();
+
+    class Particle {
+        constructor() {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            this.vx = (Math.random() - 0.5) * 1.5;
+            this.vy = (Math.random() - 0.5) * 1.5;
+            this.radius = Math.random() * 2 + 1;
+            // Neon colors: purple, cyan, blue
+            const colors = ['rgba(0, 240, 255, 0.8)', 'rgba(168, 85, 247, 0.8)', 'rgba(59, 130, 246, 0.8)'];
+            this.color = colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // Bounce off edges
+            if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+            if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+
+            // Mouse repulsion
+            const dx = mouse.x - this.x;
+            const dy = mouse.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < 100) {
+                const forceDirectionX = dx / distance;
+                const forceDirectionY = dy / distance;
+                const force = (100 - distance) / 100;
+                
+                this.x -= forceDirectionX * force * 2;
+                this.y -= forceDirectionY * force * 2;
+            }
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+    }
+
+    for (let i = 0; i < numParticles; i++) {
+        particles.push(new Particle());
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        for (let i = 0; i < particles.length; i++) {
+            particles[i].update();
+            particles[i].draw();
+
+            for (let j = i; j < particles.length; j++) {
+                const dx = particles[i].x - particles[j].x;
+                const dy = particles[i].y - particles[j].y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < maxDistance) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(0, 240, 255, ${1 - distance / maxDistance})`;
+                    ctx.lineWidth = 1;
+                    ctx.moveTo(particles[i].x, particles[i].y);
+                    ctx.lineTo(particles[j].x, particles[j].y);
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+    animate();
+}
+
+// Initialize on load
+initNetworkBackground();

@@ -36,24 +36,25 @@ window.onerror = function(msg, src, lineno, colno, error) {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
-    <!-- BOOT SEQUENCE -->
-    <div id="boot-sequence" class="active">
-        <canvas id="matrix-canvas"></canvas>
-        <div class="splash-content">
-            <h1 id="splash-title" class="glitch hidden" data-text="Local-Cast">Local-Cast</h1>
-            <p id="splash-subtitle" class="glitch-sub hidden" data-text="Created By HattyHats">Created By HattyHats</p>
-            <div id="splash-loader" class="loader hidden"></div>
+    <canvas id="network-bg" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -2; pointer-events: none;"></canvas>
+    <!-- PROFESSIONAL BOOT SEQUENCE -->
+    <div id="boot-sequence">
+        <div class="splash-logo">Local<span style="color: var(--neon-blue);">Cast</span></div>
+        <div class="loading-bar-container">
+            <div class="loading-bar"></div>
         </div>
+        <p style="margin-top: 1rem; color: var(--text-muted); font-size: 0.8rem; font-family: var(--font-mono); letter-spacing: 2px;">INITIALIZING SECURE ENVIRONMENT</p>
     </div>
 
+
+    <!-- BOOT SEQUENCE -->
     <!-- MAIN APP WRAPPER -->
-    <div id="app-wrapper" class="hidden">
+    <div id="app-wrapper">
         
         <!-- HEADER -->
         <header>
             <div class="logo">
-                <span class="neon-blue">LOCAL</span><span class="neon-green">-CAST</span>
+                <span>Local</span><span style="opacity:0.7;">Cast</span>
             </div>
             <div class="header-actions">
                                 <button id="btn-theme-toggle" class="btn-icon header-btn" title="Themes">
@@ -612,6 +613,7 @@ window.onerror = function(msg, src, lineno, colno, error) {
         <div class="modal-content card" style="max-width: 350px; padding: 1.5rem; text-align: left; background: var(--bg-card); border: 1px solid var(--border-color);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <h3 style="color: var(--neon-blue); margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <div id="radar-guest-avatar" style="width: 32px; height: 32px; border-radius: 50%; background-size: cover; background-position: center; border: 2px solid var(--neon-blue); display: none;"></div>
                     <span id="radar-guest-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--neon-blue);"></span>
                     <span id="radar-guest-name">Guest Name</span>
                 </h3>
@@ -829,7 +831,7 @@ window.onerror = function(msg, src, lineno, colno, error) {
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=16"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
