@@ -3829,3 +3829,103 @@ function initNetworkBackground() {
 
 // Initialize on load
 initNetworkBackground();
+
+// --- RESTORED WHISPER & CALL LOGIC ---
+function appendWhisper(name, text, color) {
+    if (!whisperMessages) return;
+    const el = document.createElement('div');
+    el.style.marginBottom = '4px';
+    el.innerHTML = '<strong style="color: ' + color + ';">' + name + ':</strong> <span style="color: #fff;">' + text + '</span>';
+    whisperMessages.appendChild(el);
+    whisperMessages.scrollTop = whisperMessages.scrollHeight;
+}
+
+function handleWhisper(data) {
+    if (whisperModal && whisperModal.classList.contains('hidden')) {
+        openWhisper(data.fromId, data.fromAlias, data.fromColor);
+    }
+    appendWhisper(data.fromAlias, data.msg, data.fromColor);
+}
+
+function openWhisper(targetId, alias, color) {
+    whisperTarget = targetId;
+    document.getElementById('whisper-target-name').innerText = 'Whispering: ' + alias;
+    document.getElementById('whisper-target-name').style.color = color;
+    whisperMessages.innerHTML = '';
+    
+    const radarGuestModal = document.getElementById('radar-guest-modal');
+    if (radarGuestModal) radarGuestModal.classList.add('hidden');
+    if (radarModal) radarModal.classList.add('hidden');
+    
+    whisperModal.classList.remove('hidden');
+}
+
+const btnRadarWhisper = document.getElementById('btn-radar-whisper');
+const btnRadarCall = document.getElementById('btn-radar-call');
+
+if (btnRadarWhisper) {
+    btnRadarWhisper.addEventListener('click', () => {
+        if (!currentRadarGuestId) return;
+        openWhisper(currentRadarGuestId, currentRadarGuestAlias, currentRadarGuestColor);
+    });
+}
+
+if (btnRadarCall) {
+    btnRadarCall.addEventListener('click', async () => {
+        if (!currentRadarGuestId) return;
+        
+        const radarGuestModal = document.getElementById('radar-guest-modal');
+        if (radarGuestModal) radarGuestModal.classList.add('hidden');
+        
+        try {
+            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            currentCall = peer.call(currentRadarGuestId, localMediaStream);
+            openWhisper(currentRadarGuestId, currentRadarGuestAlias, currentRadarGuestColor);
+            setupCallHandlers(currentCall);
+        } catch (e) {
+            console.error('Microphone access denied', e);
+            alert('Microphone access denied or not available.');
+        }
+    });
+}
+
+if (btnCloseWhisper) {
+    btnCloseWhisper.addEventListener('click', () => {
+        whisperModal.classList.add('hidden');
+        whisperTarget = null;
+        if (currentCall) {
+            currentCall.close();
+            currentCall = null;
+        }
+        if (localMediaStream) {
+            localMediaStream.getTracks().forEach(t => t.stop());
+            localMediaStream = null;
+        }
+    });
+}
+
+if (whisperForm) {
+    whisperForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!whisperInput.value.trim() || !whisperTarget) return;
+        
+        const msg = whisperInput.value.trim();
+        whisperInput.value = '';
+        
+        const myName = typeof profile !== 'undefined' && profile.name ? profile.name : (typeof guestAlias !== 'undefined' ? guestAlias : 'Me');
+        const myColor = typeof profile !== 'undefined' && profile.color ? profile.color : (typeof guestColor !== 'undefined' ? guestColor : '#39ff14');
+        
+        appendWhisper(myName, msg, myColor);
+        
+        if (isHost) {
+            const targetConn = connections.find(c => c.peer === whisperTarget);
+            if (targetConn && targetConn.open) {
+                targetConn.send({ type: 'WHISPER', fromId: peer.id, fromAlias: myName, fromColor: myColor, msg: msg });
+            }
+        } else {
+            if(hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'WHISPER_RELAY', targetId: whisperTarget, fromId: peer.id, fromAlias: myName, fromColor: myColor, msg: msg });
+            }
+        }
+    });
+}
