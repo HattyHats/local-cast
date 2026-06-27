@@ -4702,7 +4702,7 @@ tttCells.forEach((cell, idx) => {
         currentArcadeTurn = myArcadeMark === 'X' ? 'O' : 'X';
         renderArcadeBoard();
         
-        const moveData = { type: 'ARCADE_MOVE', board: arcadeBoard, turn: currentArcadeTurn };
+        const moveData = { type: 'ARCADE_MOVE', gameType: 'tictactoe', board: arcadeBoard, turn: currentArcadeTurn };
         
         if (isHost) {
             const opponent = connections.find(c => c.peer === arcadeOpponentId);
