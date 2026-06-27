@@ -952,7 +952,19 @@ async function initHost() {
                         target.send({ type: 'WHISPER', fromId: data.fromId, fromAlias: data.fromAlias, fromColor: data.fromColor, msg: data.msg });
                     }
                 }
-} else if (data.type === 'CHAT_MSG' && conn.isAuthenticated) {
+            } else if (data.type === 'ARCADE_RELAY' && conn.isAuthenticated) {
+                if (data.targetId === (peer ? peer.id : null)) {
+                    // Directed at host
+                    handleArcadeNetwork(data.data);
+                } else {
+                    const target = connections.find(c => c.peer === data.targetId);
+                    if (target && target.open) {
+                        target.send(data.data);
+                    }
+                }
+            } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type) && conn.isAuthenticated) {
+                handleArcadeNetwork(data);
+            } else if (data.type === 'CHAT_MSG' && conn.isAuthenticated) {
                 const sName = conn.profile ? conn.profile.name : (data.sender || 'Guest');
                 const sColor = conn.profile ? conn.profile.color : (data.color || 'var(--neon-blue)');
                 appendChatMessage(sName, data.text, 'other', sColor);
@@ -1882,6 +1894,29 @@ async function initClient() {
     
     peer = new Peer({ debug: 2 });
     peer.on("error", err => console.error("PeerJS Client Error:", err));
+    
+    // Intercept incoming connections for Swarm
+    peer.on('connection', (conn) => {
+        if (!isHost) {
+            conn.on('open', () => {
+                if (!swarmConnections.find(c => c.peer === conn.peer)) {
+                    swarmConnections.push(conn);
+                    printCli('Swarm peer connected: ' + conn.peer, 'var(--neon-green)');
+                }
+            });
+            
+            conn.on('data', (data) => {
+                if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
+                    handleArcadeNetwork(data);
+                }
+            });
+            
+            conn.on('close', () => {
+                swarmConnections = swarmConnections.filter(c => c.peer !== conn.peer);
+            });
+        }
+    });
+
     peer.on('call', async (call) => {
         if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
         try {
@@ -1904,7 +1939,9 @@ async function initClient() {
         });
         
         hostConnection.on('data', (data) => {
-            if (data.type === 'AUTH_REQUIRED') {
+            if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
+                handleArcadeNetwork(data);
+            } else if (data.type === 'AUTH_REQUIRED') {
                 passwordModal.classList.remove('hidden');
             } else if (data.type === 'AUTH_SUCCESS') {
                 passwordModal.classList.add('hidden');
@@ -2059,6 +2096,26 @@ async function initClient() {
                     scratchpadTextarea.value = data.text;
                     scratchpadTextarea.setSelectionRange(start, end);
                 }
+            
+            } else if (data.type === 'NETWORK_MAP') {
+                const map = data.peers;
+                map.forEach(peerId => {
+                    if (peerId !== peer.id && !swarmConnections.find(c => c.peer === peerId)) {
+                        const conn = peer.connect(peerId, { reliable: true });
+                        conn.on('open', () => {
+                            swarmConnections.push(conn);
+                            printCli('Connected to Swarm peer: ' + peerId, 'var(--neon-green)');
+                        });
+                        conn.on('close', () => {
+                            swarmConnections = swarmConnections.filter(c => c.peer !== peerId);
+                        });
+                        conn.on('data', (d) => {
+                            if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(d.type)) {
+                                handleArcadeNetwork(d);
+                            }
+                        });
+                    }
+                });
             } else if (data.type === 'KICK') {
                 window.location.reload();
             } else if (data.type === 'PEER_LIST') {
@@ -3929,3 +3986,803 @@ if (whisperForm) {
         }
     });
 }
+
+// --- HACKER CLI TERMINAL ---
+const cliTerminal = document.getElementById('cli-terminal');
+const cliInput = document.getElementById('cli-input');
+const cliOutput = document.getElementById('cli-output');
+const btnCloseCli = document.getElementById('btn-close-cli');
+let cliCurrentDirId = 'root';
+
+function printCli(text, color = '#39ff14') {
+    if (!cliOutput) return;
+    const span = document.createElement('span');
+    span.style.color = color;
+    span.innerText = text;
+    cliOutput.appendChild(span);
+    cliOutput.scrollTop = cliOutput.scrollHeight;
+}
+
+if (cliTerminal) {
+    document.addEventListener('keydown', (e) => {
+        if (e.key === '~' || e.key === '`') {
+            e.preventDefault();
+            if (cliTerminal.classList.contains('hidden')) {
+                cliTerminal.classList.remove('hidden');
+                cliTerminal.style.display = 'flex';
+                cliInput.focus();
+                if (cliOutput.innerHTML === '') {
+                    printCli('LOCAL-CAST // TERMINAL INITIALIZED', 'var(--neon-blue)');
+                    printCli('Type "help" for a list of commands.', 'var(--text-muted)');
+                }
+            } else {
+                cliTerminal.classList.add('hidden');
+                cliTerminal.style.display = 'none';
+            }
+        }
+    });
+
+    if (btnCloseCli) {
+        btnCloseCli.addEventListener('click', () => {
+            cliTerminal.classList.add('hidden');
+            cliTerminal.style.display = 'none';
+        });
+    }
+
+    if (cliInput) {
+        cliInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const val = cliInput.value.trim();
+                if (!val) return;
+                cliInput.value = '';
+                printCli('> ' + val, '#fff');
+                
+                const args = val.split(' ');
+                const cmd = args[0].toLowerCase();
+                
+                try {
+                    if (cmd === 'help') {
+                        printCli('COMMANDS:\\n  ls        - List contents of current directory\\n  cd <id>   - Change directory\\n  mkdir <n> - Create a new folder\\n  rm <id>   - Delete a file/folder\\n  clear     - Clear terminal\\n  whoami    - Print user info', 'var(--neon-blue)');
+                    } else if (cmd === 'clear') {
+                        cliOutput.innerHTML = '';
+                    } else if (cmd === 'whoami') {
+                        printCli('ALIAS: ' + (typeof profile !== 'undefined' ? profile.name : guestAlias), 'var(--neon-purple)');
+                        printCli('ID: ' + peer.id, 'var(--neon-purple)');
+                    } else if (cmd === 'ls') {
+                        const currentDir = vfs.findNode(cliCurrentDirId);
+                        const children = currentDir ? currentDir.children : [];
+                        if (children.length === 0) {
+                            printCli('  (empty directory)', 'var(--text-muted)');
+                        } else {
+                            children.forEach(c => {
+                                const icon = c.type === 'folder' ? '[DIR]' : '     ';
+                                printCli('  ' + icon + ' ' + c.id.substring(0,6) + '... | ' + c.name);
+                            });
+                        }
+                    } else if (cmd === 'mkdir') {
+                        if (!isHost) {
+                            printCli('Error: Only Host can use mkdir in CLI currently.', 'var(--neon-red)');
+                        } else {
+                            const name = args.slice(1).join(' ') || 'New Folder';
+                            const currentDir = vfs.findNode(cliCurrentDirId);
+                            if (currentDir) {
+                                vfs.addFolder(name); // addFolder uses vfs.currentDir, so let's use addNode
+                                // actually, addNode needs the parent object and new node object
+                                const newFolder = {
+                                    id: 'folder_' + Math.random().toString(36).substr(2, 9),
+                                    name: name,
+                                    type: 'folder',
+                                    children: [],
+                                    size: 0,
+                                    createdAt: Date.now(),
+                                    isVault: false
+                                };
+                                vfs.addNode(currentDir, newFolder);
+                                saveVFSToDB();
+                                renderHostExplorer();
+                                broadcastTree();
+                                printCli('Created directory: ' + name, 'var(--neon-green)');
+                            }
+                        }
+                    } else if (cmd === 'cd') {
+                        const targetId = args[1];
+                        if (!targetId || targetId === '..') {
+                            if (cliCurrentDirId === 'root') {
+                                printCli('Already at root.', 'var(--neon-red)');
+                            } else {
+                                const current = vfs.findNode(cliCurrentDirId);
+                                cliCurrentDirId = (current && current.parent) ? current.parent.id : 'root';
+                                printCli('Directory changed.');
+                            }
+                        } else {
+                            const currentDir = vfs.findNode(cliCurrentDirId);
+                            const target = currentDir ? currentDir.children.find(n => n.id === targetId || n.name === targetId) : null;
+                            if (target && target.type === 'folder') {
+                                cliCurrentDirId = target.id;
+                                printCli('Changed directory to ' + target.name);
+                            } else {
+                                printCli('Directory not found.', 'var(--neon-red)');
+                            }
+                        }
+                    } else if (cmd === 'rm') {
+                        if (!isHost) {
+                            printCli('Error: Only Host can rm in CLI currently.', 'var(--neon-red)');
+                        } else {
+                            const targetId = args[1];
+                            if (targetId) {
+                                deleteNode(targetId);
+                                saveVFSToDB();
+                                renderHostExplorer();
+                                broadcastTree();
+                                printCli('Item deleted.', 'var(--neon-green)');
+                            } else {
+                                printCli('Missing target ID.', 'var(--neon-red)');
+                            }
+                        }
+                    } else {
+                        printCli('Command not found: ' + cmd, 'var(--neon-red)');
+                    }
+                } catch (err) {
+                    printCli('Error executing command: ' + err.message, 'var(--neon-red)');
+                }
+            }
+        });
+    }
+}
+
+// --- CYBER JUKEBOX ---
+const cyberJukebox = document.getElementById('cyber-jukebox');
+const jukeboxPlayer = document.getElementById('jukebox-player');
+const btnJukePlay = document.getElementById('btn-juke-play');
+const btnJukePause = document.getElementById('btn-juke-pause');
+const jukeTitle = document.getElementById('juke-title');
+const jukeTime = document.getElementById('juke-time');
+const btnJukeSync = document.getElementById('btn-juke-sync');
+const btnCloseJukebox = document.getElementById('btn-close-jukebox');
+
+let isJukeboxActive = false;
+let currentJukeboxFileId = null;
+
+function formatTime(secs) {
+    const min = Math.floor(secs / 60);
+    const sec = Math.floor(secs % 60).toString().padStart(2, '0');
+    return min + ':' + sec;
+}
+
+if (jukeboxPlayer) {
+    jukeboxPlayer.addEventListener('timeupdate', () => {
+        jukeTime.innerText = formatTime(jukeboxPlayer.currentTime) + ' / ' + (isNaN(jukeboxPlayer.duration) ? '0:00' : formatTime(jukeboxPlayer.duration));
+    });
+
+    jukeboxPlayer.addEventListener('ended', () => {
+        btnJukePlay.classList.remove('hidden');
+        btnJukePause.classList.add('hidden');
+    });
+}
+
+function loadJukeboxFile(file, objectUrl) {
+    isJukeboxActive = true;
+    currentJukeboxFileId = file.id;
+    jukeTitle.innerText = file.name;
+    jukeboxPlayer.src = objectUrl;
+    cyberJukebox.classList.remove('hidden');
+}
+
+if (btnJukePlay) {
+    btnJukePlay.addEventListener('click', () => {
+        jukeboxPlayer.play();
+        btnJukePlay.classList.add('hidden');
+        btnJukePause.classList.remove('hidden');
+        if (isHost) {
+            broadcastJukebox('JUKEBOX_PLAY', currentJukeboxFileId, jukeboxPlayer.currentTime);
+        }
+    });
+}
+
+if (btnJukePause) {
+    btnJukePause.addEventListener('click', () => {
+        jukeboxPlayer.pause();
+        btnJukePause.classList.add('hidden');
+        btnJukePlay.classList.remove('hidden');
+        if (isHost) {
+            broadcastJukebox('JUKEBOX_PAUSE', currentJukeboxFileId, jukeboxPlayer.currentTime);
+        }
+    });
+}
+
+if (btnJukeSync) {
+    btnJukeSync.addEventListener('click', () => {
+        if (isHost) {
+            broadcastJukebox('JUKEBOX_SYNC', currentJukeboxFileId, jukeboxPlayer.currentTime);
+            printCli('Jukebox sync signal broadcasted.', 'var(--neon-green)');
+        } else {
+            if (hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'JUKEBOX_REQUEST_SYNC' });
+            }
+        }
+    });
+}
+
+if (btnCloseJukebox) {
+    btnCloseJukebox.addEventListener('click', () => {
+        cyberJukebox.classList.add('hidden');
+        jukeboxPlayer.pause();
+        isJukeboxActive = false;
+        currentJukeboxFileId = null;
+    });
+}
+
+function broadcastJukebox(type, fileId, time) {
+    connections.forEach(c => {
+        if (c.open && c.isAuthenticated) {
+            c.send({ type: type, fileId: fileId, time: time });
+        }
+    });
+}
+
+function hideContextMenu() {
+    contextTargetId = null;
+    if (typeof contextMenu !== 'undefined' && contextMenu) {
+        contextMenu.classList.add('hidden');
+    }
+}
+
+// Right click integration
+function handleJukeboxContext(fileId) {
+    const file = isHost ? vfs.findNode(fileId) : (typeof findClientNode === 'function' ? findClientNode(clientVFS, fileId) : null);
+    if (!file) {
+        alert("File not found in Virtual File System.");
+        return;
+    }
+    const isAudio = file.name.match(/\\.(mp3|wav|ogg|m4a|flac)$/i) || (file.mime && file.mime.startsWith('audio/'));
+    if (!isAudio) {
+        alert("Not a supported audio file. Name: " + file.name + ", Mime: " + file.mime);
+        return;
+    }
+    
+    // Fetch file blob using getDecryptedFileObj to handle encryption, native handles, or memory blobs
+    if (isHost) {
+        getDecryptedFileObj(file).then(fileBlob => {
+            if (fileBlob) {
+                const url = URL.createObjectURL(fileBlob);
+                loadJukeboxFile(file, url);
+                jukeboxPlayer.play();
+                btnJukePlay.classList.add('hidden');
+                btnJukePause.classList.remove('hidden');
+                broadcastJukebox('JUKEBOX_PLAY', file.id, 0);
+            }
+        }).catch(err => alert("Failed to read audio file: " + err));
+    } else {
+        // Guests request the file to memory first, then play. 
+        // For simplicity, we can reuse the activePreviewFileId logic
+        activePreviewFileId = file.id;
+        document.getElementById("preview-loader-container").classList.remove("hidden");
+        hostConnection.send({ type: 'REQUEST_FILE', id: file.id });
+        // We'd need to intercept the completed download in handleFileChunk and pipe to jukebox...
+        // Which we will do in handleJukeboxSync.
+    }
+    
+    hideContextMenu();
+}
+
+// Add 'Play in Jukebox' to context menu
+const contextMenuActions = document.getElementById('context-menu');
+if (contextMenuActions) {
+    const playBtn = document.createElement('div');
+    playBtn.className = 'context-menu-item';
+    playBtn.id = 'ctx-juke';
+    playBtn.innerHTML = '<span style="color:var(--neon-pink);">▶</span> Play in Jukebox';
+    contextMenuActions.appendChild(playBtn);
+    
+    playBtn.addEventListener('click', () => {
+        if (contextTargetId) handleJukeboxContext(contextTargetId);
+    });
+}
+
+// --- P2P ARCADE ---
+const arcadeLobbyModal = document.getElementById('arcade-lobby-modal');
+const btnCloseArcadeLobby = document.getElementById('btn-close-arcade-lobby');
+const btnArcadeGames = document.querySelectorAll('.btn-arcade-game');
+const arcadeLobbyTargetName = document.getElementById('arcade-lobby-target-name');
+
+const arcadeModal = document.getElementById('arcade-modal');
+const btnCloseArcade = document.getElementById('btn-close-arcade');
+const arcadeGameTitle = document.getElementById('arcade-game-title');
+const btnArcadeReset = document.getElementById('btn-arcade-reset');
+const arcadeStatus = document.getElementById('arcade-status');
+
+// Tic-Tac-Toe
+const ticTacToeBoard = document.getElementById('tic-tac-toe-board');
+const tttCells = document.querySelectorAll('.ttt-cell');
+let arcadeBoard = ['', '', '', '', '', '', '', '', ''];
+
+// Pong
+const pongCanvas = document.getElementById('pong-canvas');
+let pongCtx = null;
+if (pongCanvas) pongCtx = pongCanvas.getContext('2d');
+let pongState = {
+    ballX: 300, ballY: 200, ballVX: 5, ballVY: 5,
+    hostPaddleY: 150, guestPaddleY: 150,
+    score1: 0, score2: 0,
+    active: false, loopId: null
+};
+let myPongPaddle = 'host'; // 'host' or 'guest'
+
+// Chess
+const chessBoardEl = document.getElementById('chess-board');
+let chessGame = null;
+let myChessColor = 'w';
+let selectedChessSquare = null;
+
+// Global Arcade State
+let currentGameType = null; // 'tictactoe', 'pong', 'chess'
+let myArcadeMark = 'X'; // used for TTT and also side assignment (host/guest)
+let currentArcadeTurn = 'X';
+let arcadeOpponentId = null;
+let arcadeOpponentAlias = 'Opponent';
+let isArcadeActive = false;
+
+function renderArcadeBoard() {
+    tttCells.forEach((cell, idx) => {
+        cell.innerText = arcadeBoard[idx];
+        cell.style.color = arcadeBoard[idx] === 'X' ? 'var(--neon-pink)' : 'var(--neon-blue)';
+    });
+    
+    if (checkArcadeWin('X')) {
+        arcadeStatus.innerText = myArcadeMark === 'X' ? 'YOU WIN!' : (arcadeOpponentAlias + ' WINS!');
+    } else if (checkArcadeWin('O')) {
+        arcadeStatus.innerText = myArcadeMark === 'O' ? 'YOU WIN!' : (arcadeOpponentAlias + ' WINS!');
+    } else if (!arcadeBoard.includes('')) {
+        arcadeStatus.innerText = 'DRAW!';
+    } else {
+        arcadeStatus.innerText = currentArcadeTurn === myArcadeMark ? 'YOUR TURN' : (arcadeOpponentAlias + "'S TURN");
+    }
+}
+
+function checkArcadeWin(mark) {
+    const wins = [
+        [0,1,2], [3,4,5], [6,7,8], // rows
+        [0,3,6], [1,4,7], [2,5,8], // cols
+        [0,4,8], [2,4,6]           // diags
+    ];
+    return wins.some(combo => combo.every(idx => arcadeBoard[idx] === mark));
+}
+
+function openArcade(gameType, opponentId, mark, opponentAlias = 'Opponent') {
+    currentGameType = gameType;
+    arcadeOpponentId = opponentId;
+    arcadeOpponentAlias = opponentAlias;
+    myArcadeMark = mark;
+    isArcadeActive = true;
+    
+    // Hide all boards first
+    ticTacToeBoard.classList.add('hidden');
+    pongCanvas.classList.add('hidden');
+    chessBoardEl.classList.add('hidden');
+    
+    if (gameType === 'tictactoe') {
+        arcadeGameTitle.innerText = 'NEON-TAC-TOE';
+        arcadeBoard = ['', '', '', '', '', '', '', '', ''];
+        currentArcadeTurn = 'X';
+        ticTacToeBoard.classList.remove('hidden');
+        renderArcadeBoard();
+    } else if (gameType === 'pong') {
+        arcadeGameTitle.innerText = 'CYBER-PONG';
+        pongCanvas.classList.remove('hidden');
+        myPongPaddle = (mark === 'X' ? 'host' : 'guest'); // X is inviter, O is invitee
+        startPong();
+    } else if (gameType === 'chess') {
+        arcadeGameTitle.innerText = 'HOLO-CHESS';
+        chessBoardEl.classList.remove('hidden');
+        myChessColor = (mark === 'X' ? 'w' : 'b'); // X is inviter (white), O is invitee (black)
+        startChess();
+    }
+    
+    if (arcadeModal) arcadeModal.classList.remove('hidden');
+}
+
+// ----------------------------------------------------
+// PONG LOGIC
+// ----------------------------------------------------
+function startPong() {
+    pongState = {
+        ballX: 300, ballY: 200, ballVX: 5, ballVY: 5,
+        hostPaddleY: 150, guestPaddleY: 150,
+        score1: 0, score2: 0,
+        active: true, loopId: null
+    };
+    arcadeStatus.innerText = 'USE UP/DOWN ARROWS OR TOUCH';
+    
+    // Bind controls (only once ideally, but for simplicity we bind here and remove old ones if needed)
+    // We'll just bind a global mouse/touch listener to the canvas
+    pongCanvas.onmousemove = (e) => {
+        if(!pongState.active) return;
+        const rect = pongCanvas.getBoundingClientRect();
+        const y = e.clientY - rect.top - 50; // 50 is half paddle height
+        if (myPongPaddle === 'host') pongState.hostPaddleY = Math.max(0, Math.min(300, y));
+        else pongState.guestPaddleY = Math.max(0, Math.min(300, y));
+        sendPongMove();
+    };
+    pongCanvas.ontouchmove = (e) => {
+        if(!pongState.active) return;
+        e.preventDefault();
+        const rect = pongCanvas.getBoundingClientRect();
+        const y = e.touches[0].clientY - rect.top - 50;
+        if (myPongPaddle === 'host') pongState.hostPaddleY = Math.max(0, Math.min(300, y));
+        else pongState.guestPaddleY = Math.max(0, Math.min(300, y));
+        sendPongMove();
+    };
+    
+    if (myPongPaddle === 'host') {
+        // Host runs the physics loop
+        pongState.loopId = requestAnimationFrame(pongPhysicsLoop);
+    } else {
+        // Guest just renders
+        pongState.loopId = requestAnimationFrame(pongRenderLoop);
+    }
+}
+
+function sendPongMove() {
+    const moveData = { type: 'ARCADE_MOVE', gameType: 'pong', paddleY: myPongPaddle === 'host' ? pongState.hostPaddleY : pongState.guestPaddleY };
+    sendArcadeData(moveData);
+}
+
+function sendArcadeData(data) {
+    if (isHost) {
+        const opponent = connections.find(c => c.peer === arcadeOpponentId);
+        if (opponent) opponent.send(data);
+    } else {
+        if (hostConnection && hostConnection.open) hostConnection.send({ type: 'ARCADE_RELAY', targetId: arcadeOpponentId, data: data });
+    }
+}
+
+function pongPhysicsLoop() {
+    if (!pongState.active) return;
+    
+    pongState.ballX += pongState.ballVX;
+    pongState.ballY += pongState.ballVY;
+    
+    // Top/Bottom bounce
+    if (pongState.ballY <= 0 || pongState.ballY >= 390) pongState.ballVY *= -1;
+    
+    // Paddle bounce (Host is Left, Guest is Right)
+    // Left paddle
+    if (pongState.ballX <= 20 && pongState.ballX >= 10 && pongState.ballY + 10 >= pongState.hostPaddleY && pongState.ballY <= pongState.hostPaddleY + 100) {
+        pongState.ballVX = Math.abs(pongState.ballVX);
+        pongState.ballVY = (pongState.ballY - (pongState.hostPaddleY + 50)) * 0.1;
+    }
+    // Right paddle
+    if (pongState.ballX >= 570 && pongState.ballX <= 580 && pongState.ballY + 10 >= pongState.guestPaddleY && pongState.ballY <= pongState.guestPaddleY + 100) {
+        pongState.ballVX = -Math.abs(pongState.ballVX);
+        pongState.ballVY = (pongState.ballY - (pongState.guestPaddleY + 50)) * 0.1;
+    }
+    
+    // Scoring
+    if (pongState.ballX < 0) { pongState.score2++; resetPongBall(); }
+    if (pongState.ballX > 600) { pongState.score1++; resetPongBall(); }
+    
+    // Sync to guest at a stable rate (we can sync every frame or every few frames. For local p2p, every frame is usually fine if network is good, otherwise we'd decouple. Let's do every frame for now).
+    sendArcadeData({ 
+        type: 'ARCADE_MOVE', gameType: 'pong_sync', 
+        ballX: pongState.ballX, ballY: pongState.ballY, 
+        ballVX: pongState.ballVX, ballVY: pongState.ballVY,
+        score1: pongState.score1, score2: pongState.score2,
+        hostPaddleY: pongState.hostPaddleY // also sync host paddle so guest sees it
+    });
+    
+    renderPong();
+    pongState.loopId = requestAnimationFrame(pongPhysicsLoop);
+}
+
+function pongRenderLoop() {
+    if (!pongState.active) return;
+    renderPong();
+    pongState.loopId = requestAnimationFrame(pongRenderLoop);
+}
+
+function resetPongBall() {
+    pongState.ballX = 300;
+    pongState.ballY = 200;
+    pongState.ballVX = (Math.random() > 0.5 ? 5 : -5);
+    pongState.ballVY = (Math.random() * 6) - 3;
+}
+
+function renderPong() {
+    if (!pongCtx) return;
+    pongCtx.fillStyle = '#000';
+    pongCtx.fillRect(0, 0, 600, 400);
+    
+    pongCtx.fillStyle = '#39ff14';
+    pongCtx.fillRect(10, pongState.hostPaddleY, 10, 100);
+    pongCtx.fillRect(580, pongState.guestPaddleY, 10, 100);
+    
+    pongCtx.fillRect(pongState.ballX, pongState.ballY, 10, 100); // ball is 10x10
+    // Actually make ball 10x10
+    pongCtx.fillStyle = '#000';
+    pongCtx.fillRect(pongState.ballX, pongState.ballY, 10, 100); // clear
+    pongCtx.fillStyle = '#39ff14';
+    pongCtx.fillRect(pongState.ballX, pongState.ballY, 10, 10);
+    
+    pongCtx.font = '24px monospace';
+    pongCtx.fillText(pongState.score1, 150, 50);
+    pongCtx.fillText(pongState.score2, 450, 50);
+    
+    // Center line
+    for(let i=0; i<400; i+=20) {
+        pongCtx.fillRect(299, i, 2, 10);
+    }
+}
+
+// ----------------------------------------------------
+// CHESS LOGIC
+// ----------------------------------------------------
+function startChess() {
+    if (typeof Chess === 'undefined') {
+        arcadeStatus.innerText = 'Chess library not loaded!';
+        return;
+    }
+    chessGame = new Chess();
+    selectedChessSquare = null;
+    arcadeStatus.innerText = myChessColor === 'w' ? 'YOUR TURN (WHITE)' : (arcadeOpponentAlias + "'S TURN (WHITE)");
+    renderChess();
+}
+
+function renderChess() {
+    chessBoardEl.innerHTML = '';
+    const board = chessGame.board(); // 8x8 array
+    
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            // If playing black, flip the board rendering
+            const renderR = myChessColor === 'b' ? 7 - r : r;
+            const renderC = myChessColor === 'b' ? 7 - c : c;
+            const sq = board[renderR][renderC];
+            
+            const files = 'abcdefgh';
+            const squareName = files[renderC] + (8 - renderR);
+            
+            const cell = document.createElement('div');
+            cell.style.width = '100%';
+            cell.style.height = '100%';
+            cell.style.display = 'flex';
+            cell.style.justifyContent = 'center';
+            cell.style.alignItems = 'center';
+            cell.style.fontSize = '2rem';
+            cell.style.cursor = 'pointer';
+            
+            const isLight = (renderR + renderC) % 2 === 0;
+            cell.style.backgroundColor = isLight ? '#eee' : '#555';
+            
+            if (selectedChessSquare === squareName) {
+                cell.style.backgroundColor = 'var(--neon-pink)';
+            }
+            
+            if (sq) {
+                // Map to unicode
+                const pieceMap = {
+                    'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚',
+                    'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔'
+                };
+                const key = sq.color === 'w' ? sq.type.toUpperCase() : sq.type;
+                cell.innerText = pieceMap[key];
+                cell.style.color = sq.color === 'w' ? '#fff' : '#000';
+                if (sq.color === 'w') cell.style.textShadow = '0 0 2px #000';
+            }
+            
+            cell.addEventListener('click', () => handleChessClick(squareName));
+            chessBoardEl.appendChild(cell);
+        }
+    }
+    
+    // Check status
+    if (chessGame.in_checkmate()) {
+        arcadeStatus.innerText = 'CHECKMATE! ' + (chessGame.turn() === myChessColor ? (arcadeOpponentAlias + ' WINS!') : 'YOU WIN!');
+    } else if (chessGame.in_draw() || chessGame.in_stalemate()) {
+        arcadeStatus.innerText = 'DRAW!';
+    } else if (chessGame.in_check()) {
+        arcadeStatus.innerText = 'CHECK! ' + (chessGame.turn() === myChessColor ? 'YOUR TURN' : (arcadeOpponentAlias + "'S TURN"));
+    } else {
+        arcadeStatus.innerText = chessGame.turn() === myChessColor ? 'YOUR TURN' : (arcadeOpponentAlias + "'S TURN");
+    }
+}
+
+function handleChessClick(square) {
+    if (chessGame.turn() !== myChessColor) return; // Not my turn
+    
+    if (selectedChessSquare) {
+        // Try to move
+        const move = chessGame.move({
+            from: selectedChessSquare,
+            to: square,
+            promotion: 'q' // Always promote to queen for simplicity
+        });
+        
+        if (move) {
+            // Valid move!
+            selectedChessSquare = null;
+            renderChess();
+            sendArcadeData({ type: 'ARCADE_MOVE', gameType: 'chess', fen: chessGame.fen() });
+        } else {
+            // Invalid move or clicking another piece to select
+            selectedChessSquare = square;
+            renderChess();
+        }
+    } else {
+        selectedChessSquare = square;
+        renderChess();
+    }
+}
+
+function getMyAlias() {
+    return (typeof profile !== 'undefined' && profile && profile.name) ? profile.name : ((typeof guestAlias !== 'undefined' && guestAlias) ? guestAlias : 'HOST');
+}
+
+function handleArcadeNetwork(data) {
+    if (data.type === 'ARCADE_INVITE') {
+        const inviterName = data.fromAlias || (data.fromId ? data.fromId.substring(0, 6) : "Peer");
+        const gameName = data.gameType === 'pong' ? 'Cyber-Pong' : (data.gameType === 'chess' ? 'Holo-Chess' : 'Neon-Tac-Toe');
+        
+        if (confirm("Arcade Invite from " + inviterName + " to play " + gameName + ". Accept?")) {
+            if (isHost) {
+                const opponent = connections.find(c => c.peer === data.fromId);
+                if (opponent) opponent.send({ type: 'ARCADE_ACCEPT', gameType: data.gameType, fromId: peer.id, fromAlias: getMyAlias() });
+            } else {
+                if (hostConnection) hostConnection.send({ type: 'ARCADE_RELAY', targetId: data.fromId, data: { type: 'ARCADE_ACCEPT', gameType: data.gameType, fromId: peer.id, fromAlias: getMyAlias() } });
+            }
+            openArcade(data.gameType, data.fromId, 'O', data.fromAlias || 'Opponent');
+        } else {
+            if (isHost) {
+                const opponent = connections.find(c => c.peer === data.fromId);
+                if (opponent) opponent.send({ type: 'ARCADE_DECLINE', fromId: peer.id });
+            } else {
+                if (hostConnection) hostConnection.send({ type: 'ARCADE_RELAY', targetId: data.fromId, data: { type: 'ARCADE_DECLINE', fromId: peer.id } });
+            }
+        }
+    } else if (data.type === 'ARCADE_ACCEPT') {
+        showToast((data.fromAlias || 'Opponent') + " accepted!");
+        openArcade(data.gameType, data.fromId, 'X', data.fromAlias || 'Opponent');
+    } else if (data.type === 'ARCADE_DECLINE') {
+        alert("Arcade Invite declined.");
+    } else if (data.type === 'ARCADE_MOVE') {
+        if (data.gameType === 'tictactoe') {
+            arcadeBoard = data.board;
+            currentArcadeTurn = data.turn;
+            renderArcadeBoard();
+        } else if (data.gameType === 'pong') {
+            if (myPongPaddle === 'host') pongState.guestPaddleY = data.paddleY;
+            else pongState.hostPaddleY = data.paddleY;
+        } else if (data.gameType === 'pong_sync') {
+            if (myPongPaddle === 'guest') {
+                pongState.ballX = data.ballX;
+                pongState.ballY = data.ballY;
+                pongState.ballVX = data.ballVX;
+                pongState.ballVY = data.ballVY;
+                pongState.score1 = data.score1;
+                pongState.score2 = data.score2;
+                pongState.hostPaddleY = data.hostPaddleY;
+            }
+        } else if (data.gameType === 'chess') {
+            if (chessGame) {
+                chessGame.load(data.fen);
+                renderChess();
+            }
+        }
+    } else if (data.type === 'ARCADE_RESET') {
+        if (currentGameType === 'tictactoe') {
+            arcadeBoard = ['', '', '', '', '', '', '', '', ''];
+            currentArcadeTurn = 'X';
+            renderArcadeBoard();
+        } else if (currentGameType === 'pong') {
+            resetPongBall();
+            pongState.score1 = 0;
+            pongState.score2 = 0;
+        } else if (currentGameType === 'chess') {
+            if (chessGame) chessGame.reset();
+            renderChess();
+        }
+    }
+}
+
+if (btnCloseArcade) {
+    btnCloseArcade.addEventListener('click', () => {
+        arcadeModal.classList.add('hidden');
+        isArcadeActive = false;
+        pongState.active = false;
+        if (pongState.loopId) cancelAnimationFrame(pongState.loopId);
+        // Optionally send a surrender message
+    });
+}
+
+tttCells.forEach((cell, idx) => {
+    cell.addEventListener('click', () => {
+        if (!isArcadeActive || currentArcadeTurn !== myArcadeMark || arcadeBoard[idx] !== '') return;
+        if (checkArcadeWin('X') || checkArcadeWin('O')) return;
+        
+        arcadeBoard[idx] = myArcadeMark;
+        currentArcadeTurn = myArcadeMark === 'X' ? 'O' : 'X';
+        renderArcadeBoard();
+        
+        const moveData = { type: 'ARCADE_MOVE', board: arcadeBoard, turn: currentArcadeTurn };
+        
+        if (isHost) {
+            const opponent = connections.find(c => c.peer === arcadeOpponentId);
+            if (opponent) opponent.send(moveData);
+        } else {
+            if (hostConnection && hostConnection.open) hostConnection.send({ type: 'ARCADE_RELAY', targetId: arcadeOpponentId, data: moveData });
+        }
+    });
+});
+
+if (btnArcadeReset) {
+    btnArcadeReset.addEventListener('click', () => {
+        const resetData = { type: 'ARCADE_RESET', gameType: currentGameType };
+        if (currentGameType === 'tictactoe') {
+            arcadeBoard = ['', '', '', '', '', '', '', '', ''];
+            currentArcadeTurn = 'X';
+            renderArcadeBoard();
+        } else if (currentGameType === 'pong') {
+            resetPongBall();
+            pongState.score1 = 0;
+            pongState.score2 = 0;
+        } else if (currentGameType === 'chess') {
+            if (chessGame) chessGame.reset();
+            renderChess();
+        }
+        
+        if (isHost) {
+            const opponent = connections.find(c => c.peer === arcadeOpponentId);
+            if (opponent) opponent.send(resetData);
+        } else {
+            if (hostConnection && hostConnection.open) hostConnection.send({ type: 'ARCADE_RELAY', targetId: arcadeOpponentId, data: resetData });
+        }
+    });
+}
+
+if (btnCloseArcadeLobby) {
+    btnCloseArcadeLobby.addEventListener('click', () => {
+        arcadeLobbyModal.classList.add('hidden');
+    });
+}
+
+btnArcadeGames.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const gameType = btn.getAttribute('data-game');
+        arcadeLobbyModal.classList.add('hidden');
+        
+        // Send Invite
+        if (!currentRadarGuestId) return;
+        if (isHost) {
+            const opponent = connections.find(c => c.peer === currentRadarGuestId);
+            if (opponent) opponent.send({ type: 'ARCADE_INVITE', gameType: gameType, fromId: peer.id, fromAlias: getMyAlias() });
+        } else {
+            if (hostConnection) hostConnection.send({ type: 'ARCADE_RELAY', targetId: currentRadarGuestId, data: { type: 'ARCADE_INVITE', gameType: gameType, fromId: peer.id, fromAlias: getMyAlias() } });
+        }
+        showToast("Arcade Invite sent to " + currentRadarGuestAlias + "!");
+        const radarGuestModal = document.getElementById('radar-guest-modal');
+        if (radarGuestModal) radarGuestModal.classList.add('hidden');
+    });
+});
+
+// Add 'Invite to Arcade' to Guest Control Modal
+const btnRadarArcade = document.getElementById('btn-radar-arcade');
+if (btnRadarArcade) {
+    btnRadarArcade.addEventListener('click', () => {
+        if (!currentRadarGuestId) return;
+        if (arcadeLobbyTargetName) arcadeLobbyTargetName.innerText = currentRadarGuestAlias;
+        arcadeLobbyModal.classList.remove('hidden');
+    });
+}
+
+// --- WEBTORRENT SWARM PROTOCOL ---
+let swarmConnections = [];
+
+function broadcastNetworkMap() {
+    if (!isHost) return;
+    const map = connections.map(c => c.peer);
+    connections.forEach(c => {
+        if (c.open && c.isAuthenticated) {
+            c.send({ type: 'NETWORK_MAP', peers: map });
+        }
+    });
+}
+
