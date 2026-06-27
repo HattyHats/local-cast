@@ -4432,7 +4432,13 @@ function sendArcadeData(data) {
         const opponent = connections.find(c => c.peer === arcadeOpponentId);
         if (opponent) opponent.send(data);
     } else {
-        if (hostConnection && hostConnection.open) hostConnection.send({ type: 'ARCADE_RELAY', targetId: arcadeOpponentId, data: data });
+        if (hostConnection && hostConnection.open) {
+            if (arcadeOpponentId === hostConnection.peer) {
+                hostConnection.send(data);
+            } else {
+                hostConnection.send({ type: 'ARCADE_RELAY', targetId: arcadeOpponentId, data: data });
+            }
+        }
     }
 }
 
@@ -4703,13 +4709,7 @@ tttCells.forEach((cell, idx) => {
         renderArcadeBoard();
         
         const moveData = { type: 'ARCADE_MOVE', gameType: 'tictactoe', board: arcadeBoard, turn: currentArcadeTurn };
-        
-        if (isHost) {
-            const opponent = connections.find(c => c.peer === arcadeOpponentId);
-            if (opponent) opponent.send(moveData);
-        } else {
-            if (hostConnection && hostConnection.open) hostConnection.send({ type: 'ARCADE_RELAY', targetId: arcadeOpponentId, data: moveData });
-        }
+        sendArcadeData(moveData);
     });
 });
 
@@ -4729,12 +4729,7 @@ if (btnArcadeReset) {
             renderChess();
         }
         
-        if (isHost) {
-            const opponent = connections.find(c => c.peer === arcadeOpponentId);
-            if (opponent) opponent.send(resetData);
-        } else {
-            if (hostConnection && hostConnection.open) hostConnection.send({ type: 'ARCADE_RELAY', targetId: arcadeOpponentId, data: resetData });
-        }
+        sendArcadeData(resetData);
     });
 }
 
