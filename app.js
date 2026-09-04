@@ -571,11 +571,70 @@ const clientFolderInput = document.getElementById('client-folder-input');
 
 // Modify triggerBurnSequence to be more aggressive
 
-let burnTimerInterval;
+let burnTimerInterval = null;
+let isBurnSequenceActive = false;
+let isServerBurned = false;
 
+function playBurnAlarm() {
+    try {
+        if (localStorage.getItem('localcast_sound_muted') === 'true') return;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.6);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.6);
+    } catch (e) {}
+}
+
+function renderBurnedScreen() {
+    if (document.getElementById('burned-screen-wrapper')) return;
+    document.body.style.overflow = 'hidden';
+    document.body.innerHTML = `
+    <div id="burned-screen-wrapper" class="burned-screen-wrapper">
+        <div class="burned-screen-scanlines"></div>
+        <div style="position: relative; z-index: 2; max-width: 620px; display: flex; flex-direction: column; align-items: center;">
+            <div class="burned-icon-container">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ff0055" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 46px; height: 46px; filter: drop-shadow(0 0 8px #ff0055);">
+                    <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 3z"></path>
+                </svg>
+            </div>
+            <div class="burned-badge">
+                ⚠️ EMERGENCY BURN SEQUENCE EXECUTED
+            </div>
+            <h1 class="burned-title">
+                SERVER BURNED
+            </h1>
+            <p class="burned-desc">
+                The Host has executed an Emergency Burn Notice. All active peer-to-peer channels have been severed, and all shared files, encryption keys, and session data have been permanently wiped from memory.
+            </p>
+            <div class="burned-stats-bar">
+                <div>STATUS: <span style="color: #ff0055; font-weight: bold;">DESTROYED</span></div>
+                <div>•</div>
+                <div>DATA: <span style="color: #ff0055; font-weight: bold;">PURGED</span></div>
+                <div>•</div>
+                <div>CHANNELS: <span style="color: #ff0055; font-weight: bold;">CLOSED</span></div>
+            </div>
+            <button id="btn-burned-reload" class="burned-action-btn" onclick="window.location.href = window.location.origin + window.location.pathname;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                ENTER NEW SESSION
+            </button>
+        </div>
+    </div>`;
+}
 
 function startBurnCountdown(seconds) {
     if (burnTimerInterval) clearInterval(burnTimerInterval);
+    isBurnSequenceActive = true;
     if (burnOverlay) burnOverlay.style.display = 'flex';
     
     let left = seconds;
@@ -584,12 +643,20 @@ function startBurnCountdown(seconds) {
     const start = Date.now();
     const target = start + (seconds * 1000);
     
-    burnTimerInterval = setInterval(() => {
+    burnTimerInterval = setInterval(async () => {
         const now = Date.now();
         let remaining = (target - now) / 1000;
         if (remaining <= 0) {
             remaining = 0;
             clearInterval(burnTimerInterval);
+            burnTimerInterval = null;
+            if (burnOverlay) burnOverlay.style.display = 'none';
+            if (isHost && Array.isArray(connections)) {
+                connections.forEach(c => {
+                    try { c.send({ type: 'SERVER_BURNED' }); } catch (e) {}
+                });
+                await new Promise(r => setTimeout(r, 250));
+            }
             triggerBurnSequence();
         }
         if (burnCountdown) burnCountdown.innerText = remaining.toFixed(2);
@@ -597,11 +664,60 @@ function startBurnCountdown(seconds) {
 }
 
 function triggerBurnSequence() {
-    vfs = new VirtualFileSystem();
-    if (typeof localforage !== 'undefined') localforage.clear();
-    connections.forEach(conn => conn.close());
-    connections = [];
-    document.body.innerHTML = '<div style="background:#000; color:#f00; height:100vh; width:100vw; display:flex; justify-content:center; align-items:center; flex-direction:column; font-family: \'Courier New\', monospace;"><h1 style="font-size:10vw; margin:0; text-shadow: 0 0 50px #f00; text-align: center;">NETWORK DESTROYED</h1><p style="font-size: 1.5rem; margin-bottom: 2rem;">All traces wiped from memory.</p><button onclick="window.location.reload()" style="background: transparent; border: 2px solid #f00; color: #f00; padding: 1rem 2rem; font-size: 1.2rem; cursor: pointer; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.2s; box-shadow: 0 0 15px rgba(255,0,0,0.3);">Initialize New Server</button></div>';
+    isServerBurned = true;
+    isBurnSequenceActive = false;
+    if (burnTimerInterval) {
+        clearInterval(burnTimerInterval);
+        burnTimerInterval = null;
+    }
+    if (burnOverlay) burnOverlay.style.display = 'none';
+
+    playBurnAlarm();
+
+    try {
+        if (window.localMediaStream) {
+            window.localMediaStream.getTracks().forEach(t => t.stop());
+            window.localMediaStream = null;
+        }
+        if (window.commLinkStream) {
+            window.commLinkStream.getTracks().forEach(t => t.stop());
+            window.commLinkStream = null;
+        }
+        const commAudio = document.getElementById('comm-link-audio');
+        if (commAudio) { commAudio.pause(); commAudio.srcObject = null; }
+    } catch (e) {}
+
+    try {
+        vfs = new VirtualFileSystem();
+    } catch (e) {}
+
+    try {
+        if (typeof localforage !== 'undefined') localforage.clear();
+    } catch (e) {}
+
+    try {
+        if (typeof sessionStorage !== 'undefined') sessionStorage.clear();
+    } catch (e) {}
+
+    try {
+        if (Array.isArray(connections)) {
+            connections.forEach(conn => { try { conn.close(); } catch(err) {} });
+            connections = [];
+        }
+        if (typeof hostConnection !== 'undefined' && hostConnection) {
+            try { hostConnection.close(); } catch(err) {}
+            hostConnection = null;
+        }
+        if (typeof swarmConnections !== 'undefined' && Array.isArray(swarmConnections)) {
+            swarmConnections.forEach(c => { try { c.close(); } catch(err) {} });
+            swarmConnections = [];
+        }
+        if (typeof peer !== 'undefined' && peer) {
+            try { peer.destroy(); } catch(err) {}
+        }
+    } catch (e) {}
+
+    renderBurnedScreen();
 }
 
 
@@ -1169,21 +1285,28 @@ async function initHost() {
                 iconUnlocked.classList.add('hidden');
                 iconLocked.classList.remove('hidden');
                 showToast("Session locked");
+                connections.forEach(conn => {
+                    if (!conn.isAuthenticated) {
+                        conn.send({ type: 'AUTH_REQUIRED' });
+                    }
+                });
             }
         } else {
             if (await cyberConfirm("Remove password protection from this session?", "SECURITY PROTOCOL")) {
                 hostPassword = null;
                 localforage.removeItem("host_password");
-                iconUnlocked.classList.add('hidden');
+                iconUnlocked.classList.remove('hidden');
                 iconLocked.classList.add('hidden');
                 showToast("Session lock removed");
                 connections.forEach(conn => {
                     if (!conn.isAuthenticated) {
                         conn.isAuthenticated = true;
+                        conn.send({ type: 'AUTH_SUCCESS' });
                         conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                         conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                     }
                 });
+                broadcastPeers();
             }
         }
     });
@@ -1233,6 +1356,7 @@ async function initHost() {
         peer = new Peer(freshHostId, getPeerConfig());
 
         let hostOpenTimeout = setTimeout(() => {
+            if (isServerBurned) return;
             if (!peer || !peer.open) {
                 console.warn("Signaling broker handshake timeout, rotating ID...");
                 updateStatus('RECONNECTING...', 'offline');
@@ -1241,6 +1365,7 @@ async function initHost() {
         }, 10000);
 
         peer.on('error', (err) => {
+            if (isServerBurned) return;
             clearTimeout(hostOpenTimeout);
             console.error("PeerJS Host Error:", err);
             if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error') {
@@ -1290,30 +1415,27 @@ async function initHost() {
             }
         });
 
-        peer.on('connection', async (conn) => {
-        if (hostPassword) {
-            if (!conn.metadata || !conn.metadata.secureProfile) {
-                console.warn("Connection rejected: Missing secure metadata");
-                setTimeout(() => conn.close(), 500);
-                return;
-            }
-            const decryptedProfile = await decryptMetadata(conn.metadata.secureProfile, hostPassword);
-            if (!decryptedProfile) {
-                console.warn("Connection rejected: Invalid password or decryption failed");
-                setTimeout(() => conn.close(), 500);
-                return;
-            }
-            // Decryption successful!
-            conn.profile = { name: decryptedProfile.name, color: decryptedProfile.color, avatar: decryptedProfile.avatar };
-            conn.isAuthenticated = true;
-        } else {
-            conn.isAuthenticated = true; // No password required
-        }
-        connections.push(conn);
-        broadcastPeers();
+        peer.on('connection', (conn) => {
+            conn.isAuthenticated = !hostPassword;
+            connections.push(conn);
+            conn.unlockedFolders = new Set();
+            conn.permissions = { upload: false, chat: true, delete: false, edit: false };
 
-        conn.unlockedFolders = new Set();
-        conn.permissions = { upload: false, chat: true, delete: false, edit: false };
+            const handleOpen = () => {
+                if (hostPassword && !conn.isAuthenticated) {
+                    conn.send({ type: 'AUTH_REQUIRED' });
+                } else {
+                    conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                    conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                    broadcastPeers();
+                }
+            };
+
+            if (conn.open) {
+                handleOpen();
+            } else {
+                conn.on('open', handleOpen);
+            }
         
         conn.on('data', (data) => {
             if (data.type === 'REQUEST_MAGIC_FILE') {
@@ -1340,6 +1462,7 @@ async function initHost() {
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                    broadcastPeers();
                     return;
                 }
                 if (data.password === hostPassword) {
@@ -1347,10 +1470,12 @@ async function initHost() {
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                    broadcastPeers();
                 } else {
                     conn.send({ type: 'AUTH_FAIL' });
                 }
-                        } else if (data.type === 'WHISPER_RELAY' && conn.isAuthenticated) {
+                return;
+            } else if (data.type === 'WHISPER_RELAY' && conn.isAuthenticated) {
                 if (data.targetId === (peer ? peer.id : null)) {
                     handleWhisper(data);
                 } else {
@@ -1672,15 +1797,6 @@ async function initHost() {
             }
         });
         
-        conn.on('open', () => {
-            if (hostPassword) {
-                conn.send({ type: 'AUTH_REQUIRED' });
-            } else {
-                conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
-                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
-            }
-        });
-        
         conn.on('close', () => {
             connections = connections.filter(c => c !== conn);
             broadcastPeers();
@@ -1702,9 +1818,9 @@ async function initHost() {
 
 function broadcastPeers() {
     if (!isHost) return;
-    const peers = connections.filter(c => c.open && c.profile).map(c => ({ id: c.peer, alias: c.profile.name, color: c.profile.color, avatar: c.profile.avatar }));
+    const peers = connections.filter(c => c.open && c.profile && c.isAuthenticated).map(c => ({ id: c.peer, alias: c.profile.name, color: c.profile.color, avatar: c.profile.avatar }));
     connections.forEach(c => {
-        if (c.open) c.send({ type: 'PEER_LIST', peers });
+        if (c.open && c.isAuthenticated) c.send({ type: 'PEER_LIST', peers });
     });
     // Update host's own list
     activePeers = {};
@@ -1798,11 +1914,31 @@ function setupHostActions() {
     btnBurn.addEventListener('click', async () => {
         const time = await cyberPrompt("SET BURN TIMER (seconds) or 0 for instant destruction:", "10", "EMERGENCY BURN NOTICE");
         if (time !== null && !isNaN(time)) {
-            const seconds = parseInt(time, 10);
-            startBurnCountdown(seconds);
-            connections.forEach(c => {
-                if (c.open) c.send({ type: 'BURN_NOTICE', seconds: seconds });
-            });
+            const seconds = Math.max(0, parseInt(time, 10));
+            if (seconds === 0) {
+                connections.forEach(c => {
+                    try { c.send({ type: 'SERVER_BURNED' }); } catch (e) {}
+                });
+                if (typeof swarmConnections !== 'undefined' && Array.isArray(swarmConnections)) {
+                    swarmConnections.forEach(c => {
+                        try { c.send({ type: 'SERVER_BURNED' }); } catch (e) {}
+                    });
+                }
+                playBurnAlarm();
+                await new Promise(r => setTimeout(r, 250));
+                triggerBurnSequence();
+            } else {
+                connections.forEach(c => {
+                    try { c.send({ type: 'BURN_NOTICE', seconds: seconds }); } catch (e) {}
+                });
+                if (typeof swarmConnections !== 'undefined' && Array.isArray(swarmConnections)) {
+                    swarmConnections.forEach(c => {
+                        try { c.send({ type: 'BURN_NOTICE', seconds: seconds }); } catch (e) {}
+                    });
+                }
+                playBurnAlarm();
+                startBurnCountdown(seconds);
+            }
         }
     });
     
@@ -2348,6 +2484,7 @@ async function initClient() {
         peer = new Peer(freshGuestId, getPeerConfig());
 
         let clientOpenTimeout = setTimeout(() => {
+            if (isServerBurned) return;
             if (!peer || !peer.open) {
                 console.warn("Client signaling broker handshake timeout, retrying...");
                 updateStatus('RECONNECTING...', 'offline');
@@ -2356,6 +2493,7 @@ async function initClient() {
         }, 10000);
 
         peer.on("error", err => {
+            if (isServerBurned) return;
             clearTimeout(clientOpenTimeout);
             console.error("PeerJS Client Error:", err);
             if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error') {
@@ -2428,11 +2566,21 @@ async function initClient() {
                 handleArcadeNetwork(data);
             } else if (data.type === 'AUTH_REQUIRED') {
                 passwordModal.classList.remove('hidden');
+                passwordError.classList.add('hidden');
+                updateStatus('PASSWORD REQUIRED', 'offline');
+                setTimeout(() => { if (clientPasswordInput) clientPasswordInput.focus(); }, 150);
             } else if (data.type === 'AUTH_SUCCESS') {
                 passwordModal.classList.add('hidden');
                 passwordError.classList.add('hidden');
+                updateStatus('CONNECTED TO HOST', 'online');
+                showToast("Access granted! Session unlocked.");
             } else if (data.type === 'AUTH_FAIL') {
                 passwordError.classList.remove('hidden');
+                showToast("Incorrect session password. Access denied.");
+                if (clientPasswordInput) {
+                    clientPasswordInput.value = '';
+                    clientPasswordInput.focus();
+                }
             } else if (data.type === 'TREE') {
                 hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor, avatar: guestAvatar });
                 clientVFS = data.tree;
@@ -2631,16 +2779,28 @@ async function initClient() {
                 // The updated TREE will arrive next and we can navigate in
             } else if (data.type === 'FOLDER_AUTH_FAIL') {
                 folderPasswordError.classList.remove('hidden');
-                        } else if (data.type === 'BURN_NOTICE') {
+            } else if (data.type === 'BURN_NOTICE') {
+                isBurnSequenceActive = true;
+                playBurnAlarm();
                 startBurnCountdown(data.seconds);
             } else if (data.type === 'HONEYPOT_LOCKDOWN') {
                 document.getElementById('lockdown-overlay').classList.remove('hidden');
-} else if (data.type === 'SERVER_BURNED') {
+            } else if (data.type === 'SERVER_BURNED') {
+                isServerBurned = true;
+                if (burnTimerInterval) {
+                    clearInterval(burnTimerInterval);
+                    burnTimerInterval = null;
+                }
+                if (burnOverlay) burnOverlay.style.display = 'none';
                 triggerBurnSequence();
             }
         });
         
         hostConnection.on('close', () => {
+            if (isServerBurned || isBurnSequenceActive) {
+                triggerBurnSequence();
+                return;
+            }
             updateStatus('HOST DISCONNECTED', 'offline');
         });
     });
@@ -2669,6 +2829,14 @@ async function initClient() {
             hostConnection.send({ type: 'AUTH_ATTEMPT', password: pwd });
         }
     });
+
+    if (clientPasswordInput) {
+        clientPasswordInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                btnSubmitPassword.click();
+            }
+        });
+    }
     
     if(btnUploadFilesClient) btnUploadFilesClient.addEventListener("click", () => clientFileInput.click());
     if(btnUploadFolderClient) btnUploadFolderClient.addEventListener("click", () => clientFolderInput.click());
@@ -2990,6 +3158,7 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
 
 
 function updateStatus(text, state) {
+    if (isServerBurned || !statusText || !statusDot) return;
     statusText.textContent = text;
     statusDot.className = `status-dot ${state}`;
 }
