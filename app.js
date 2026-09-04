@@ -322,6 +322,13 @@ let showDeadDrops = false;
 let activePeers = {};
 let whisperTarget = null;
 
+const btnStartCall = document.getElementById('btn-start-call');
+const btnEndCall = document.getElementById('btn-end-call');
+const activeCallBanner = document.getElementById('active-call-banner');
+const commLinkAudio = document.getElementById('comm-link-audio');
+let currentCall = null;
+let localMediaStream = null;
+
 const mediaModal = document.getElementById('media-modal');
 const btnCloseMedia = document.getElementById('btn-close-media');
 const mediaTitle = document.getElementById('media-title');
@@ -333,7 +340,6 @@ const previewFilename = document.getElementById('preview-filename');
 const previewMeta = document.getElementById('preview-meta');
 const btnRequestFile = document.getElementById('btn-request-file');
 const btnDownloadDirect = document.getElementById('btn-download-direct');
-const previewLoader = document.getElementById('preview-loader');
 let activePreviewFileId = null;
 
 // Host Action Elements
@@ -958,6 +964,150 @@ async function initMagicPeer(targetPeerId, targetFileId) {
     });
 }
 
+// --- COMM-LINK VOICE CALL ENGINE ---
+function setupCallHandlers(call) {
+    if (!call) return;
+    if (activeCallBanner) activeCallBanner.classList.remove('hidden');
+    
+    call.on('stream', (remoteStream) => {
+        if (commLinkAudio) {
+            commLinkAudio.srcObject = remoteStream;
+            commLinkAudio.play().catch(e => {
+                console.warn("Autoplay audio blocked, user click will unlock:", e);
+                const unlock = () => {
+                    if (commLinkAudio) commLinkAudio.play().catch(() => {});
+                    window.removeEventListener('click', unlock);
+                };
+                window.addEventListener('click', unlock);
+            });
+        }
+    });
+    
+    call.on('close', () => {
+        showToast("Comm-Link ended.");
+        endCommLink();
+    });
+
+    call.on('error', (err) => {
+        console.error("Comm-Link call error:", err);
+        showToast("Comm-Link disconnected.");
+        endCommLink();
+    });
+}
+
+function endCommLink() {
+    if (currentCall) {
+        try { currentCall.close(); } catch(e) {}
+        currentCall = null;
+    }
+    if (localMediaStream) {
+        try { localMediaStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+        localMediaStream = null;
+    }
+    if (commLinkAudio) commLinkAudio.srcObject = null;
+    if (activeCallBanner) activeCallBanner.classList.add('hidden');
+}
+
+async function handleIncomingCall(call) {
+    if (inIntercom) {
+        if (localAudioStream) {
+            call.answer(localAudioStream);
+            call.on('stream', (remoteStream) => playAudioStream(remoteStream, call.peer));
+            call.on('close', () => cleanupAudio(call.peer));
+            activeCalls[call.peer] = call;
+        } else {
+            try { call.close(); } catch(e) {}
+        }
+        return;
+    }
+
+    const callerName = (call.metadata && call.metadata.callerName) ||
+                       (activePeers[call.peer] && activePeers[call.peer].alias) ||
+                       (isHost ? 'Guest' : 'Host');
+
+    playCyberChime(580, 'sine', 0.25);
+    setTimeout(() => playCyberChime(720, 'sine', 0.3), 300);
+
+    const accept = await cyberConfirm(
+        `Incoming encrypted voice Comm-Link from "${callerName}". Would you like to connect?`,
+        `INCOMING COMM-LINK: ${callerName}`
+    );
+
+    if (!accept) {
+        try { call.close(); } catch(e) {}
+        showToast(`Comm-Link from ${callerName} declined.`);
+        return;
+    }
+
+    let replyStream = null;
+    try {
+        replyStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localMediaStream = replyStream;
+    } catch(err) {
+        console.warn("Receiver microphone unavailable, connecting in Listen-Only mode:", err);
+        showToast("Connected in Listen-Only mode (Microphone unavailable).");
+    }
+
+    try {
+        if (replyStream) {
+            call.answer(replyStream);
+        } else {
+            call.answer();
+        }
+        currentCall = call;
+        openWhisper(call.peer, callerName, 'var(--neon-green)');
+        setupCallHandlers(call);
+        showToast(`Comm-Link established with ${callerName}!`);
+    } catch(e) {
+        console.error("Failed to answer call:", e);
+        try { call.close(); } catch(err) {}
+        showToast("Comm-Link connection failed.");
+    }
+}
+
+async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'var(--neon-green)') {
+    if (!targetId) {
+        showToast("No target peer selected for Comm-Link.");
+        return;
+    }
+    if (targetId === (peer ? peer.id : null)) {
+        showToast("Cannot call yourself.");
+        return;
+    }
+
+    if (currentCall) {
+        const dropCurrent = await cyberConfirm("A call is already active. Disconnect and start a new Comm-Link?", "CALL IN PROGRESS");
+        if (!dropCurrent) return;
+        endCommLink();
+    }
+
+    try {
+        localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch(e) {
+        console.error("Microphone access denied:", e);
+        await cyberAlert("Microphone access is required to transmit your voice. Please enable microphone permissions in your browser.", "COMM-LINK ACCESS DENIED", true);
+        return;
+    }
+
+    openWhisper(targetId, targetAlias, targetColor);
+    showToast(`Calling ${targetAlias}... Waiting for response.`);
+
+    try {
+        currentCall = peer.call(targetId, localMediaStream, {
+            metadata: {
+                type: 'comm_link',
+                callerId: peer.id,
+                callerName: getMyAlias()
+            }
+        });
+        setupCallHandlers(currentCall);
+    } catch(e) {
+        console.error("peer.call failed:", e);
+        await cyberAlert("Failed to establish P2P call: " + e.message, "COMM-LINK ERROR", true);
+        endCommLink();
+    }
+}
+
 // --- HOST LOGIC ---
 async function initHost() {
     updateStatus('CONNECTING...', 'offline');
@@ -971,6 +1121,35 @@ async function initHost() {
         linkParents(savedRoot, null);
         vfs.root = savedRoot;
         vfs.currentDir = vfs.root;
+
+        // Backfill missing thumbnails for existing media files
+        (async () => {
+            let updated = false;
+            async function backfill(node) {
+                if (node.type === 'file' && !node.thumbnail && node.fileObj) {
+                    const isMedia = (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/'))) ||
+                                    (node.name && node.name.match(/\.(jpe?g|png|gif|webp|svg|bmp|mp4|webm|mov)$/i));
+                    if (isMedia) {
+                        try {
+                            const thumb = await generateThumbnail(node.fileObj);
+                            if (thumb) {
+                                node.thumbnail = thumb;
+                                updated = true;
+                            }
+                        } catch(e) {}
+                    }
+                }
+                if (node.children) {
+                    for (const c of node.children) await backfill(c);
+                }
+            }
+            await backfill(vfs.root);
+            if (updated) {
+                saveVFSToDB();
+                renderHostExplorer();
+                broadcastTree();
+            }
+        })();
     }
     
     const savedHostPass = await localforage.getItem("host_password");
@@ -1074,19 +1253,8 @@ async function initHost() {
             }
         });
 
-        peer.on('call', async (call) => {
-            if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
-            try {
-                localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                call.answer(localMediaStream);
-                currentCall = call;
-                openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
-                setupCallHandlers(call);
-            } catch (e) {
-                console.error("Failed to answer call:", e);
-                call.close();
-            }
-        });
+        peer.on('call', handleIncomingCall);
+
 
         peer.on('open', (id) => {
             clearTimeout(hostOpenTimeout);
@@ -1546,7 +1714,11 @@ function broadcastPeers() {
 function broadcastTree() {
     connections.forEach(conn => {
         if (conn.open && conn.isAuthenticated) {
-            conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+            try {
+                conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+            } catch (err) {
+                console.warn("broadcastTree failed to send to peer:", conn.peer, err);
+            }
         }
     });
 }
@@ -1654,31 +1826,50 @@ function setupHostActions() {
 
 
 async function generateThumbnail(file) {
-    if (!file || !file.type) return null;
+    if (!file) return null;
+    let mime = file.type || '';
+    if (!mime && file.name) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        const mimeMap = {
+            jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+            gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+            bmp: 'image/bmp', avif: 'image/avif',
+            mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+            m4v: 'video/mp4', mkv: 'video/x-matroska'
+        };
+        mime = mimeMap[ext] || '';
+    }
+    if (!mime) return null;
+
     return new Promise((resolve) => {
-        let timeout = setTimeout(() => { resolve(null); }, 2000);
+        let timeout = setTimeout(() => { resolve(null); }, 2500);
         try {
-            if (file.type.startsWith('image/')) {
+            if (mime.startsWith('image/')) {
                 const img = new Image();
                 const url = URL.createObjectURL(file);
                 img.onload = () => {
                     clearTimeout(timeout);
                     try {
                         const canvas = document.createElement('canvas');
-                        const MAX_SIZE = 256;
-                        let width = img.width; let height = img.height;
-                        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
-                        else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
-                        canvas.width = width; canvas.height = height;
+                        const MAX_SIZE = 96;
+                        let width = img.naturalWidth || img.width || 96;
+                        let height = img.naturalHeight || img.height || 96;
+                        if (width > height) {
+                            if (width > MAX_SIZE) { height = Math.round(height * (MAX_SIZE / width)); width = MAX_SIZE; }
+                        } else {
+                            if (height > MAX_SIZE) { width = Math.round(width * (MAX_SIZE / height)); height = MAX_SIZE; }
+                        }
+                        canvas.width = Math.max(width, 16);
+                        canvas.height = Math.max(height, 16);
                         const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, width, height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         URL.revokeObjectURL(url);
-                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                        resolve(canvas.toDataURL('image/jpeg', 0.5));
                     } catch(e) { resolve(null); }
                 };
                 img.onerror = () => { clearTimeout(timeout); URL.revokeObjectURL(url); resolve(null); };
                 img.src = url;
-            } else if (file.type.startsWith('video/')) {
+            } else if (mime.startsWith('video/')) {
                 const video = document.createElement('video');
                 const url = URL.createObjectURL(file);
                 video.src = url;
@@ -1689,20 +1880,25 @@ async function generateThumbnail(file) {
                     clearTimeout(timeout);
                     try {
                         const canvas = document.createElement('canvas');
-                        const MAX_SIZE = 256;
-                        let width = video.videoWidth; let height = video.videoHeight;
-                        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
-                        else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
-                        canvas.width = width || 256; canvas.height = height || 256;
+                        const MAX_SIZE = 96;
+                        let width = video.videoWidth || 96;
+                        let height = video.videoHeight || 96;
+                        if (width > height) {
+                            if (width > MAX_SIZE) { height = Math.round(height * (MAX_SIZE / width)); width = MAX_SIZE; }
+                        } else {
+                            if (height > MAX_SIZE) { width = Math.round(width * (MAX_SIZE / height)); height = MAX_SIZE; }
+                        }
+                        canvas.width = Math.max(width, 16);
+                        canvas.height = Math.max(height, 16);
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                         URL.revokeObjectURL(url);
-                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                        resolve(canvas.toDataURL('image/jpeg', 0.5));
                     } catch(e) { resolve(null); }
                 };
 
                 video.onloadedmetadata = () => {
-                    video.currentTime = Math.min(1, video.duration / 2);
+                    video.currentTime = Math.min(1, (video.duration || 2) / 2);
                 };
                 video.onseeked = processVideo;
                 video.onerror = () => { clearTimeout(timeout); URL.revokeObjectURL(url); resolve(null); };
@@ -2195,19 +2391,8 @@ async function initClient() {
             }
         });
 
-        peer.on('call', async (call) => {
-            if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
-            try {
-                localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                call.answer(localMediaStream);
-                currentCall = call;
-                openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
-                setupCallHandlers(call);
-            } catch (e) {
-                console.error("Failed to answer call:", e);
-                call.close();
-            }
-        });
+        peer.on('call', handleIncomingCall);
+
 
         peer.on('open', () => {
             clearTimeout(clientOpenTimeout);
@@ -2667,8 +2852,12 @@ function renderClientExplorer() {
                 btnDownloadDirect.style.display = "none";
         if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
                 btnRequestFile.classList.remove("hidden");
-                document.getElementById("preview-loader-container").classList.add("hidden");
-                document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+                const previewIconEl = document.getElementById("preview-icon");
+                if (child.thumbnail) {
+                    previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${child.thumbnail}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
+                } else {
+                    previewIconEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+                }
                 
                 previewModal.classList.remove('hidden');
             }
@@ -3081,8 +3270,12 @@ if (ctxOpen) {
                 btnDownloadDirect.style.display = "none";
                 if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
                 btnRequestFile.classList.remove("hidden");
-                document.getElementById("preview-loader-container").classList.add("hidden");
-                document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+                const previewIconEl = document.getElementById("preview-icon");
+                if (node.thumbnail) {
+                    previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${node.thumbnail}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
+                } else {
+                    previewIconEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+                }
                 previewModal.classList.remove('hidden');
             } else if (node.type === 'folder') {
                 if (node.isVault && !clientUnlockedVaults[node.id]) {
@@ -3699,14 +3892,7 @@ if (btnIntercom) {
                 inIntercom = true;
                 btnIntercom.style.color = 'var(--neon-green)';
                 btnIntercom.style.borderColor = 'var(--neon-green)';
-                
-                peer.on('call', (call) => {
-                    if (!inIntercom) { call.close(); return; }
-                    call.answer(localAudioStream);
-                    call.on('stream', (remoteStream) => playAudioStream(remoteStream, call.peer));
-                    call.on('close', () => cleanupAudio(call.peer));
-                    activeCalls[call.peer] = call;
-                });
+
 
                 if (isHost) {
                     intercomUsers.add(peer.id);
@@ -3913,52 +4099,16 @@ if (ctxHoneypot) {
     });
 }
 
-// --- COMM-LINK LOGIC ---
-const btnStartCall = document.getElementById('btn-start-call');
-const btnEndCall = document.getElementById('btn-end-call');
-const activeCallBanner = document.getElementById('active-call-banner');
-const commLinkAudio = document.getElementById('comm-link-audio');
-
-let currentCall = null;
-let localMediaStream = null;
-
-async function startCommLink() {
-    try {
-        localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        currentCall = peer.call(whisperTarget, localMediaStream);
-        setupCallHandlers(currentCall);
-    } catch (e) {
-        await cyberAlert("Microphone access denied.", "COMM-LINK PERMISSION", true);
-    }
-}
-
-function setupCallHandlers(call) {
-    activeCallBanner.classList.remove('hidden');
-    
-    call.on('stream', (remoteStream) => {
-        commLinkAudio.srcObject = remoteStream;
-    });
-    
-    call.on('close', () => {
-        endCommLink();
-    });
-}
-
-function endCommLink() {
-    if (currentCall) {
-        currentCall.close();
-        currentCall = null;
-    }
-    if (localMediaStream) {
-        localMediaStream.getTracks().forEach(t => t.stop());
-        localMediaStream = null;
-    }
-    commLinkAudio.srcObject = null;
-    if (activeCallBanner) activeCallBanner.classList.add('hidden');
-}
-
+// --- COMM-LINK UI LISTENERS ---
 if (btnStartCall) {
-    btnStartCall.addEventListener('click', startCommLink);
+    btnStartCall.addEventListener('click', () => {
+        if (!whisperTarget) {
+            showToast("Select a peer first to start Comm-Link.");
+            return;
+        }
+        const targetAlias = (activePeers[whisperTarget] && activePeers[whisperTarget].alias) || (isHost ? 'Guest' : 'Host');
+        initiateCommLink(whisperTarget, targetAlias, 'var(--neon-green)');
+    });
 }
 if (btnEndCall) {
     btnEndCall.addEventListener('click', endCommLink);
@@ -4304,21 +4454,11 @@ if (btnRadarWhisper) {
 }
 
 if (btnRadarCall) {
-    btnRadarCall.addEventListener('click', async () => {
+    btnRadarCall.addEventListener('click', () => {
         if (!currentRadarGuestId) return;
-        
         const radarGuestModal = document.getElementById('radar-guest-modal');
         if (radarGuestModal) radarGuestModal.classList.add('hidden');
-        
-        try {
-            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            currentCall = peer.call(currentRadarGuestId, localMediaStream);
-            openWhisper(currentRadarGuestId, currentRadarGuestAlias, currentRadarGuestColor);
-            setupCallHandlers(currentCall);
-        } catch (e) {
-            console.error('Microphone access denied', e);
-            await cyberAlert('Microphone access denied or not available.', 'AUDIO ACCESS DENIED', true);
-        }
+        initiateCommLink(currentRadarGuestId, currentRadarGuestAlias || 'Guest', currentRadarGuestColor || 'var(--neon-green)');
     });
 }
 
@@ -4326,14 +4466,7 @@ if (btnCloseWhisper) {
     btnCloseWhisper.addEventListener('click', () => {
         whisperModal.classList.add('hidden');
         whisperTarget = null;
-        if (currentCall) {
-            currentCall.close();
-            currentCall = null;
-        }
-        if (localMediaStream) {
-            localMediaStream.getTracks().forEach(t => t.stop());
-            localMediaStream = null;
-        }
+        endCommLink();
     });
 }
 

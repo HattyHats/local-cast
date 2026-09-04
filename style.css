@@ -649,6 +649,25 @@ header {
 .folder-icon { color: var(--neon-green); }
 .file-icon { color: var(--neon-blue); }
 
+.item-thumbnail {
+    width: 44px;
+    height: 44px;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    flex-shrink: 0;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.file-item:hover .item-thumbnail {
+    transform: scale(1.08);
+    border-color: var(--neon-blue);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+}
+
 .item-name {
     font-size: 0.78rem;
     font-weight: 500;
@@ -684,6 +703,12 @@ header {
 .file-grid.list-view .item-icon {
     width: 24px;
     height: 24px;
+}
+
+.file-grid.list-view .item-thumbnail {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
 }
 
 .file-grid.list-view .item-name {
