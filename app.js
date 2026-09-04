@@ -1,4 +1,159 @@
-// --- DOM Elements ---
+// --- DOM Elements & Global State ---
+let isListView = localStorage.getItem('localcast_listview') === 'true';
+let contextTargetId = null;
+let hostSearchQuery = '';
+let clientSearchQuery = '';
+
+// --- CYBER DIALOG SYSTEM (Non-blocking replacements for alert, confirm, prompt) ---
+const cyberDialogModal = document.getElementById('cyber-dialog-modal');
+const cyberDialogTitle = document.getElementById('cyber-dialog-title');
+const cyberDialogMessage = document.getElementById('cyber-dialog-message');
+const cyberDialogInputContainer = document.getElementById('cyber-dialog-input-container');
+const cyberDialogInput = document.getElementById('cyber-dialog-input');
+const btnCyberConfirm = document.getElementById('btn-cyber-confirm');
+const btnCyberCancel = document.getElementById('btn-cyber-cancel');
+const cyberDialogIcon = document.getElementById('cyber-dialog-icon');
+
+function playCyberChime(freq = 880, type = 'sine', duration = 0.25) {
+    try {
+        if (localStorage.getItem('localcast_sound_muted') === 'true') return;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.5, audioCtx.currentTime + duration);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {}
+}
+
+function cyberAlert(message, title = 'SECURITY NOTICE', isDanger = false) {
+    return new Promise((resolve) => {
+        if (!cyberDialogModal) {
+            showToast(message);
+            return resolve();
+        }
+        cyberDialogTitle.textContent = title;
+        cyberDialogMessage.textContent = message;
+        if (cyberDialogInputContainer) cyberDialogInputContainer.classList.add('hidden');
+        if (btnCyberCancel) btnCyberCancel.classList.add('hidden');
+        if (btnCyberConfirm) {
+            btnCyberConfirm.textContent = 'ACKNOWLEDGE';
+            if (isDanger) {
+                btnCyberConfirm.style.borderColor = 'var(--neon-red)';
+                btnCyberConfirm.style.color = 'var(--neon-red)';
+            } else {
+                btnCyberConfirm.style.borderColor = 'var(--neon-blue)';
+                btnCyberConfirm.style.color = 'var(--neon-blue)';
+            }
+        }
+        if (cyberDialogIcon) {
+            if (isDanger) cyberDialogIcon.classList.add('danger');
+            else cyberDialogIcon.classList.remove('danger');
+        }
+        cyberDialogModal.classList.remove('hidden');
+        playCyberChime(440, 'triangle', 0.2);
+
+        const onConfirm = () => {
+            btnCyberConfirm.removeEventListener('click', onConfirm);
+            cyberDialogModal.classList.add('hidden');
+            resolve();
+        };
+        if (btnCyberConfirm) btnCyberConfirm.addEventListener('click', onConfirm, { once: true });
+        else resolve();
+    });
+}
+
+function cyberConfirm(message, title = 'SECURITY CONFIRMATION', isDanger = false) {
+    return new Promise((resolve) => {
+        if (!cyberDialogModal) {
+            return resolve(window.confirm(message));
+        }
+        cyberDialogTitle.textContent = title;
+        cyberDialogMessage.textContent = message;
+        if (cyberDialogInputContainer) cyberDialogInputContainer.classList.add('hidden');
+        if (btnCyberCancel) {
+            btnCyberCancel.classList.remove('hidden');
+            btnCyberCancel.textContent = 'CANCEL';
+        }
+        if (btnCyberConfirm) {
+            btnCyberConfirm.textContent = 'PROCEED';
+            if (isDanger) {
+                btnCyberConfirm.style.borderColor = 'var(--neon-red)';
+                btnCyberConfirm.style.color = 'var(--neon-red)';
+            } else {
+                btnCyberConfirm.style.borderColor = 'var(--neon-blue)';
+                btnCyberConfirm.style.color = 'var(--neon-blue)';
+            }
+        }
+        if (cyberDialogIcon) {
+            if (isDanger) cyberDialogIcon.classList.add('danger');
+            else cyberDialogIcon.classList.remove('danger');
+        }
+        cyberDialogModal.classList.remove('hidden');
+        playCyberChime(520, 'sine', 0.15);
+
+        const cleanup = (result) => {
+            if (btnCyberConfirm) btnCyberConfirm.removeEventListener('click', onConfirm);
+            if (btnCyberCancel) btnCyberCancel.removeEventListener('click', onCancel);
+            cyberDialogModal.classList.add('hidden');
+            resolve(result);
+        };
+        const onConfirm = () => cleanup(true);
+        const onCancel = () => cleanup(false);
+
+        if (btnCyberConfirm) btnCyberConfirm.addEventListener('click', onConfirm);
+        if (btnCyberCancel) btnCyberCancel.addEventListener('click', onCancel);
+    });
+}
+
+function cyberPrompt(message, defaultValue = '', title = 'INPUT REQUIRED') {
+    return new Promise((resolve) => {
+        if (!cyberDialogModal) {
+            return resolve(window.prompt(message, defaultValue));
+        }
+        cyberDialogTitle.textContent = title;
+        cyberDialogMessage.textContent = message;
+        if (cyberDialogInputContainer) cyberDialogInputContainer.classList.remove('hidden');
+        if (cyberDialogInput) cyberDialogInput.value = defaultValue;
+        if (btnCyberCancel) {
+            btnCyberCancel.classList.remove('hidden');
+            btnCyberCancel.textContent = 'CANCEL';
+        }
+        if (btnCyberConfirm) {
+            btnCyberConfirm.textContent = 'SUBMIT';
+            btnCyberConfirm.style.borderColor = 'var(--neon-blue)';
+            btnCyberConfirm.style.color = 'var(--neon-blue)';
+        }
+        if (cyberDialogIcon) cyberDialogIcon.classList.remove('danger');
+        cyberDialogModal.classList.remove('hidden');
+        if (cyberDialogInput) cyberDialogInput.focus();
+        playCyberChime(600, 'sine', 0.15);
+
+        const cleanup = (val) => {
+            if (btnCyberConfirm) btnCyberConfirm.removeEventListener('click', onConfirm);
+            if (btnCyberCancel) btnCyberCancel.removeEventListener('click', onCancel);
+            if (cyberDialogInput) cyberDialogInput.removeEventListener('keydown', onKey);
+            cyberDialogModal.classList.add('hidden');
+            resolve(val);
+        };
+        const onConfirm = () => cleanup(cyberDialogInput ? cyberDialogInput.value : '');
+        const onCancel = () => cleanup(null);
+        const onKey = (e) => {
+            if (e.key === 'Enter') cleanup(cyberDialogInput ? cyberDialogInput.value : '');
+            if (e.key === 'Escape') cleanup(null);
+        };
+
+        if (btnCyberConfirm) btnCyberConfirm.addEventListener('click', onConfirm);
+        if (btnCyberCancel) btnCyberCancel.addEventListener('click', onCancel);
+        if (cyberDialogInput) cyberDialogInput.addEventListener('keydown', onKey);
+    });
+}
 
 // v14 DOM Elements
 const btnChatToggle = document.getElementById('btn-chat-toggle');
@@ -22,11 +177,13 @@ const btnViewToggleHost = document.getElementById('btn-view-toggle-host');
 const sortSelectHost = document.getElementById('sort-select-host');
 const sortSelectClient = document.getElementById('sort-select-client');
 
-btnViewToggleHost.addEventListener('click', () => {
-    isListView = !isListView;
-    localStorage.setItem('localcast_listview', isListView);
-    renderHostExplorer();
-});
+if (btnViewToggleHost) {
+    btnViewToggleHost.addEventListener('click', () => {
+        isListView = !isListView;
+        localStorage.setItem('localcast_listview', isListView);
+        renderHostExplorer();
+    });
+}
 
 if (sortSelectHost) {
     sortSelectHost.addEventListener('change', () => {
@@ -41,14 +198,15 @@ if (sortSelectClient) {
 
 const btnViewToggleClient = document.getElementById('btn-view-toggle-client');
 
-btnViewToggleClient.addEventListener('click', () => {
-    isListView = !isListView;
-    localStorage.setItem('localcast_listview', isListView);
-    renderClientExplorer();
-});
+if (btnViewToggleClient) {
+    btnViewToggleClient.addEventListener('click', () => {
+        isListView = !isListView;
+        localStorage.setItem('localcast_listview', isListView);
+        renderClientExplorer();
+    });
+}
 
 function sortNodes(nodes, criteria) {
-    // Return a new sorted array so we don't mutate original
     let sorted = [...nodes];
     sorted.sort((a, b) => {
         if (criteria === 'name-asc') {
@@ -90,26 +248,14 @@ const chatBadge = document.getElementById('chat-badge');
 const toastContainer = document.getElementById('toast-container');
 
 function showToast(message) {
+    if (!toastContainer) return;
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.textContent = message;
     toastContainer.appendChild(toast);
     
     // Play a subtle ding sound
-    try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-        oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // A6
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.3);
-    } catch(e) {}
+    playCyberChime(880, 'sine', 0.15);
     
     setTimeout(() => {
         toast.style.opacity = '0';
@@ -121,18 +267,11 @@ function showToast(message) {
 function notifyFileAdded(filename) {
     showToast(`New file: ${filename}`);
     if (isHost) {
-        Object.values(connections).forEach(c => {
+        connections.forEach(c => {
             if (c.open && c.isAuthenticated) c.send({ type: 'FILE_ADDED_TOAST', filename });
         });
     }
 }
-
-
-
-let contextTargetId = null;
-let isListView = localStorage.getItem('localcast_listview') === 'true';
-let hostSearchQuery = '';
-let clientSearchQuery = '';
 
 const bootSequence = document.getElementById('boot-sequence');
 const appWrapper = document.getElementById('app-wrapper');
@@ -261,7 +400,7 @@ async function getDecryptedFileObj(child) {
         current = current.parent;
     }
     if (!password) {
-        alert("Cannot decrypt file: Vault is locked!");
+        await cyberAlert("Cannot decrypt file: Vault is locked!", "VAULT LOCKED", true);
         throw new Error("Vault is locked");
     }
     const buffer = await child.fileObj.arrayBuffer();
@@ -546,7 +685,7 @@ if (btnMountNative) {
     btnMountNative.addEventListener('click', async () => {
         try {
             if (!window.showDirectoryPicker) {
-                alert("Native Vault is not supported in this browser. Please use Chrome, Edge, or Brave.");
+                await cyberAlert("Native Vault is not supported in this browser. Please use Chrome, Edge, or Brave.", "BROWSER COMPATIBILITY");
                 return;
             }
             const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
@@ -759,13 +898,13 @@ async function initMagicPeer(targetPeerId, targetFileId) {
                         };
                         
                         if (fileTransfer.isEncrypted) {
-                            const pwd = prompt("This file is encrypted. Enter Vault Password:");
-                            if (!pwd) {
-                                magicStatus.textContent = 'Decryption cancelled.';
-                                magicStatus.style.color = 'var(--neon-red)';
-                                return;
-                            }
                             (async () => {
+                                const pwd = await cyberPrompt("This file is encrypted. Enter Vault Password:", "", "VAULT DECRYPTION");
+                                if (!pwd) {
+                                    magicStatus.textContent = 'Decryption cancelled.';
+                                    magicStatus.style.color = 'var(--neon-red)';
+                                    return;
+                                }
                                 try {
                                     const buffer = await fileBlob.arrayBuffer();
                                     const decryptedBuffer = await decryptFile(buffer, pwd, fileTransfer.salt, fileTransfer.iv);
@@ -816,21 +955,23 @@ async function initHost() {
     }
 
     btnLock.classList.remove('hidden');
-    btnLock.addEventListener('click', () => {
+    btnLock.addEventListener('click', async () => {
         if (!hostPassword) {
-            const pwd = prompt("Enter a password to lock this session:");
+            const pwd = await cyberPrompt("Enter a password to lock this session:", "", "SESSION LOCK");
             if (pwd) {
                 hostPassword = pwd;
                 localforage.setItem("host_password", hostPassword);
                 iconUnlocked.classList.add('hidden');
                 iconLocked.classList.remove('hidden');
+                showToast("Session locked");
             }
         } else {
-            if (confirm("Remove password protection?")) {
+            if (await cyberConfirm("Remove password protection from this session?", "SECURITY PROTOCOL")) {
                 hostPassword = null;
                 localforage.removeItem("host_password");
                 iconUnlocked.classList.add('hidden');
                 iconLocked.classList.add('hidden');
+                showToast("Session lock removed");
                 connections.forEach(conn => {
                     if (!conn.isAuthenticated) {
                         conn.isAuthenticated = true;
@@ -875,10 +1016,25 @@ async function initHost() {
         
         const btnCopyUrl = document.getElementById('btn-copy-url');
         if (btnCopyUrl) {
-            btnCopyUrl.onclick = () => {
-                navigator.clipboard.writeText(connectUrl);
-                btnCopyUrl.style.color = 'var(--neon-green)';
-                setTimeout(() => btnCopyUrl.style.color = '#fff', 2000);
+            btnCopyUrl.onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(connectUrl);
+                } catch(e) {
+                    const temp = document.createElement('textarea');
+                    temp.value = connectUrl;
+                    document.body.appendChild(temp);
+                    temp.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(temp);
+                }
+                btnCopyUrl.classList.add('copied');
+                const copyText = btnCopyUrl.querySelector('.copy-text');
+                if (copyText) copyText.textContent = 'COPIED!';
+                showToast("Connection URL copied to clipboard!");
+                setTimeout(() => {
+                    btnCopyUrl.classList.remove('copied');
+                    if (copyText) copyText.textContent = 'COPY';
+                }, 2000);
             };
         }
     });
@@ -1349,7 +1505,7 @@ function setupHostActions() {
             
             const handleVaultSubmit = async () => {
                 const pass = vaultPasswordInput.value;
-                if (!pass) return alert("Password required for Vault!");
+                if (!pass) return await cyberAlert("Password required for Vault!", "VAULT SECURITY", true);
                 
                 // Remove listener so it doesn't fire multiple times
                 btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
@@ -1382,12 +1538,12 @@ function setupHostActions() {
     btnUploadFiles.addEventListener('click', () => fileInput.click());
     btnUploadFolder.addEventListener('click', () => folderInput.click());
     
-    btnBurn.addEventListener('click', () => {
-        const time = prompt("SET BURN TIMER (seconds) or 0 for instant:", "10");
+    btnBurn.addEventListener('click', async () => {
+        const time = await cyberPrompt("SET BURN TIMER (seconds) or 0 for instant destruction:", "10", "EMERGENCY BURN NOTICE");
         if (time !== null && !isNaN(time)) {
             const seconds = parseInt(time, 10);
             startBurnCountdown(seconds);
-            Object.values(connections).forEach(c => {
+            connections.forEach(c => {
                 if (c.open) c.send({ type: 'BURN_NOTICE', seconds: seconds });
             });
         }
@@ -1484,12 +1640,12 @@ async function processFiles(files) {
     if (isVault) {
         password = unlockedVaults[vfs.currentDir.id];
         if (!password) {
-            alert("Please unlock this Vault before adding files.");
+            await cyberAlert("Please unlock this Vault before adding files.", "VAULT LOCKED", true);
             return;
         }
     }
     if (isNativeDir && !nativeVaultPassword) {
-        alert("Native Vault is locked!");
+        await cyberAlert("Native Vault is locked! Please authenticate first.", "NATIVE VAULT LOCKED", true);
         return;
     }
 
@@ -1750,7 +1906,7 @@ function renderHostExplorer() {
                     
                     const handleUnlock = async () => {
                         const pass = vaultPasswordInput.value;
-                        if (!pass) return alert("Password required");
+                        if (!pass) return await cyberAlert("Password required to access this Vault", "VAULT SECURITY", true);
                         btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
                         vaultPasswordModal.classList.add('hidden');
                         
@@ -1791,7 +1947,7 @@ function renderHostExplorer() {
                         editorTextarea.value = text;
                         editorModal.classList.remove('hidden');
                     } catch (e) {
-                        alert("Failed to decrypt: " + e.message);
+                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                     }
             });
         } else if (child.type === 'file' && child.mime && (child.mime.startsWith('image/') || child.mime.startsWith('video/') || child.mime.startsWith('audio/'))) {
@@ -1815,7 +1971,7 @@ function renderHostExplorer() {
                         mediaContainer.innerHTML = `<img src="${url}" style="max-width:100%; max-height:70vh; display:block; margin:0 auto;" />`;
                     }
                     } catch (e) {
-                        alert("Failed to decrypt: " + e.message);
+                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                     }
             });
         } else if (child.type === 'file') {
@@ -1829,7 +1985,7 @@ function renderHostExplorer() {
                         a.click();
                         setTimeout(() => URL.revokeObjectURL(url), 1000);
                     } catch (e) {
-                        alert("Failed to decrypt: " + e.message);
+                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                     }
             });
         }
@@ -2008,7 +2164,7 @@ async function initClient() {
                                         const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
                                         triggerDownload(decryptedBlob, transfer.name, transfer.mime, data.id);
                                     } catch (e) {
-                                        alert("Decryption failed: " + e.message);
+                                        cyberAlert("Decryption failed: " + e.message, "DECRYPTION ERROR", true);
                                     }
                                 })();
                             } else {
@@ -2017,7 +2173,7 @@ async function initClient() {
                                 
                                 const handleClientDecrypt = async () => {
                                     const manualPass = vaultPasswordInput.value;
-                                    if (!manualPass) return alert("Password required to decrypt!");
+                                    if (!manualPass) return cyberAlert("Password required to decrypt!", "SECURITY NOTICE", true);
                                     btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
                                     vaultPasswordModal.classList.add('hidden');
                                     
@@ -2027,7 +2183,7 @@ async function initClient() {
                                         const decryptedBlob = new Blob([decryptedBuffer], { type: transfer.mime });
                                         triggerDownload(decryptedBlob, transfer.name, transfer.mime, data.id);
                                     } catch (e) {
-                                        alert("Decryption failed: " + e.message);
+                                        cyberAlert("Decryption failed: " + e.message, "DECRYPTION ERROR", true);
                                     }
                                 };
                                 
@@ -2044,7 +2200,7 @@ async function initClient() {
                     }
                 }
             } else if (data.type === 'ALERT') {
-                alert(data.message);
+                cyberAlert(data.message, "HOST BROADCAST");
             } else if (data.type === 'GUEST_PERMISSIONS') {
                 myPermissions = data.permissions;
                 if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !myPermissions.upload);
@@ -2136,9 +2292,9 @@ async function initClient() {
                 }
                 renderClientExplorer();
             } else if (data.type === 'NATIVE_VAULT_AUTH_FAIL') {
-                alert("Incorrect Native Vault PIN.");
+                cyberAlert("Incorrect Native Vault PIN.", "AUTH ERROR", true);
             } else if (data.type === 'NATIVE_VAULT_ACCESS_DENIED') {
-                alert("The Host denied your request to access the Native Vault.");
+                cyberAlert("The Host denied your request to access the Native Vault.", "ACCESS DENIED", true);
                 guestOtpEntryModal.classList.add('hidden');
             } else if (data.type === 'FOLDER_AUTH_SUCCESS') {
                 folderPasswordModal.classList.add('hidden');
@@ -2195,7 +2351,7 @@ async function processClientFiles(files) {
     if (!files.length || !hostConnection || !hostConnection.open) return;
     const btnUploadFilesClient = document.getElementById('btn-upload-files-client');
     if (btnUploadFilesClient && btnUploadFilesClient.classList.contains('hidden')) {
-        alert("The host has disabled guest uploads.");
+        await cyberAlert("The host has disabled guest uploads.", "PERMISSION RESTRICTED", true);
         return;
     }
     
@@ -2328,9 +2484,9 @@ function renderClientExplorer() {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
                     
-                    const handleClientVaultUnlock = () => {
+                    const handleClientVaultUnlock = async () => {
                         const pass = vaultPasswordInput.value;
-                        if (!pass) return alert("Password required");
+                        if (!pass) return await cyberAlert("Password required to access this Vault", "VAULT SECURITY", true);
                         btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
                         vaultPasswordModal.classList.add('hidden');
                         
@@ -2664,7 +2820,7 @@ btnSaveNote.addEventListener('click', async () => {
             if (hostConnection && hostConnection.open && myPermissions.upload) {
                 if (typeof processClientFiles === 'function') processClientFiles([file]);
             } else {
-                alert("You do not have permission to upload files.");
+                cyberAlert("You do not have permission to upload files.", "PERMISSION RESTRICTED", true);
             }
         }
         editorModal.classList.add('hidden');
@@ -2715,7 +2871,7 @@ if (ctxOpen) {
                             mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
                         }
                     } catch(e) {
-                        alert("Failed to decrypt: " + e.message);
+                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                     }
                 } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
                     if (node.fileObj) {
@@ -2728,11 +2884,11 @@ if (ctxOpen) {
                             editorTextarea.readOnly = !myPermissions.edit;
                             editorModal.classList.remove('hidden');
                         } catch(e) {
-                            alert("Failed to decrypt: " + e.message);
+                            await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                         }
                     }
                 } else {
-                    alert("Cannot preview this file type.");
+                    await cyberAlert("Cannot preview this file type.", "PREVIEW NOT AVAILABLE");
                 }
             } else if (node.type === 'folder') {
                 if (node.isVault && !unlockedVaults[node.id]) {
@@ -2740,7 +2896,7 @@ if (ctxOpen) {
                     vaultPasswordInput.value = '';
                     const handleUnlock = async () => {
                         const pass = vaultPasswordInput.value;
-                        if (!pass) return alert("Password required");
+                        if (!pass) return await cyberAlert("Password required", "VAULT SECURITY", true);
                         btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
                         vaultPasswordModal.classList.add('hidden');
                         unlockedVaults[node.id] = pass;
@@ -2778,9 +2934,9 @@ if (ctxOpen) {
                 if (node.isVault && !clientUnlockedVaults[node.id]) {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
-                    const handleClientVaultUnlock = () => {
+                    const handleClientVaultUnlock = async () => {
                         const pass = vaultPasswordInput.value;
-                        if (!pass) return alert("Password required");
+                        if (!pass) return await cyberAlert("Password required", "VAULT SECURITY", true);
                         btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
                         vaultPasswordModal.classList.add('hidden');
                         clientUnlockedVaults[node.id] = pass;
@@ -2820,10 +2976,10 @@ if (ctxDownload) {
                     const decryptedObj = await getDecryptedFileObj(node);
                     triggerDownload(decryptedObj, node.name, node.mime, node.id);
                 } catch(e) {
-                    alert("Failed to decrypt: " + e.message);
+                    await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                 }
             } else if (node && node.type === 'folder') {
-                alert("Folder download via context menu not implemented. Use 'Download Backup' for now.");
+                await cyberAlert("Folder download via context menu not implemented. Use 'Download Backup' for now.", "NOTICE");
             }
         } else {
             // Guest logic
@@ -2844,17 +3000,21 @@ if (ctxDownload) {
 }
 
 
-ctxLock.addEventListener('click', () => {
+ctxLock.addEventListener('click', async () => {
     if (!contextTargetId) return;
     const node = vfs.findNode(contextTargetId);
     if (node && node.type === 'folder') {
         if (node.password) {
-            if (confirm("Remove password from this folder?")) {
+            if (await cyberConfirm("Remove password from this folder?", "SECURITY PROTOCOL")) {
                 delete node.password;
+                showToast("Folder unlocked");
             }
         } else {
-            const pwd = prompt("Enter a password to lock this folder:");
-            if (pwd) node.password = pwd;
+            const pwd = await cyberPrompt("Enter a password to lock this folder:", "", "LOCK FOLDER");
+            if (pwd) {
+                node.password = pwd;
+                showToast("Folder locked with password");
+            }
         }
         contextTargetId = null;
         contextMenu.classList.add('hidden');
@@ -2862,16 +3022,16 @@ ctxLock.addEventListener('click', () => {
         renderHostExplorer();
         broadcastTree();
     } else {
-        alert("You can only lock folders.");
+        await cyberAlert("You can only lock folders.", "NOTICE");
         contextMenu.classList.add('hidden');
     }
 });
 
-ctxDelete.addEventListener('click', () => {
+ctxDelete.addEventListener('click', async () => {
     if (!contextTargetId) return;
     
     if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
-        if (confirm("Are you sure you want to delete this?")) {
+        if (await cyberConfirm("Are you sure you want to delete this?", "CONFIRM DELETION", true)) {
             hostConnection.send({ type: 'CLIENT_DELETE_NODE', id: contextTargetId });
             contextMenu.classList.add('hidden');
         }
@@ -2880,12 +3040,15 @@ ctxDelete.addEventListener('click', () => {
     
     const node = vfs.findNode(contextTargetId);
     if (node && node.parent) {
-        node.parent.children = node.parent.children.filter(c => c.id !== contextTargetId);
-        contextTargetId = null;
-        contextMenu.classList.add('hidden');
-        saveVFSToDB();
-        renderHostExplorer();
-        broadcastTree();
+        if (await cyberConfirm(`Delete "${node.name}" permanently?`, "CONFIRM DELETION", true)) {
+            node.parent.children = node.parent.children.filter(c => c.id !== contextTargetId);
+            contextTargetId = null;
+            contextMenu.classList.add('hidden');
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
+            showToast("Item deleted");
+        }
     }
 });
 
@@ -2942,11 +3105,11 @@ document.body.addEventListener('drop', async (e) => {
     }
 });
 
-ctxRename.addEventListener('click', () => {
+ctxRename.addEventListener('click', async () => {
     if (!contextTargetId) return;
     
     if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
-        const newName = prompt("Enter new name:");
+        const newName = await cyberPrompt("Enter new name:", "", "RENAME ITEM");
         if (newName && newName.trim()) {
             hostConnection.send({ type: 'CLIENT_RENAME_NODE', id: contextTargetId, newName: newName.trim() });
             contextMenu.classList.add('hidden');
@@ -2956,12 +3119,13 @@ ctxRename.addEventListener('click', () => {
     
     const node = vfs.findNode(contextTargetId);
     if (node) {
-        const newName = prompt("Enter new name:", node.name);
+        const newName = await cyberPrompt("Enter new name:", node.name, "RENAME ITEM");
         if (newName && newName.trim()) {
             node.name = newName.trim();
             saveVFSToDB();
             renderHostExplorer();
             broadcastTree();
+            showToast("Item renamed");
         }
     }
     contextMenu.classList.add('hidden');
@@ -2999,26 +3163,83 @@ async function initDB() {
 }
 
 async function initLogic() {
-    // START BOOT SEQUENCE
-    await new Promise(r => setTimeout(r, 2000)); // wait for loading bar animation
+    // START DYNAMIC CYBER BOOT SEQUENCE
     const bootElement = document.getElementById('boot-sequence');
-    if (bootElement) {
-        bootElement.classList.add('inactive');
-        setTimeout(() => bootElement.remove(), 1000);
+    const bootTerminal = document.getElementById('boot-terminal');
+    const btnSkipBoot = document.getElementById('btn-skip-boot');
+    const btnBootMute = document.getElementById('btn-boot-mute');
+    
+    let bootCompleted = false;
+
+    // Check sound mute state
+    let isSoundMuted = localStorage.getItem('localcast_sound_muted') === 'true';
+    if (btnBootMute) {
+        btnBootMute.addEventListener('click', (e) => {
+            e.stopPropagation();
+            isSoundMuted = !isSoundMuted;
+            localStorage.setItem('localcast_sound_muted', isSoundMuted);
+            showToast(isSoundMuted ? "Audio feedback muted" : "Audio feedback enabled");
+            btnBootMute.style.color = isSoundMuted ? 'var(--text-muted)' : 'var(--neon-blue)';
+        });
+        if (isSoundMuted) btnBootMute.style.color = 'var(--text-muted)';
     }
+
+    const logSteps = [
+        { text: '> [SYS_INIT] Initializing Zero-Knowledge Cryptographic Engine...', class: 'boot-line' },
+        { text: '> [KEY_GEN] AES-GCM 256-bit ephemeral keys derived via PBKDF2.', class: 'boot-line accent' },
+        { text: '> [ICE_MESH] Calibrating WebRTC DataMesh & Swarm Router...', class: 'boot-line' },
+        { text: '> [VFS_MOUNT] Mounting IndexedDB Virtual Encrypted Storage...', class: 'boot-line' },
+        { text: '> [RADAR_CAL] Aligning Proximity Radar & Peer Discovery Protocol...', class: 'boot-line' },
+        { text: '> [READY] Mesh Active. Zero-Knowledge Handshake Established.', class: 'boot-line success' }
+    ];
+
+    const finishBoot = () => {
+        if (bootCompleted) return;
+        bootCompleted = true;
+        if (bootElement) {
+            bootElement.classList.add('inactive');
+            playCyberChime(1046.5, 'triangle', 0.4); // C6 chime on enter
+            setTimeout(() => {
+                if (bootElement.parentNode) bootElement.remove();
+            }, 800);
+        }
+    };
+
+    if (btnSkipBoot) {
+        btnSkipBoot.addEventListener('click', finishBoot);
+    }
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') finishBoot();
+    }, { once: true });
+
+    // Stream telemetry lines dynamically
+    if (bootTerminal) {
+        for (let i = 0; i < logSteps.length; i++) {
+            if (bootCompleted) break;
+            const step = logSteps[i];
+            const line = document.createElement('div');
+            line.className = step.class;
+            line.textContent = step.text;
+            bootTerminal.appendChild(line);
+            bootTerminal.scrollTop = bootTerminal.scrollHeight;
+            playCyberChime(350 + i * 110, 'sine', 0.08);
+            await new Promise(r => setTimeout(r, 340));
+        }
+    }
+
+    await new Promise(r => setTimeout(r, 500));
+    finishBoot();
 
     await initDB();
     
     if (magicPeerId && magicFileId) {
         if (!localStorage.getItem('localcast_alias')) {
-            
             profileModal.classList.remove('hidden');
         } else {
             initApp();
         }
     } else if (roomCode) {
         if (!localStorage.getItem('localcast_alias')) {
-            
             profileModal.classList.remove('hidden');
         } else {
             initApp();
@@ -3347,7 +3568,7 @@ if (btnIntercom) {
                     hostConnection.send({ type: 'INTERCOM_JOIN', peerId: peer.id });
                 }
             } catch(e) {
-                alert("Microphone access denied or not available.");
+                await cyberAlert("Microphone access denied or not available.", "AUDIO PERMISSION ERROR", true);
             }
         } else {
             inIntercom = false;
@@ -3499,28 +3720,29 @@ document.querySelectorAll('.bg-btn').forEach(btn => {
 
 
 if (ctxMagicLink) {
-    ctxMagicLink.addEventListener('click', () => {
+    ctxMagicLink.addEventListener('click', async () => {
         if (!contextTargetId || !peer || !peer.id) return;
         const baseUrl = window.location.origin + window.location.pathname;
         const magicUrl = `${baseUrl}?peer=${peer.id}&file=${contextTargetId}`;
-        navigator.clipboard.writeText(magicUrl).then(() => {
+        try {
+            await navigator.clipboard.writeText(magicUrl);
             showToast("Magic Link copied to clipboard!");
-        }).catch(err => {
-            prompt("Copy this Magic Link:", magicUrl);
-        });
+        } catch (err) {
+            await cyberPrompt("Copy this Magic Link:", magicUrl, "MAGIC LINK READY");
+        }
         hideContextMenu();
     });
 }
 
 const ctxHoneypot = document.getElementById('ctx-honeypot');
 if (ctxHoneypot) {
-    ctxHoneypot.addEventListener('click', () => {
+    ctxHoneypot.addEventListener('click', async () => {
         if (!contextTargetId) return;
         const node = vfs.findNode(contextTargetId);
         if (node && node.type === 'folder') {
             node.isHoneyPot = !node.isHoneyPot;
             if (node.isHoneyPot && !node.password) {
-                const trapPwd = prompt("Enter the bait password for this Honey-Pot:");
+                const trapPwd = await cyberPrompt("Enter the bait password for this Honey-Pot:", "", "HONEY-POT CONFIG");
                 if (trapPwd) {
                     node.password = trapPwd;
                 } else {
@@ -3552,7 +3774,7 @@ async function startCommLink() {
         currentCall = peer.call(whisperTarget, localMediaStream);
         setupCallHandlers(currentCall);
     } catch (e) {
-        alert("Microphone access denied.");
+        await cyberAlert("Microphone access denied.", "COMM-LINK PERMISSION", true);
     }
 }
 
@@ -3941,7 +4163,7 @@ if (btnRadarCall) {
             setupCallHandlers(currentCall);
         } catch (e) {
             console.error('Microphone access denied', e);
-            alert('Microphone access denied or not available.');
+            await cyberAlert('Microphone access denied or not available.', 'AUDIO ACCESS DENIED', true);
         }
     });
 }
@@ -4228,21 +4450,22 @@ function hideContextMenu() {
 }
 
 // Right click integration
-function handleJukeboxContext(fileId) {
+async function handleJukeboxContext(fileId) {
     const file = isHost ? vfs.findNode(fileId) : (typeof findClientNode === 'function' ? findClientNode(clientVFS, fileId) : null);
     if (!file) {
-        alert("File not found in Virtual File System.");
+        await cyberAlert("File not found in Virtual File System.", "FILE ERROR", true);
         return;
     }
-    const isAudio = file.name.match(/\\.(mp3|wav|ogg|m4a|flac)$/i) || (file.mime && file.mime.startsWith('audio/'));
+    const isAudio = file.name.match(/\.(mp3|wav|ogg|m4a|flac)$/i) || (file.mime && file.mime.startsWith('audio/'));
     if (!isAudio) {
-        alert("Not a supported audio file. Name: " + file.name + ", Mime: " + file.mime);
+        await cyberAlert("Not a supported audio file. Name: " + file.name + ", Mime: " + file.mime, "AUDIO FORMAT NOTICE");
         return;
     }
     
     // Fetch file blob using getDecryptedFileObj to handle encryption, native handles, or memory blobs
     if (isHost) {
-        getDecryptedFileObj(file).then(fileBlob => {
+        try {
+            const fileBlob = await getDecryptedFileObj(file);
             if (fileBlob) {
                 const url = URL.createObjectURL(fileBlob);
                 loadJukeboxFile(file, url);
@@ -4251,7 +4474,9 @@ function handleJukeboxContext(fileId) {
                 btnJukePause.classList.remove('hidden');
                 broadcastJukebox('JUKEBOX_PLAY', file.id, 0);
             }
-        }).catch(err => alert("Failed to read audio file: " + err));
+        } catch (err) {
+            await cyberAlert("Failed to read audio file: " + err, "JUKEBOX ERROR", true);
+        }
     } else {
         // Guests request the file to memory first, then play. 
         // For simplicity, we can reuse the activePreviewFileId logic
@@ -4623,12 +4848,13 @@ function getMyAlias() {
     return (typeof profile !== 'undefined' && profile && profile.name) ? profile.name : ((typeof guestAlias !== 'undefined' && guestAlias) ? guestAlias : 'HOST');
 }
 
-function handleArcadeNetwork(data) {
+async function handleArcadeNetwork(data) {
     if (data.type === 'ARCADE_INVITE') {
         const inviterName = data.fromAlias || (data.fromId ? data.fromId.substring(0, 6) : "Peer");
         const gameName = data.gameType === 'pong' ? 'Cyber-Pong' : (data.gameType === 'chess' ? 'Holo-Chess' : 'Neon-Tac-Toe');
         
-        if (confirm("Arcade Invite from " + inviterName + " to play " + gameName + ". Accept?")) {
+        const accepted = await cyberConfirm("Arcade match request from " + inviterName + " to play " + gameName + ". Accept challenge?", "P2P ARCADE CHALLENGE");
+        if (accepted) {
             if (isHost) {
                 const opponent = connections.find(c => c.peer === data.fromId);
                 if (opponent) opponent.send({ type: 'ARCADE_ACCEPT', gameType: data.gameType, fromId: peer.id, fromAlias: getMyAlias() });
@@ -4648,7 +4874,7 @@ function handleArcadeNetwork(data) {
         showToast((data.fromAlias || 'Opponent') + " accepted!");
         openArcade(data.gameType, data.fromId, 'X', data.fromAlias || 'Opponent');
     } else if (data.type === 'ARCADE_DECLINE') {
-        alert("Arcade Invite declined.");
+        await cyberAlert("Arcade match request was declined.", "ARCADE STATUS");
     } else if (data.type === 'ARCADE_MOVE') {
         if (data.gameType === 'tictactoe') {
             arcadeBoard = data.board;

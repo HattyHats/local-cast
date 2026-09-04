@@ -22,10 +22,9 @@ Local-Cast transforms any modern browser into a secure, serverless networking hu
 * **Chess.js** (Chess game logic engine)
 
 ### 💻 Installation & Usage
-1. Clone the repository to your local machine.
-2. Serve the directory using any local web server (e.g. `python3 -m http.server 8080`).
-3. Open the application in your browser. The first device to connect becomes the **Host**.
-4. Guests can join by navigating to the connection URL displayed on the Host's screen, or by scanning the generated QR code.
+1. Serve the directory using any local web server (e.g. `python3 server.py` or `python3 -m http.server 8080`).
+2. Open `http://localhost:8080` in your browser. The first device to connect becomes the **Host**.
+3. Guests can join by navigating to the connection URL displayed on the Host's screen, or by scanning the generated QR code.
 
 *Note: For peer-to-peer WebRTC connections to work securely across different devices, ensure you are testing over a secure context (localhost or HTTPS).*
 
