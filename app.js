@@ -822,6 +822,32 @@ let connections = [];
 let hostConnection = null;
 let hostPassword = null;
 
+function generatePeerId(prefix = 'lc_') {
+    try {
+        const bytes = new Uint8Array(10);
+        crypto.getRandomValues(bytes);
+        return prefix + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    } catch(e) {
+        return prefix + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
+    }
+}
+
+function getPeerConfig() {
+    return {
+        debug: 1,
+        secure: window.location.protocol === 'https:',
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
+            ]
+        }
+    };
+}
+
 const urlParams = new URLSearchParams(window.location.search);
 const roomCode = urlParams.get('room');
 const magicPeerId = urlParams.get('peer');
@@ -850,8 +876,8 @@ async function initMagicPeer(targetPeerId, targetFileId) {
     const magicProgressText = document.getElementById('magic-progress-text');
     const magicFilename = document.getElementById('magic-filename');
     
-    const magicPeer = new Peer();
-        magicPeer.on("error", err => console.error("PeerJS Magic Error:", err));
+    const magicPeer = new Peer(generatePeerId('magic_'), getPeerConfig());
+    magicPeer.on("error", err => console.error("PeerJS Magic Error:", err));
     magicPeer.on('open', (id) => {
         magicStatus.textContent = 'Connecting to Host...';
         const conn = magicPeer.connect(targetPeerId, { reliable: true });
@@ -1024,9 +1050,19 @@ async function initHost() {
             try { peer.destroy(); } catch(e) {}
         }
 
-        peer = new Peer({ debug: 1 });
+        const freshHostId = generatePeerId('host_');
+        peer = new Peer(freshHostId, getPeerConfig());
+
+        let hostOpenTimeout = setTimeout(() => {
+            if (!peer || !peer.open) {
+                console.warn("Signaling broker handshake timeout, rotating ID...");
+                updateStatus('RECONNECTING...', 'offline');
+                setupHostPeer();
+            }
+        }, 10000);
 
         peer.on('error', (err) => {
+            clearTimeout(hostOpenTimeout);
             console.error("PeerJS Host Error:", err);
             if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error') {
                 updateStatus('RETRYING...', 'offline');
@@ -1053,6 +1089,7 @@ async function initHost() {
         });
 
         peer.on('open', (id) => {
+            clearTimeout(hostOpenTimeout);
             updateStatus('HOST ACTIVE', 'online');
             const connectUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
             
@@ -2111,10 +2148,29 @@ async function initClient() {
             try { peer.destroy(); } catch(e) {}
         }
 
-        peer = new Peer({ debug: 1 });
+        const freshGuestId = generatePeerId('guest_');
+        peer = new Peer(freshGuestId, getPeerConfig());
+
+        let clientOpenTimeout = setTimeout(() => {
+            if (!peer || !peer.open) {
+                console.warn("Client signaling broker handshake timeout, retrying...");
+                updateStatus('RECONNECTING...', 'offline');
+                setupClientPeer();
+            }
+        }, 10000);
+
         peer.on("error", err => {
+            clearTimeout(clientOpenTimeout);
             console.error("PeerJS Client Error:", err);
-            updateStatus('HOST OFFLINE', 'offline');
+            if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error') {
+                updateStatus('RETRYING...', 'offline');
+                setTimeout(() => setupClientPeer(), 1000);
+            } else if (err.type === 'peer-unavailable') {
+                updateStatus('HOST NOT FOUND', 'offline');
+                showToast("Host room unavailable or offline.");
+            } else {
+                updateStatus('HOST OFFLINE', 'offline');
+            }
         });
         
         // Intercept incoming connections for Swarm
@@ -2154,6 +2210,7 @@ async function initClient() {
         });
 
         peer.on('open', () => {
+            clearTimeout(clientOpenTimeout);
             updateStatus('CONNECTING TO HOST...', 'offline');
             
             let connectionTimeout = setTimeout(() => {
