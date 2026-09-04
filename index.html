@@ -201,7 +201,13 @@
         <main id="client-view" class="view hidden">
             <div class="explorer-section card" id="client-explorer" style="width: 100%;">
                 <div class="explorer-header">
-                    <h2>HOST FILE SERVER</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <h2 style="margin: 0;">HOST FILE SERVER</h2>
+                        <button id="btn-switch-to-host" class="custom-btn" style="background: rgba(0, 240, 255, 0.1); border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 0.35rem 0.85rem; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="Create your own host mesh">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            <span>START AS HOST</span>
+                        </button>
+                    </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
                         <div class="breadcrumbs" id="client-breadcrumbs"><span class="crumb" data-id="root">/ Home</span></div>
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">

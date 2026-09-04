@@ -983,63 +983,109 @@ async function initHost() {
         }
     });
 
-    const savedPeerId = await localforage.getItem("host_peer_id");
-    if (savedPeerId) {
-        peer = new Peer(savedPeerId, { debug: 2 });
-    } else {
-        peer = new Peer({ debug: 2 });
+    try {
+        await localforage.removeItem("host_peer_id");
+    } catch(e) {}
+
+    function renderHostQR(url, attempts = 0) {
+        if (!qrcodeEl) return;
+        if (typeof QRCode !== 'undefined') {
+            try {
+                qrcodeEl.innerHTML = '';
+                new QRCode(qrcodeEl, { 
+                    text: url, 
+                    width: 130, 
+                    height: 130, 
+                    colorDark : "#00f0ff", 
+                    colorLight : "#0a0b10", 
+                    correctLevel : QRCode.CorrectLevel.L 
+                });
+                if (qrPlaceholder) qrPlaceholder.classList.add('hidden');
+            } catch(err) {
+                console.error("QR Render Error:", err);
+            }
+        } else if (attempts < 20) {
+            setTimeout(() => renderHostQR(url, attempts + 1), 200);
+        }
     }
 
-    peer.on('call', async (call) => {
-        if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
-        try {
-            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            call.answer(localMediaStream);
-            currentCall = call;
-            openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
-            setupCallHandlers(call);
-        } catch (e) {
-            console.error("Failed to answer call:", e);
-            call.close();
+    function setupHostPeer(attempts = 0) {
+        if (typeof Peer === 'undefined') {
+            if (attempts < 25) {
+                setTimeout(() => setupHostPeer(attempts + 1), 200);
+                return;
+            }
+            updateStatus('PEERJS ERROR', 'offline');
+            showToast("WebRTC library loading failed. Please refresh.");
+            return;
         }
-    });
 
-    peer.on('open', (id) => {
-        localforage.setItem("host_peer_id", id);
-        updateStatus('HOST ACTIVE', 'online');
-        const connectUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
-        
-        qrPlaceholder.classList.add('hidden');
-        new QRCode(qrcodeEl, { text: connectUrl, width: 130, height: 130, colorDark : "#00f0ff", colorLight : "#0a0b10", correctLevel : QRCode.CorrectLevel.L });
-        joinInfo.classList.remove('hidden');
-        joinUrl.textContent = connectUrl;
-        
-        const btnCopyUrl = document.getElementById('btn-copy-url');
-        if (btnCopyUrl) {
-            btnCopyUrl.onclick = async () => {
-                try {
-                    await navigator.clipboard.writeText(connectUrl);
-                } catch(e) {
-                    const temp = document.createElement('textarea');
-                    temp.value = connectUrl;
-                    document.body.appendChild(temp);
-                    temp.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(temp);
-                }
-                btnCopyUrl.classList.add('copied');
-                const copyText = btnCopyUrl.querySelector('.copy-text');
-                if (copyText) copyText.textContent = 'COPIED!';
-                showToast("Connection URL copied to clipboard!");
-                setTimeout(() => {
-                    btnCopyUrl.classList.remove('copied');
-                    if (copyText) copyText.textContent = 'COPY';
-                }, 2000);
-            };
+        if (peer && !peer.destroyed) {
+            try { peer.destroy(); } catch(e) {}
         }
-    });
 
-    peer.on('connection', async (conn) => {
+        peer = new Peer({ debug: 1 });
+
+        peer.on('error', (err) => {
+            console.error("PeerJS Host Error:", err);
+            if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error') {
+                updateStatus('RETRYING...', 'offline');
+                setTimeout(() => setupHostPeer(), 1000);
+            } else if (err.type === 'peer-unavailable') {
+                // Ignore transient peer disconnect
+            } else {
+                updateStatus('OFFLINE', 'offline');
+            }
+        });
+
+        peer.on('call', async (call) => {
+            if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
+            try {
+                localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                call.answer(localMediaStream);
+                currentCall = call;
+                openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
+                setupCallHandlers(call);
+            } catch (e) {
+                console.error("Failed to answer call:", e);
+                call.close();
+            }
+        });
+
+        peer.on('open', (id) => {
+            updateStatus('HOST ACTIVE', 'online');
+            const connectUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
+            
+            renderHostQR(connectUrl);
+            if (joinInfo) joinInfo.classList.remove('hidden');
+            if (joinUrl) joinUrl.textContent = connectUrl;
+            
+            const btnCopyUrl = document.getElementById('btn-copy-url');
+            if (btnCopyUrl) {
+                btnCopyUrl.onclick = async () => {
+                    try {
+                        await navigator.clipboard.writeText(connectUrl);
+                    } catch(e) {
+                        const temp = document.createElement('textarea');
+                        temp.value = connectUrl;
+                        document.body.appendChild(temp);
+                        temp.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(temp);
+                    }
+                    btnCopyUrl.classList.add('copied');
+                    const copyText = btnCopyUrl.querySelector('.copy-text');
+                    if (copyText) copyText.textContent = 'COPIED!';
+                    showToast("Connection URL copied to clipboard!");
+                    setTimeout(() => {
+                        btnCopyUrl.classList.remove('copied');
+                        if (copyText) copyText.textContent = 'COPY';
+                    }, 2000);
+                };
+            }
+        });
+
+        peer.on('connection', async (conn) => {
         if (hostPassword) {
             if (!conn.metadata || !conn.metadata.secureProfile) {
                 console.warn("Connection rejected: Missing secure metadata");
@@ -1435,7 +1481,9 @@ async function initHost() {
             broadcastPeers();
         });
     });
+    }
 
+    setupHostPeer();
     setupHostActions();
     renderHostExplorer();
     hostExplorerGrid.addEventListener('click', (e) => {
@@ -2048,51 +2096,90 @@ function renderBreadcrumbs(currentDir, container, onClick) {
 async function initClient() {
     updateStatus('CONNECTING...', 'offline');
     
-    peer = new Peer({ debug: 2 });
-    peer.on("error", err => console.error("PeerJS Client Error:", err));
-    
-    // Intercept incoming connections for Swarm
-    peer.on('connection', (conn) => {
-        if (!isHost) {
-            conn.on('open', () => {
-                if (!swarmConnections.find(c => c.peer === conn.peer)) {
-                    swarmConnections.push(conn);
-                    printCli('Swarm peer connected: ' + conn.peer, 'var(--neon-green)');
-                }
-            });
-            
-            conn.on('data', (data) => {
-                if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
-                    handleArcadeNetwork(data);
-                }
-            });
-            
-            conn.on('close', () => {
-                swarmConnections = swarmConnections.filter(c => c.peer !== conn.peer);
-            });
+    function setupClientPeer(attempts = 0) {
+        if (typeof Peer === 'undefined') {
+            if (attempts < 25) {
+                setTimeout(() => setupClientPeer(attempts + 1), 200);
+                return;
+            }
+            updateStatus('PEERJS ERROR', 'offline');
+            showToast("WebRTC library loading failed. Please refresh.");
+            return;
         }
-    });
 
-    peer.on('call', async (call) => {
-        if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
-        try {
-            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            call.answer(localMediaStream);
-            currentCall = call;
-            openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
-            setupCallHandlers(call);
-        } catch (e) {
-            console.error("Failed to answer call:", e);
-            call.close();
+        if (peer && !peer.destroyed) {
+            try { peer.destroy(); } catch(e) {}
         }
-    });
 
-    peer.on('open', () => {
-        hostConnection = peer.connect(roomCode, { reliable: true });
-        
-        hostConnection.on('open', () => {
-            updateStatus('CONNECTED TO HOST', 'online');
+        peer = new Peer({ debug: 1 });
+        peer.on("error", err => {
+            console.error("PeerJS Client Error:", err);
+            updateStatus('HOST OFFLINE', 'offline');
         });
+        
+        // Intercept incoming connections for Swarm
+        peer.on('connection', (conn) => {
+            if (!isHost) {
+                conn.on('open', () => {
+                    if (!swarmConnections.find(c => c.peer === conn.peer)) {
+                        swarmConnections.push(conn);
+                        printCli('Swarm peer connected: ' + conn.peer, 'var(--neon-green)');
+                    }
+                });
+                
+                conn.on('data', (data) => {
+                    if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
+                        handleArcadeNetwork(data);
+                    }
+                });
+                
+                conn.on('close', () => {
+                    swarmConnections = swarmConnections.filter(c => c.peer !== conn.peer);
+                });
+            }
+        });
+
+        peer.on('call', async (call) => {
+            if (call.metadata && call.metadata.type === 'media_stream') return; // Handled elsewhere
+            try {
+                localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                call.answer(localMediaStream);
+                currentCall = call;
+                openWhisper(call.peer, 'Incoming Comm-Link', 'var(--neon-green)');
+                setupCallHandlers(call);
+            } catch (e) {
+                console.error("Failed to answer call:", e);
+                call.close();
+            }
+        });
+
+        peer.on('open', () => {
+            updateStatus('CONNECTING TO HOST...', 'offline');
+            
+            let connectionTimeout = setTimeout(() => {
+                if (!hostConnection || !hostConnection.open) {
+                    updateStatus('HOST OFFLINE', 'offline');
+                    showToast("Host room unavailable. Click 'START AS HOST' to begin your own session.");
+                }
+            }, 7000);
+
+            hostConnection = peer.connect(roomCode, { reliable: true });
+            
+            hostConnection.on('open', () => {
+                clearTimeout(connectionTimeout);
+                updateStatus('CONNECTED TO HOST', 'online');
+                showToast("Connected to host mesh!");
+            });
+
+            hostConnection.on('error', () => {
+                clearTimeout(connectionTimeout);
+                updateStatus('CONNECTION FAILED', 'offline');
+            });
+
+            hostConnection.on('close', () => {
+                clearTimeout(connectionTimeout);
+                updateStatus('DISCONNECTED', 'offline');
+            });
         
         hostConnection.on('data', (data) => {
             if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
@@ -2315,6 +2402,16 @@ async function initClient() {
             updateStatus('HOST DISCONNECTED', 'offline');
         });
     });
+    }
+
+    setupClientPeer();
+
+    const btnSwitchToHost = document.getElementById('btn-switch-to-host');
+    if (btnSwitchToHost) {
+        btnSwitchToHost.addEventListener('click', () => {
+            window.location.href = window.location.origin + window.location.pathname;
+        });
+    }
     
     btnSubmitFolderPassword.addEventListener('click', () => {
         const pwd = folderPasswordInput.value;
@@ -5006,4 +5103,23 @@ function broadcastNetworkMap() {
         }
     });
 }
+
+// Logo click resets to fresh Host mode if in client or query session
+document.querySelectorAll('.logo-container').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.title = 'Local-Cast Mesh (Click to go Home)';
+    el.addEventListener('click', () => {
+        if (window.location.search) {
+            window.location.href = window.location.origin + window.location.pathname;
+        }
+    });
+});
+
+// Clean up PeerJS connection on page unload
+window.addEventListener('beforeunload', () => {
+    if (peer && !peer.destroyed) {
+        try { peer.destroy(); } catch(e) {}
+    }
+});
+
 
