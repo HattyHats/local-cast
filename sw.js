@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v102';
+const CACHE_NAME = 'localcast-v103';
 const ASSETS = [
     './',
     './index.html',
@@ -6,7 +6,7 @@ const ASSETS = [
     './app.js',
     './manifest.json',
     'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js',
-    'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
@@ -27,7 +27,7 @@ self.addEventListener('fetch', (e) => {
     const url = e.request.url;
 
     // CRITICAL: NEVER intercept PeerJS signaling, WebSockets, or live broker endpoints
-    if (url.includes('peerjs') || url.includes('0.peerjs.com') || url.startsWith('ws:') || url.startsWith('wss:')) {
+    if (url.includes('0.peerjs.com') || (url.includes('/peerjs/') && !url.endsWith('.js')) || url.startsWith('ws:') || url.startsWith('wss:')) {
         return;
     }
 
@@ -50,7 +50,7 @@ self.addEventListener('fetch', (e) => {
             });
             return response;
         }).catch(() => {
-            return caches.match(e.request);
+            return caches.match(e.request, { ignoreSearch: true });
         })
     );
 });

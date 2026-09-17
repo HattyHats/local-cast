@@ -986,7 +986,10 @@ function generatePeerId(prefix = 'lc_') {
 function getPeerConfig() {
     return {
         debug: 1,
-        secure: window.location.protocol === 'https:',
+        host: '0.peerjs.com',
+        port: 443,
+        path: '/',
+        secure: true,
         config: {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -1397,13 +1400,19 @@ async function initHost() {
             if (isServerBurned) return;
             clearTimeout(hostOpenTimeout);
             console.error("PeerJS Host Error:", err);
-            if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error') {
+            if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'network' || err.type === 'socket-closed') {
                 updateStatus('RETRYING...', 'offline');
                 setTimeout(() => setupHostPeer(), 1000);
             } else if (err.type === 'peer-unavailable') {
                 // Ignore transient peer disconnect
             } else {
                 updateStatus('OFFLINE', 'offline');
+                setTimeout(() => {
+                    if (!peer || !peer.open) {
+                        updateStatus('RECONNECTING...', 'offline');
+                        setupHostPeer();
+                    }
+                }, 3000);
             }
         });
 
@@ -1917,6 +1926,13 @@ function setupHostActions() {
             if (peer && peer.id) {
                 const connectUrl = `${window.location.origin}${window.location.pathname}?room=${peer.id}`;
                 renderHostQR(connectUrl);
+                if (joinInfo) joinInfo.classList.remove('hidden');
+                if (joinUrl) joinUrl.textContent = connectUrl;
+            } else {
+                if (!peer || !peer.open) {
+                    updateStatus('CONNECTING...', 'offline');
+                    setupHostPeer();
+                }
             }
         });
     }
@@ -2579,7 +2595,7 @@ async function initClient() {
             if (isServerBurned) return;
             clearTimeout(clientOpenTimeout);
             console.error("PeerJS Client Error:", err);
-            if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error') {
+            if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'network' || err.type === 'socket-closed') {
                 updateStatus('RETRYING...', 'offline');
                 setTimeout(() => setupClientPeer(), 1000);
             } else if (err.type === 'peer-unavailable') {
@@ -3990,25 +4006,34 @@ async function initLogic() {
         if (e.key === 'Enter' || e.key === ' ') finishBoot();
     }, { once: true });
 
-    // Stream telemetry lines dynamically
+    // Stream telemetry lines dynamically (runs concurrently with app/peer init)
     if (bootTerminal) {
-        for (let i = 0; i < logSteps.length; i++) {
-            if (bootCompleted) break;
-            const step = logSteps[i];
-            const line = document.createElement('div');
-            line.className = step.class;
-            line.textContent = step.text;
-            bootTerminal.appendChild(line);
-            bootTerminal.scrollTop = bootTerminal.scrollHeight;
-            playCyberChime(350 + i * 110, 'sine', 0.08);
-            await new Promise(r => setTimeout(r, 340));
-        }
+        (async () => {
+            try {
+                for (let i = 0; i < logSteps.length; i++) {
+                    if (bootCompleted) break;
+                    const step = logSteps[i];
+                    const line = document.createElement('div');
+                    line.className = step.class;
+                    line.textContent = step.text;
+                    bootTerminal.appendChild(line);
+                    bootTerminal.scrollTop = bootTerminal.scrollHeight;
+                    playCyberChime(350 + i * 110, 'sine', 0.08);
+                    await new Promise(r => setTimeout(r, 260));
+                }
+                await new Promise(r => setTimeout(r, 400));
+            } catch(e) {}
+            finishBoot();
+        })();
+    } else {
+        finishBoot();
     }
 
-    await new Promise(r => setTimeout(r, 500));
-    finishBoot();
-
-    await initDB();
+    try {
+        await initDB();
+    } catch(e) {
+        console.warn("DB init warning:", e);
+    }
     
     if (magicPeerId && magicFileId) {
         if (!localStorage.getItem('localcast_alias')) {
@@ -4026,7 +4051,19 @@ async function initLogic() {
         initApp();
     }
 }
-window.onload = initLogic;
+let logicInitialized = false;
+function triggerInitLogic() {
+    if (logicInitialized) return;
+    logicInitialized = true;
+    initLogic();
+}
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    triggerInitLogic();
+} else {
+    document.addEventListener('DOMContentLoaded', triggerInitLogic);
+    window.addEventListener('load', triggerInitLogic);
+}
 
 
 // --- GUEST PROFILE LOGIC ---
