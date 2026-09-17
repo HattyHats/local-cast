@@ -4,6 +4,49 @@ let contextTargetId = null;
 let hostSearchQuery = '';
 let clientSearchQuery = '';
 
+// --- SECURITY & SANITIZATION UTILITIES ---
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function sanitizeCssColor(color) {
+    if (typeof color !== 'string') return 'var(--neon-blue)';
+    const trimmed = color.trim();
+    if (/^#([0-9a-fA-F]{3,8})$/.test(trimmed) || 
+        /^rgba?\([0-9,.\s%]+\)$/.test(trimmed) || 
+        /^hsla?\([0-9,.\s%]+\)$/.test(trimmed) || 
+        /^var\(--[a-zA-Z0-9_-]+\)$/.test(trimmed) ||
+        /^[a-zA-Z]{3,20}$/.test(trimmed)) {
+        return trimmed;
+    }
+    return 'var(--neon-blue)';
+}
+
+function sanitizeThumbnailUrl(thumb) {
+    if (typeof thumb !== 'string') return null;
+    const trimmed = thumb.trim();
+    if (trimmed.startsWith('data:image/png;base64,') || 
+        trimmed.startsWith('data:image/jpeg;base64,') || 
+        trimmed.startsWith('data:image/webp;base64,') ||
+        trimmed.startsWith('data:image/gif;base64,')) {
+        return trimmed;
+    }
+    return null;
+}
+
+function sanitizeFilename(name) {
+    if (typeof name !== 'string') return 'file';
+    let clean = name.replace(/[\/\\]/g, '_').replace(/[\x00-\x1F\x7F<>:"|?*]/g, '').trim();
+    if (clean === '.' || clean === '..' || clean === '') clean = 'file_' + Date.now();
+    return clean.substring(0, 255);
+}
+
 // --- CYBER DIALOG SYSTEM (Non-blocking replacements for alert, confirm, prompt) ---
 const cyberDialogModal = document.getElementById('cyber-dialog-modal');
 const cyberDialogTitle = document.getElementById('cyber-dialog-title');
@@ -373,9 +416,9 @@ async function deriveKey(password, salt) {
     );
 }
 
-async function encryptFile(buffer, password) {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
+async function encryptFile(buffer, password, customSalt = null, customIv = null) {
+    const salt = customSalt || crypto.getRandomValues(new Uint8Array(16));
+    const iv = customIv || crypto.getRandomValues(new Uint8Array(12));
     const key = await deriveKey(password, salt);
     const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buffer);
     return { encrypted: new Uint8Array(encrypted), salt, iv };
@@ -495,14 +538,15 @@ function createTransferItem(id, name, type) { // type: 'upload' or 'download'
     }
     const el = document.createElement('div');
     el.className = 'transfer-item ' + type;
-    el.id = 'transfer-' + id;
+    const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+    const safeName = escapeHtml(name);
     el.innerHTML = `
         <div class="transfer-header">
-            <span class="transfer-filename" title="${name}">${name}</span>
-            <span class="transfer-speed" id="speed-${id}">0 MB/s</span>
+            <span class="transfer-filename" title="${safeName}">${safeName}</span>
+            <span class="transfer-speed" id="speed-${safeId}">0 MB/s</span>
         </div>
         <div class="transfer-progress-bg">
-            <div class="transfer-progress-fill" id="prog-${id}"></div>
+            <div class="transfer-progress-fill" id="prog-${safeId}"></div>
         </div>
     `;
     if (transferList) {
@@ -921,7 +965,7 @@ class VirtualFileSystem {
     getTree(unlockedSet = new Set()) {
         function clone(node) {
             if (node.isHidden && !showDeadDrops) return null;
-            const isUnlocked = unlockedSet.has(node.id) || unlockedVaults[node.id];
+            const isUnlocked = unlockedSet && unlockedSet.has(node.id);
             const n = { 
                 id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, thumbnail: node.thumbnail,
                 isLocked: !!node.password, isVault: !!node.isVault, isUnlocked, isHidden: node.isHidden,
@@ -956,6 +1000,29 @@ let vfs = new VirtualFileSystem();
 let clientVFS = null; // Client's copy of the tree
 let clientCurrentDir = null;
 let clientUnlockedVaults = {}; // track guest vault passwords
+
+function isNodeAuthorizedForConnection(node, conn) {
+    if (!node) return false;
+    if (isHost && !conn) return true; // Host local access
+    if (!conn || !conn.isAuthenticated) return false;
+    
+    // Walk up the parent hierarchy
+    let current = node;
+    while (current && current.id !== 'root') {
+        if (current.password || current.isVault) {
+            if (!conn.unlockedFolders || !conn.unlockedFolders.has(current.id)) {
+                return false;
+            }
+        }
+        if (current.isNative || current.isNativeRoot) {
+            if (!conn.unlockedFolders || !conn.unlockedFolders.has(current.id)) {
+                return false;
+            }
+        }
+        current = current.parent;
+    }
+    return true;
+}
 
 // State
 let isHost = true;
@@ -1516,6 +1583,9 @@ async function initHost() {
                 return;
             }
             if (data.type === 'SWARM_REQUEST_CHUNK') {
+                if (!conn.isAuthenticated) return;
+                const node = vfs.findNode(data.fileId);
+                if (!node || node.type !== 'file' || !isNodeAuthorizedForConnection(node, conn)) return;
                 handleHostSwarmChunkRequest(conn, data.fileId, data.chunkIndex);
                 return;
             }
@@ -1526,14 +1596,18 @@ async function initHost() {
             if (data.type === 'REQUEST_MAGIC_FILE') {
                 const node = vfs.findNode(data.fileId);
                 if (node && node.type === 'file') {
-                    if (node.isLocked || node.password) {
-                        conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires a password.' });
-                    } else if (node.isNative) {
-                        getDecryptedFileObj(node).then(blob => {
-                            sendFileInChunks(conn, node.id, blob, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: false });
-                        }).catch(e => {
-                            conn.send({ type: 'MAGIC_FILE_ERROR', message: 'Failed to access native file.' });
-                        });
+                    // Check if file or any ancestor folder is locked, vault, or native
+                    let isProtected = !!(node.isLocked || node.password || node.isNative);
+                    let cur = node.parent;
+                    while (cur && cur.id !== 'root') {
+                        if (cur.password || cur.isVault || cur.isNative || cur.isNativeRoot) {
+                            isProtected = true;
+                            break;
+                        }
+                        cur = cur.parent;
+                    }
+                    if (isProtected) {
+                        conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires host authentication.' });
                     } else {
                         sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
                     }
@@ -1543,6 +1617,11 @@ async function initHost() {
                 return;
             }
             if (data.type === 'AUTH_ATTEMPT') {
+                if (conn.isLockedOut) {
+                    conn.send({ type: 'AUTH_FAIL', message: 'Maximum attempts exceeded. Connection locked out.' });
+                    setTimeout(() => conn.close(), 500);
+                    return;
+                }
                 if (conn.isAuthenticated) {
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
@@ -1553,13 +1632,21 @@ async function initHost() {
                 }
                 if (data.password === hostPassword) {
                     conn.isAuthenticated = true;
+                    conn.authFailures = 0;
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                     broadcastPeers();
                     broadcastNetworkMap();
                 } else {
-                    conn.send({ type: 'AUTH_FAIL' });
+                    conn.authFailures = (conn.authFailures || 0) + 1;
+                    if (conn.authFailures >= 5) {
+                        conn.isLockedOut = true;
+                        conn.send({ type: 'AUTH_FAIL', message: 'Maximum attempts exceeded. Connection terminated.' });
+                        setTimeout(() => conn.close(), 500);
+                    } else {
+                        conn.send({ type: 'AUTH_FAIL' });
+                    }
                 }
                 return;
             } else if (data.type === 'WHISPER_RELAY' && conn.isAuthenticated) {
@@ -1678,9 +1765,17 @@ async function initHost() {
                     conn.send({ type: 'NATIVE_VAULT_AUTH_FAIL' });
                 }
             } else if (data.type === 'FOLDER_AUTH_ATTEMPT' && conn.isAuthenticated) {
+                conn.folderAuthAttempts = conn.folderAuthAttempts || {};
+                const attempts = (conn.folderAuthAttempts[data.folderId] || 0) + 1;
+                conn.folderAuthAttempts[data.folderId] = attempts;
+                if (attempts > 5) {
+                    conn.send({ type: 'FOLDER_AUTH_FAIL', folderId: data.folderId, locked: true });
+                    return;
+                }
                 const node = vfs.findNode(data.folderId);
                 if (node && node.type === 'folder') {
                     if (node.password === data.password) {
+                        conn.folderAuthAttempts[data.folderId] = 0;
                         conn.unlockedFolders.add(node.id);
                         conn.send({ type: 'FOLDER_AUTH_SUCCESS', folderId: node.id });
                         conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
@@ -1697,7 +1792,7 @@ async function initHost() {
                 }
             } else if (data.type === 'REQUEST_FILE' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.id);
-                if (node && node.type === 'file') {
+                if (node && node.type === 'file' && isNodeAuthorizedForConnection(node, conn)) {
                     if (node.isNative) {
                         getDecryptedFileObj(node).then(blob => {
                             sendFileInChunks(conn, node.id, blob, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: false });
@@ -1705,15 +1800,19 @@ async function initHost() {
                     } else {
                         sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
                     }
+                } else {
+                    conn.send({ type: 'ALERT', message: 'Access denied: protected file or unauthorized folder.' });
                 }
             } else if (data.type === 'REQUEST_ZIP_ALL' && conn.isAuthenticated) {
-                generateZipBlob().then(blob => {
+                generateZipBlob(conn).then(blob => {
                     sendFileInChunks(conn, 'zip-all', blob, 'local-cast-backup.zip', 'application/zip', 'ZIP_CHUNK');
                 });
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK_START') {
                 if (conn.permissions && conn.permissions.upload) {
-                    incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: data.name, mime: data.mime, size: data.size || (data.totalChunks * CHUNK_SIZE), path: data.path, targetFolderId: data.targetFolderId, thumbnail: data.thumbnail };
-                    createTransferItem(data.id, data.name, 'download');
+                    const safeName = sanitizeFilename(data.name);
+                    const safeThumb = sanitizeThumbnailUrl(data.thumbnail);
+                    incomingTransfers[data.id] = { chunks: [], received: 0, total: data.totalChunks, name: safeName, mime: data.mime, size: data.size || (data.totalChunks * CHUNK_SIZE), path: data.path, targetFolderId: data.targetFolderId, thumbnail: safeThumb };
+                    createTransferItem(data.id, safeName, 'download');
                 }
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK') {
                 if (!conn.permissions || !conn.permissions.upload) return;
@@ -1733,11 +1832,17 @@ async function initHost() {
                             const found = vfs.findNode(transfer.targetFolderId);
                             if (found && found.type === 'folder') current = found;
                         }
+                        if (!isNodeAuthorizedForConnection(current, conn)) {
+                            delete incomingTransfers[data.id];
+                            conn.send({ type: 'ALERT', message: 'Upload rejected: Target folder is locked or unauthorized.' });
+                            return;
+                        }
                         
-                        if (transfer.path) {
-                            const parts = transfer.path.split('/');
+                        if (transfer.path && typeof transfer.path === 'string') {
+                            const parts = transfer.path.split('/').map(p => p.trim()).filter(p => p && p !== '.' && p !== '..');
                             for(let i=0; i<parts.length-1; i++) {
-                                let folderName = parts[i];
+                                let folderName = sanitizeFilename(parts[i]);
+                                if (!folderName) continue;
                                 let existing = current.children.find(c => c.type === 'folder' && c.name === folderName);
                                 if (!existing) {
                                     existing = { id: 'folder_' + Math.random().toString(36).substr(2), name: folderName, type: 'folder', children: [], parent: current };
@@ -1746,7 +1851,6 @@ async function initHost() {
                                 current = existing;
                             }
                         }
-                        
                         
                         (async () => {
                             let finalFileObj = fileObj;
@@ -1809,12 +1913,18 @@ async function initHost() {
                 }
             } else if (data.type === 'CLIENT_MOVE_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
-                    if (moveNode(data.id, data.targetFolderId)) {
-                        saveVFSToDB();
-                        renderHostExplorer();
-                        broadcastTree();
+                    const node = vfs.findNode(data.id);
+                    const target = vfs.findNode(data.targetFolderId);
+                    if (node && target && isNodeAuthorizedForConnection(node, conn) && isNodeAuthorizedForConnection(target, conn)) {
+                        if (moveNode(data.id, data.targetFolderId)) {
+                            saveVFSToDB();
+                            renderHostExplorer();
+                            broadcastTree();
+                        } else {
+                            conn.send({ type: 'ALERT', message: 'Move failed: Invalid node or target.' });
+                        }
                     } else {
-                        conn.send({ type: 'ALERT', message: 'Move failed: Invalid node or target.' });
+                        conn.send({ type: 'ALERT', message: 'Move failed: Target or source is locked or unauthorized.' });
                     }
                 } else {
                     conn.send({ type: 'ALERT', message: 'Move failed: No delete permission on Host.' });
@@ -1822,8 +1932,8 @@ async function initHost() {
             } else if (data.type === 'CLIENT_RENAME_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
                     const node = vfs.findNode(data.id);
-                    if (node && !node.isLocked) {
-                        node.name = data.newName;
+                    if (node && !node.isLocked && isNodeAuthorizedForConnection(node, conn)) {
+                        node.name = sanitizeFilename(data.newName);
                         saveVFSToDB();
                         renderHostExplorer();
                         broadcastTree();
@@ -1836,7 +1946,7 @@ async function initHost() {
             } else if (data.type === 'CLIENT_DELETE_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
                     const node = vfs.findNode(data.id);
-                    if (node && node.parent && !node.isLocked && !node.parent.isLocked) {
+                    if (node && node.parent && !node.isLocked && !node.parent.isLocked && isNodeAuthorizedForConnection(node, conn)) {
                         node.parent.children = node.parent.children.filter(c => c.id !== data.id);
                         saveVFSToDB();
                         renderHostExplorer();
@@ -1846,7 +1956,7 @@ async function initHost() {
             } else if (data.type === 'TEXT_EDIT_SYNC') {
                 if (conn.permissions && conn.permissions.edit) {
                     const node = vfs.findNode(data.fileId);
-                    if (node && !node.isLocked) {
+                    if (node && !node.isLocked && isNodeAuthorizedForConnection(node, conn)) {
                         (async () => {
                             let fileBlob = new Blob([data.text], { type: 'text/plain' });
                             if (node.isEncrypted) {
@@ -1856,10 +1966,10 @@ async function initHost() {
                                     const pass = unlockedVaults[vaultDir.id];
                                     if (pass) {
                                         const buffer = await fileBlob.arrayBuffer();
-                                        const iv = crypto.getRandomValues(new Uint8Array(12));
-                                        const encryptedBuffer = await encryptFile(buffer, pass, node.salt, iv);
-                                        fileBlob = new Blob([encryptedBuffer], { type: 'text/plain' });
-                                        node.iv = iv;
+                                        const encData = await encryptFile(buffer, pass, node.salt);
+                                        fileBlob = new Blob([encData.encrypted], { type: 'text/plain' });
+                                        node.iv = encData.iv;
+                                        node.salt = encData.salt;
                                     }
                                 }
                             }
@@ -1930,15 +2040,18 @@ function broadcastTree() {
     });
 }
 
-async function generateZipBlob() {
+async function generateZipBlob(targetConn = null) {
     const zip = new JSZip();
     
     function addNodeToZip(node, currentZipFolder) {
         node.children.forEach(child => {
+            if (targetConn && !isNodeAuthorizedForConnection(child, targetConn)) {
+                return; // Skip unauthorized files or locked folders for guest download
+            }
             if (child.type === 'folder') {
                 const newFolder = currentZipFolder.folder(child.name);
                 addNodeToZip(child, newFolder);
-            } else if (child.type === 'file') {
+            } else if (child.type === 'file' && child.fileObj) {
                 currentZipFolder.file(child.name, child.fileObj);
             }
         });
@@ -2368,11 +2481,13 @@ function renderHostExplorer() {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
         
-        const icon = child.thumbnail ? `<div class="item-thumbnail" style="background-image: url('${child.thumbnail}');"></div>` : (child.type === 'folder' ? 
+        const safeName = escapeHtml(child.name);
+        const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
+        const icon = safeThumb ? `<div class="item-thumbnail" style="background-image: url('${safeThumb}');"></div>` : (child.type === 'folder' ? 
             `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password || child.isVault ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
-        item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>`;
+        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${safeName}</div>`;
         item.draggable = true;
         
         if (child.isHoneyPot) {
@@ -3138,12 +3253,14 @@ function renderClientExplorer() {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
         
-        const icon = child.thumbnail ? `<div class="item-thumbnail" style="background-image: url('${child.thumbnail}');"></div>` : (child.type === 'folder' ? 
+        const safeName = escapeHtml(child.name);
+        const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
+        const icon = safeThumb ? `<div class="item-thumbnail" style="background-image: url('${safeThumb}');"></div>` : (child.type === 'folder' ? 
             `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
-        const sizeText = child.size ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
-        item.innerHTML = `${icon}<div class="item-name" title="${child.name}">${child.name}</div>${sizeText}`;
+        const sizeText = (typeof child.size === 'number' && child.size > 0) ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
+        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${safeName}</div>${sizeText}`;
         item.draggable = true;
         
         item.addEventListener('dragstart', (e) => {
@@ -3248,8 +3365,9 @@ function renderClientExplorer() {
                 }
 
                 const previewIconEl = document.getElementById("preview-icon");
-                if (child.thumbnail) {
-                    previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${child.thumbnail}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
+                const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
+                if (safeThumb) {
+                    previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${safeThumb}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
                 } else {
                     previewIconEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
                 }
@@ -3421,7 +3539,17 @@ btnCloseChat.addEventListener('click', () => chatSidebar.classList.add('hidden')
 function appendChatMessage(sender, text, type, color = 'var(--neon-blue)') {
     const msg = document.createElement('div');
     msg.className = `chat-msg ${type}`;
-    msg.innerHTML = `<div class="sender" style="color: ${color};">${sender}</div><div>${text}</div>`;
+    
+    const senderDiv = document.createElement('div');
+    senderDiv.className = 'sender';
+    senderDiv.style.color = sanitizeCssColor(color);
+    senderDiv.textContent = sender || 'Guest';
+    
+    const textDiv = document.createElement('div');
+    textDiv.textContent = text || '';
+    
+    msg.appendChild(senderDiv);
+    msg.appendChild(textDiv);
     chatMessages.appendChild(msg);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     
@@ -3495,10 +3623,10 @@ editorTextarea.addEventListener('input', () => {
                         const pass = unlockedVaults[vaultDir.id];
                         if (pass) {
                             const buffer = await fileBlob.arrayBuffer();
-                            const iv = crypto.getRandomValues(new Uint8Array(12));
-                            const encryptedBuffer = await encryptFile(buffer, pass, node.salt, iv);
-                            fileBlob = new Blob([encryptedBuffer], { type: 'text/plain' });
-                            node.iv = iv;
+                            const encData = await encryptFile(buffer, pass, node.salt);
+                            fileBlob = new Blob([encData.encrypted], { type: 'text/plain' });
+                            node.iv = encData.iv;
+                            node.salt = encData.salt;
                         }
                     }
                 }
@@ -3537,10 +3665,10 @@ btnSaveNote.addEventListener('click', async () => {
                     const pass = unlockedVaults[vaultDir.id];
                     if (pass) {
                         const buffer = await file.arrayBuffer();
-                        const iv = crypto.getRandomValues(new Uint8Array(12));
-                        const encryptedBuffer = await encryptFile(buffer, pass, existing.salt, iv);
-                        finalBlob = new Blob([encryptedBuffer], { type: file.type });
-                        existing.iv = iv;
+                        const encData = await encryptFile(buffer, pass, existing.salt);
+                        finalBlob = new Blob([encData.encrypted], { type: file.type });
+                        existing.iv = encData.iv;
+                        existing.salt = encData.salt;
                     }
                 }
             }
@@ -3553,17 +3681,15 @@ btnSaveNote.addEventListener('click', async () => {
                 if (vaultDir && vaultDir.isVault) {
                     const pass = unlockedVaults[vaultDir.id];
                     if (pass) {
-                        const salt = crypto.getRandomValues(new Uint8Array(16));
-                        const iv = crypto.getRandomValues(new Uint8Array(12));
                         const buffer = await file.arrayBuffer();
-                        const encryptedBuffer = await encryptFile(buffer, pass, salt, iv);
-                        const encryptedBlob = new Blob([encryptedBuffer], { type: file.type });
+                        const encData = await encryptFile(buffer, pass);
+                        const encryptedBlob = new Blob([encData.encrypted], { type: file.type });
                         
                         node.fileObj = new File([encryptedBlob], name, { type: file.type });
                         node.size = encryptedBlob.size;
                         node.isEncrypted = true;
-                        node.salt = salt;
-                        node.iv = iv;
+                        node.salt = encData.salt;
+                        node.iv = encData.iv;
                     }
                 }
             }
@@ -3710,8 +3836,9 @@ if (ctxOpen) {
                 }
 
                 const previewIconEl = document.getElementById("preview-icon");
-                if (node.thumbnail) {
-                    previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${node.thumbnail}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
+                const safeThumb = sanitizeThumbnailUrl(node.thumbnail);
+                if (safeThumb) {
+                    previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${safeThumb}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
                 } else {
                     previewIconEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
                 }
@@ -4923,7 +5050,14 @@ function appendWhisper(name, text, color) {
     if (!whisperMessages) return;
     const el = document.createElement('div');
     el.style.marginBottom = '4px';
-    el.innerHTML = '<strong style="color: ' + color + ';">' + name + ':</strong> <span style="color: #fff;">' + text + '</span>';
+    const strong = document.createElement('strong');
+    strong.style.color = sanitizeCssColor(color);
+    strong.textContent = (name || 'Guest') + ': ';
+    const span = document.createElement('span');
+    span.style.color = '#fff';
+    span.textContent = text || '';
+    el.appendChild(strong);
+    el.appendChild(span);
     whisperMessages.appendChild(el);
     whisperMessages.scrollTop = whisperMessages.scrollHeight;
 }
@@ -4937,8 +5071,11 @@ function handleWhisper(data) {
 
 function openWhisper(targetId, alias, color) {
     whisperTarget = targetId;
-    document.getElementById('whisper-target-name').innerText = 'Whispering: ' + alias;
-    document.getElementById('whisper-target-name').style.color = color;
+    const targetNameEl = document.getElementById('whisper-target-name');
+    if (targetNameEl) {
+        targetNameEl.textContent = 'Whispering: ' + (alias || 'Guest');
+        targetNameEl.style.color = sanitizeCssColor(color);
+    }
     whisperMessages.innerHTML = '';
     
     const radarGuestModal = document.getElementById('radar-guest-modal');
@@ -6112,8 +6249,9 @@ function broadcastSwarmHave(fileId, chunkIndex, totalChunks) {
 }
 
 async function handleHostSwarmChunkRequest(conn, fileId, chunkIndex) {
+    if (!conn || !conn.isAuthenticated) return;
     const node = vfs.findNode(fileId);
-    if (!node || node.type !== 'file') return;
+    if (!node || node.type !== 'file' || !isNodeAuthorizedForConnection(node, conn)) return;
     try {
         let blob = node.fileObj;
         if (node.isNative) blob = await getDecryptedFileObj(node);

@@ -1015,11 +1015,11 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=65"></script>
+    <script src="app.js?v=66"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=106').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=107').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
