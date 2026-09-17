@@ -343,6 +343,10 @@ const btnDownloadDirect = document.getElementById('btn-download-direct');
 let activePreviewFileId = null;
 
 // Host Action Elements
+const shareModal = document.getElementById('share-modal');
+const btnShareServer = document.getElementById('btn-share-server');
+const btnCloseShare = document.getElementById('btn-close-share');
+const btnDoneShare = document.getElementById('btn-done-share');
 const btnNewFolder = document.getElementById('btn-new-folder');
 const createFolderModal = document.getElementById('create-folder-modal');
 const btnCloseCreateFolder = document.getElementById('btn-close-create-folder');
@@ -957,8 +961,17 @@ let clientUnlockedVaults = {}; // track guest vault passwords
 let isHost = true;
 let peer = null;
 let connections = [];
+let swarmConnections = [];
 let hostConnection = null;
 let hostPassword = null;
+
+// Subsystems State: E2EE, Resumable Cache, Swarm & Streaming
+let myEcdhKeyPair = null;
+const peerEcdhSharedKeys = new Map(); // peerId -> CryptoKey (AES-GCM-256)
+const activeSwarmDownloads = new Map(); // fileId -> SwarmDownloader
+const swarmBitfields = new Map(); // `${peerId}:${fileId}` -> Set<number>
+const localFileBitfields = new Map(); // fileId -> Set<number>
+let activeMediaStreamDownloader = null;
 
 function generatePeerId(prefix = 'lc_') {
     try {
@@ -1438,12 +1451,14 @@ async function initHost() {
             conn.permissions = { upload: false, chat: true, delete: false, edit: false };
 
             const handleOpen = () => {
+                sendEcdhHandshake(conn);
                 if (hostPassword && !conn.isAuthenticated) {
                     conn.send({ type: 'AUTH_REQUIRED' });
                 } else {
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                     broadcastPeers();
+                    broadcastNetworkMap();
                 }
             };
 
@@ -1454,6 +1469,23 @@ async function initHost() {
             }
         
         conn.on('data', (data) => {
+            if (data.type === 'ECDH_KEY_EXCHANGE') {
+                handlePeerEcdhKey(conn.peer, data.publicKey).then(key => {
+                    if (key && !conn._ecdhSent) {
+                        conn._ecdhSent = true;
+                        sendEcdhHandshake(conn);
+                    }
+                });
+                return;
+            }
+            if (data.type === 'SWARM_REQUEST_CHUNK') {
+                handleHostSwarmChunkRequest(conn, data.fileId, data.chunkIndex);
+                return;
+            }
+            if (data.type === 'SWARM_HAVE') {
+                registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
+                return;
+            }
             if (data.type === 'REQUEST_MAGIC_FILE') {
                 const node = vfs.findNode(data.fileId);
                 if (node && node.type === 'file') {
@@ -1479,6 +1511,7 @@ async function initHost() {
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                     broadcastPeers();
+                    broadcastNetworkMap();
                     return;
                 }
                 if (data.password === hostPassword) {
@@ -1487,6 +1520,7 @@ async function initHost() {
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                     broadcastPeers();
+                    broadcastNetworkMap();
                 } else {
                     conn.send({ type: 'AUTH_FAIL' });
                 }
@@ -1841,6 +1875,9 @@ function broadcastPeers() {
     // Update host's own list
     activePeers = {};
     peers.forEach(p => activePeers[p.id] = p);
+
+    const countEl = document.getElementById('telemetry-peer-count');
+    if (countEl) countEl.textContent = `${peers.length} ${peers.length === 1 ? 'PEER' : 'PEERS'}`;
 }
 
 function broadcastTree() {
@@ -1874,6 +1911,36 @@ async function generateZipBlob() {
 }
 
 function setupHostActions() {
+    if (btnShareServer) {
+        btnShareServer.addEventListener('click', () => {
+            if (shareModal) shareModal.classList.remove('hidden');
+            if (peer && peer.id) {
+                const connectUrl = `${window.location.origin}${window.location.pathname}?room=${peer.id}`;
+                renderHostQR(connectUrl);
+            }
+        });
+    }
+
+    if (btnCloseShare) {
+        btnCloseShare.addEventListener('click', () => {
+            if (shareModal) shareModal.classList.add('hidden');
+        });
+    }
+
+    if (btnDoneShare) {
+        btnDoneShare.addEventListener('click', () => {
+            if (shareModal) shareModal.classList.add('hidden');
+        });
+    }
+
+    if (shareModal) {
+        shareModal.addEventListener('click', (e) => {
+            if (e.target === shareModal) {
+                shareModal.classList.add('hidden');
+            }
+        });
+    }
+
     btnNewFolder.addEventListener('click', () => {
         createFolderNameInput.value = '';
         createFolderIsVault.checked = false;
@@ -2530,11 +2597,25 @@ async function initClient() {
                     if (!swarmConnections.find(c => c.peer === conn.peer)) {
                         swarmConnections.push(conn);
                         printCli('Swarm peer connected: ' + conn.peer, 'var(--neon-green)');
+                        sendEcdhHandshake(conn);
                     }
                 });
                 
                 conn.on('data', (data) => {
-                    if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
+                    if (data.type === 'ECDH_KEY_EXCHANGE') {
+                        handlePeerEcdhKey(conn.peer, data.publicKey).then(key => {
+                            if (key && !conn._ecdhSent) {
+                                conn._ecdhSent = true;
+                                sendEcdhHandshake(conn);
+                            }
+                        });
+                    } else if (data.type === 'SWARM_REQUEST_CHUNK') {
+                        handleGuestSwarmChunkRequest(conn, data.fileId, data.chunkIndex);
+                    } else if (data.type === 'SWARM_CHUNK_DATA') {
+                        handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, conn.peer);
+                    } else if (data.type === 'SWARM_HAVE') {
+                        registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
+                    } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
                         handleArcadeNetwork(data);
                     }
                 });
@@ -2565,6 +2646,7 @@ async function initClient() {
                 clearTimeout(connectionTimeout);
                 updateStatus('CONNECTED TO HOST', 'online');
                 showToast("Connected to host mesh!");
+                sendEcdhHandshake(hostConnection);
             });
 
             hostConnection.on('error', () => {
@@ -2578,7 +2660,27 @@ async function initClient() {
             });
         
         hostConnection.on('data', (data) => {
-            if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
+            if (data.type === 'ECDH_KEY_EXCHANGE') {
+                handlePeerEcdhKey(hostConnection.peer || roomCode, data.publicKey).then(key => {
+                    if (key && !hostConnection._ecdhSent) {
+                        hostConnection._ecdhSent = true;
+                        sendEcdhHandshake(hostConnection);
+                    }
+                });
+                return;
+            } else if (data.type === 'SWARM_REQUEST_CHUNK') {
+                handleGuestSwarmChunkRequest(hostConnection, data.fileId, data.chunkIndex);
+                return;
+            } else if (data.type === 'SWARM_CHUNK_DATA') {
+                handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, hostConnection.peer);
+                return;
+            } else if (data.type === 'SWARM_HAVE') {
+                registerSwarmHave(hostConnection.peer, data.fileId, data.chunkIndex);
+                return;
+            } else if (data.type === 'SWARM_ANNOUNCE') {
+                registerSwarmAnnounce(hostConnection.peer, data.fileId, data.totalChunks, data.name, data.mime, data.size);
+                return;
+            } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
                 handleArcadeNetwork(data);
             } else if (data.type === 'AUTH_REQUIRED') {
                 passwordModal.classList.remove('hidden');
@@ -2638,12 +2740,21 @@ async function initClient() {
                     transfer.chunks[data.index] = data.chunk;
                     transfer.received++;
                     updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
+                    saveChunkToCache(data.id, data.index, data.chunk, transfer);
+                    broadcastSwarmHave(data.id, data.index, transfer.total);
+                    if (activeMediaStreamDownloader && activeMediaStreamDownloader.fileId === data.id) {
+                        activeMediaStreamDownloader.receiveChunk(data.index, data.chunk, 'host');
+                    }
+                    if (activeSwarmDownloads.has(data.id)) {
+                        activeSwarmDownloads.get(data.id).receiveChunk(data.index, data.chunk, 'host');
+                    }
                     const pctVal = Math.floor((transfer.received / transfer.total) * 100);
                     const pct = document.getElementById(data.type === 'ZIP_CHUNK' ? 'client-progress-text' : 'preview-progress-text');
                     if (pct) pct.textContent = `${pctVal}%`;
                     
                     if (transfer.received === transfer.total) {
                         finishTransfer(data.id);
+                        clearCachedTransfer(data.id, transfer.total);
                         const blob = new Blob(transfer.chunks, { type: transfer.mime });
                         if (transfer.isEncrypted) {
                             // Since they already unlocked the folder, they have the password!
@@ -2754,12 +2865,26 @@ async function initClient() {
                         conn.on('open', () => {
                             swarmConnections.push(conn);
                             printCli('Connected to Swarm peer: ' + peerId, 'var(--neon-green)');
+                            sendEcdhHandshake(conn);
                         });
                         conn.on('close', () => {
                             swarmConnections = swarmConnections.filter(c => c.peer !== peerId);
                         });
                         conn.on('data', (d) => {
-                            if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(d.type)) {
+                            if (d.type === 'ECDH_KEY_EXCHANGE') {
+                                handlePeerEcdhKey(conn.peer, d.publicKey).then(key => {
+                                    if (key && !conn._ecdhSent) {
+                                        conn._ecdhSent = true;
+                                        sendEcdhHandshake(conn);
+                                    }
+                                });
+                            } else if (d.type === 'SWARM_REQUEST_CHUNK') {
+                                handleGuestSwarmChunkRequest(conn, d.fileId, d.chunkIndex);
+                            } else if (d.type === 'SWARM_CHUNK_DATA') {
+                                handleIncomingSwarmChunk(d.fileId, d.chunkIndex, d.chunk, conn.peer);
+                            } else if (d.type === 'SWARM_HAVE') {
+                                registerSwarmHave(conn.peer, d.fileId, d.chunkIndex);
+                            } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(d.type)) {
                                 handleArcadeNetwork(d);
                             }
                         });
@@ -2896,8 +3021,14 @@ async function processClientFiles(files) {
 
 if (btnCloseMedia) {
     btnCloseMedia.addEventListener('click', () => {
+        if (activeMediaStreamDownloader) {
+            activeMediaStreamDownloader.abort();
+            activeMediaStreamDownloader = null;
+        }
         mediaModal.classList.add('hidden');
         mediaContainer.innerHTML = ''; // Stop playback
+        const bufferContainer = document.getElementById('stream-buffer-container');
+        if (bufferContainer) bufferContainer.classList.add('hidden');
     });
 }
 
@@ -2915,11 +3046,22 @@ btnClosePreview.addEventListener('click', () => {
     }
 });
 
-btnRequestFile.addEventListener('click', () => {
-    if (activePreviewFileId && hostConnection && hostConnection.open) {
+btnRequestFile.addEventListener('click', async () => {
+    if (activePreviewFileId) {
         btnRequestFile.classList.add("hidden");
-        document.getElementById("preview-loader-container").classList.remove("hidden");
-        hostConnection.send({ type: 'REQUEST_FILE', id: activePreviewFileId });
+        const loaderContainer = document.getElementById("preview-loader-container");
+        if (loaderContainer) loaderContainer.classList.remove("hidden");
+
+        const cachedMeta = await getCachedTransferMeta(activePreviewFileId);
+        if (cachedMeta && cachedMeta.receivedIndices && cachedMeta.receivedIndices.length > 0 && cachedMeta.receivedIndices.length < cachedMeta.totalChunks) {
+            showToast(`Resuming transfer: ${cachedMeta.receivedIndices.length}/${cachedMeta.totalChunks} chunks in cache`);
+        }
+
+        if (swarmConnections.length > 0) {
+            startSwarmDownload(activePreviewFileId);
+        } else if (hostConnection && hostConnection.open) {
+            hostConnection.send({ type: 'REQUEST_FILE', id: activePreviewFileId });
+        }
     }
 });
 
@@ -3038,8 +3180,28 @@ function renderClientExplorer() {
                 
                 btnDownloadDirect.classList.add('hidden');
                 btnDownloadDirect.style.display = "none";
-        if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
                 btnRequestFile.classList.remove("hidden");
+                btnRequestFile.textContent = "DOWNLOAD FILE";
+
+                const lowerName = child.name.toLowerCase();
+                const isMedia = (child.mime && (child.mime.startsWith('video/') || child.mime.startsWith('audio/'))) || 
+                                lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') ||
+                                lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a');
+
+                if (btnStreamDirect) {
+                    if (isMedia) {
+                        btnStreamDirect.classList.remove('hidden');
+                        btnStreamDirect.style.display = 'block';
+                        btnStreamDirect.textContent = "⚡ STREAM MEDIA (TORRENT PLAYER)";
+                        btnStreamDirect.onclick = () => {
+                            startMediaStream(child.id, child.name, child.mime, child.size);
+                        };
+                    } else {
+                        btnStreamDirect.classList.add('hidden');
+                        btnStreamDirect.style.display = 'none';
+                    }
+                }
+
                 const previewIconEl = document.getElementById("preview-icon");
                 if (child.thumbnail) {
                     previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${child.thumbnail}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
@@ -3048,6 +3210,18 @@ function renderClientExplorer() {
                 }
                 
                 previewModal.classList.remove('hidden');
+            }
+        });
+
+        item.addEventListener('dblclick', () => {
+            if (child.type === 'file') {
+                const lowerName = child.name.toLowerCase();
+                const isMedia = (child.mime && (child.mime.startsWith('video/') || child.mime.startsWith('audio/'))) || 
+                                lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') ||
+                                lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a');
+                if (isMedia) {
+                    startMediaStream(child.id, child.name, child.mime, child.size);
+                }
             }
         });
         item.addEventListener('contextmenu', (e) => {
@@ -3468,8 +3642,28 @@ if (ctxOpen) {
                 
                 btnDownloadDirect.classList.add('hidden');
                 btnDownloadDirect.style.display = "none";
-                if(btnStreamDirect) { btnStreamDirect.classList.add('hidden'); btnStreamDirect.style.display = 'none'; }
                 btnRequestFile.classList.remove("hidden");
+                btnRequestFile.textContent = "DOWNLOAD FILE";
+
+                const lowerName = node.name.toLowerCase();
+                const isMedia = (node.mime && (node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) || 
+                                lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') ||
+                                lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a');
+
+                if (btnStreamDirect) {
+                    if (isMedia) {
+                        btnStreamDirect.classList.remove('hidden');
+                        btnStreamDirect.style.display = 'block';
+                        btnStreamDirect.textContent = "⚡ STREAM MEDIA (TORRENT PLAYER)";
+                        btnStreamDirect.onclick = () => {
+                            startMediaStream(node.id, node.name, node.mime, node.size);
+                        };
+                    } else {
+                        btnStreamDirect.classList.add('hidden');
+                        btnStreamDirect.style.display = 'none';
+                    }
+                }
+
                 const previewIconEl = document.getElementById("preview-icon");
                 if (node.thumbnail) {
                     previewIconEl.innerHTML = `<div style="width: 100px; height: 100px; margin: 0 auto; background-image: url('${node.thumbnail}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>`;
@@ -3559,7 +3753,9 @@ if (ctxDownload) {
             const node = findClientNode(clientVFS, contextTargetId);
             if (node && node.type === 'file') {
                 activePreviewFileId = null; // We are just downloading, not editing
-                if (hostConnection && hostConnection.open) {
+                if (swarmConnections.length > 0) {
+                    startSwarmDownload(node.id);
+                } else if (hostConnection && hostConnection.open) {
                     hostConnection.send({ type: 'REQUEST_FILE', id: node.id });
                     const loaderContainer = document.getElementById('preview-loader-container');
                     if (loaderContainer) loaderContainer.classList.remove('hidden');
@@ -5564,17 +5760,764 @@ if (btnRadarArcade) {
     });
 }
 
-// --- WEBTORRENT SWARM PROTOCOL ---
-let swarmConnections = [];
+// =========================================================================
+// MODULE 1: END-TO-END EPHEMERAL ENCRYPTION (ECDH P-256 + AES-GCM-256)
+// =========================================================================
+
+async function initEcdh() {
+    try {
+        if (!window.crypto || !window.crypto.subtle) return null;
+        if (myEcdhKeyPair) return myEcdhKeyPair;
+        myEcdhKeyPair = await window.crypto.subtle.generateKey(
+            { name: "ECDH", namedCurve: "P-256" },
+            true,
+            ["deriveKey", "deriveBits"]
+        );
+        return myEcdhKeyPair;
+    } catch (err) {
+        console.warn("ECDH initialization failed:", err);
+        return null;
+    }
+}
+
+async function getExportedPublicKey() {
+    const kp = await initEcdh();
+    if (!kp) return null;
+    const raw = await window.crypto.subtle.exportKey("raw", kp.publicKey);
+    return Array.from(new Uint8Array(raw));
+}
+
+async function handlePeerEcdhKey(peerId, rawPublicKeyArray) {
+    try {
+        const kp = await initEcdh();
+        if (!kp) return null;
+        const peerKey = await window.crypto.subtle.importKey(
+            "raw",
+            new Uint8Array(rawPublicKeyArray),
+            { name: "ECDH", namedCurve: "P-256" },
+            true,
+            []
+        );
+        const sharedKey = await window.crypto.subtle.deriveKey(
+            { name: "ECDH", public: peerKey },
+            kp.privateKey,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"]
+        );
+        peerEcdhSharedKeys.set(peerId, sharedKey);
+        
+        // Activate E2EE lock indicator in header
+        const e2eeBadge = document.getElementById('e2ee-badge');
+        if (e2eeBadge) {
+            e2eeBadge.classList.remove('hidden');
+            e2eeBadge.classList.add('active');
+            e2eeBadge.title = `E2EE Active: ECDH P-256 + AES-GCM-256 with ${peerId}`;
+        }
+        if (typeof printCli === 'function') {
+            printCli(`[E2EE] Zero-knowledge session key established with ${peerId}`, 'var(--neon-green)');
+        }
+        return sharedKey;
+    } catch (err) {
+        console.warn(`ECDH key derivation failed for ${peerId}:`, err);
+        return null;
+    }
+}
+
+async function sendEcdhHandshake(conn) {
+    if (!conn || !conn.open) return;
+    try {
+        const pubKey = await getExportedPublicKey();
+        if (pubKey) {
+            conn.send({ type: 'ECDH_KEY_EXCHANGE', publicKey: pubKey, sender: peer ? peer.id : null });
+        }
+    } catch(err) {
+        console.warn("sendEcdhHandshake failed:", err);
+    }
+}
+
+async function encryptE2EE(peerId, dataBufferOrObject) {
+    const key = peerEcdhSharedKeys.get(peerId);
+    if (!key) return null;
+    try {
+        let buffer;
+        if (dataBufferOrObject instanceof ArrayBuffer) {
+            buffer = dataBufferOrObject;
+        } else if (ArrayBuffer.isView(dataBufferOrObject)) {
+            buffer = dataBufferOrObject.buffer;
+        } else {
+            const str = JSON.stringify(dataBufferOrObject);
+            buffer = new TextEncoder().encode(str);
+        }
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            key,
+            buffer
+        );
+        return {
+            e2ee: true,
+            iv: Array.from(iv),
+            data: encrypted
+        };
+    } catch (e) {
+        console.warn("encryptE2EE error:", e);
+        return null;
+    }
+}
+
+async function decryptE2EE(peerId, encObj) {
+    const key = peerEcdhSharedKeys.get(peerId);
+    if (!key) throw new Error("No shared key for peer");
+    const iv = new Uint8Array(encObj.iv);
+    const decrypted = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        key,
+        encObj.data
+    );
+    return decrypted;
+}
+
+// Auto-initialize ECDH keypair in background
+initEcdh();
+
+
+// =========================================================================
+// MODULE 2: RESUMABLE TRANSFERS (INDEXEDDB CHUNK CACHE)
+// =========================================================================
+
+async function saveChunkToCache(fileId, chunkIndex, chunkData, meta = {}) {
+    if (typeof localforage === 'undefined') return;
+    try {
+        await localforage.setItem(`chunk_${fileId}_${chunkIndex}`, chunkData);
+        const metaKey = `transfer_meta_${fileId}`;
+        let transferMeta = await localforage.getItem(metaKey);
+        if (!transferMeta) {
+            transferMeta = {
+                fileId,
+                name: meta.name || 'file',
+                mime: meta.mime || 'application/octet-stream',
+                size: meta.size || 0,
+                totalChunks: meta.totalChunks || 1,
+                receivedIndices: [],
+                isEncrypted: meta.isEncrypted || false,
+                salt: meta.salt || null,
+                iv: meta.iv || null,
+                updatedAt: Date.now()
+            };
+        }
+        if (!transferMeta.receivedIndices.includes(chunkIndex)) {
+            transferMeta.receivedIndices.push(chunkIndex);
+        }
+        transferMeta.updatedAt = Date.now();
+        await localforage.setItem(metaKey, transferMeta);
+        return transferMeta;
+    } catch (e) {
+        console.warn("saveChunkToCache failed:", e);
+    }
+}
+
+async function getCachedTransferMeta(fileId) {
+    if (typeof localforage === 'undefined') return null;
+    try {
+        return await localforage.getItem(`transfer_meta_${fileId}`);
+    } catch (e) {
+        return null;
+    }
+}
+
+async function getCachedChunk(fileId, chunkIndex) {
+    if (typeof localforage === 'undefined') return null;
+    try {
+        return await localforage.getItem(`chunk_${fileId}_${chunkIndex}`);
+    } catch (e) {
+        return null;
+    }
+}
+
+async function assembleFileFromCache(fileId) {
+    if (typeof localforage === 'undefined') return null;
+    try {
+        const meta = await getCachedTransferMeta(fileId);
+        if (!meta) return null;
+        const chunks = [];
+        for (let i = 0; i < meta.totalChunks; i++) {
+            const ch = await localforage.getItem(`chunk_${fileId}_${i}`);
+            if (!ch) return null;
+            chunks.push(ch);
+        }
+        const blob = new Blob(chunks, { type: meta.mime });
+        return { blob, meta };
+    } catch (e) {
+        console.error("assembleFileFromCache error:", e);
+        return null;
+    }
+}
+
+async function clearCachedTransfer(fileId, totalChunks = 0) {
+    if (typeof localforage === 'undefined') return;
+    try {
+        const metaKey = `transfer_meta_${fileId}`;
+        const meta = await localforage.getItem(metaKey);
+        const count = meta ? meta.totalChunks : totalChunks;
+        for (let i = 0; i < count; i++) {
+            await localforage.removeItem(`chunk_${fileId}_${i}`);
+        }
+        await localforage.removeItem(metaKey);
+    } catch (e) {
+        console.warn("clearCachedTransfer error:", e);
+    }
+}
+
+async function getMissingChunkIndices(fileId, totalChunks) {
+    const meta = await getCachedTransferMeta(fileId);
+    if (!meta || !meta.receivedIndices) {
+        return Array.from({ length: totalChunks }, (_, i) => i);
+    }
+    const receivedSet = new Set(meta.receivedIndices);
+    const missing = [];
+    for (let i = 0; i < totalChunks; i++) {
+        if (!receivedSet.has(i)) missing.push(i);
+    }
+    return missing;
+}
+
+
+// =========================================================================
+// MODULE 3: MULTI-SOURCE SWARM TORRENTING (BITTORRENT IN BROWSER)
+// =========================================================================
 
 function broadcastNetworkMap() {
     if (!isHost) return;
-    const map = connections.map(c => c.peer);
+    const map = connections.filter(c => c.open && c.isAuthenticated).map(c => c.peer);
     connections.forEach(c => {
         if (c.open && c.isAuthenticated) {
-            c.send({ type: 'NETWORK_MAP', peers: map });
+            try {
+                c.send({ type: 'NETWORK_MAP', peers: map });
+            } catch(e) {}
         }
     });
+}
+
+function registerSwarmAnnounce(peerId, fileId, totalChunks, name, mime, size) {
+    const key = `${peerId}:${fileId}`;
+    if (!swarmBitfields.has(key)) {
+        swarmBitfields.set(key, new Set());
+    }
+    const bitfield = swarmBitfields.get(key);
+    for (let i = 0; i < totalChunks; i++) {
+        bitfield.add(i);
+    }
+}
+
+function registerSwarmHave(peerId, fileId, chunkIndex) {
+    const key = `${peerId}:${fileId}`;
+    if (!swarmBitfields.has(key)) {
+        swarmBitfields.set(key, new Set());
+    }
+    swarmBitfields.get(key).add(chunkIndex);
+
+    // If an active downloader is running for this file, wake up its pump!
+    if (activeSwarmDownloads.has(fileId)) {
+        activeSwarmDownloads.get(fileId).pump();
+    }
+    if (activeMediaStreamDownloader && activeMediaStreamDownloader.fileId === fileId) {
+        activeMediaStreamDownloader.pump();
+    }
+}
+
+function broadcastSwarmHave(fileId, chunkIndex, totalChunks) {
+    const msg = { type: 'SWARM_HAVE', fileId, chunkIndex, totalChunks, fromPeer: peer ? peer.id : null };
+    if (!isHost && hostConnection && hostConnection.open) {
+        try { hostConnection.send(msg); } catch(e) {}
+    }
+    swarmConnections.forEach(c => {
+        if (c.open) {
+            try { c.send(msg); } catch(e) {}
+        }
+    });
+    if (isHost && Array.isArray(connections)) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated) {
+                try { c.send(msg); } catch(e) {}
+            }
+        });
+    }
+}
+
+async function handleHostSwarmChunkRequest(conn, fileId, chunkIndex) {
+    const node = vfs.findNode(fileId);
+    if (!node || node.type !== 'file') return;
+    try {
+        let blob = node.fileObj;
+        if (node.isNative) blob = await getDecryptedFileObj(node);
+        if (!blob) return;
+
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, blob.size);
+        const slice = blob.slice(start, end);
+        const arrayBuffer = await slice.arrayBuffer();
+
+        if (conn && conn.open) {
+            conn.send({
+                type: 'SWARM_CHUNK_DATA',
+                fileId: fileId,
+                chunkIndex: chunkIndex,
+                chunk: arrayBuffer
+            });
+        }
+    } catch (err) {
+        console.warn(`Host error serving swarm chunk ${chunkIndex} for ${fileId}:`, err);
+    }
+}
+
+async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex) {
+    try {
+        let chunkData = null;
+        if (incomingTransfers[fileId] && incomingTransfers[fileId].chunks && incomingTransfers[fileId].chunks[chunkIndex]) {
+            chunkData = incomingTransfers[fileId].chunks[chunkIndex];
+        } else {
+            chunkData = await getCachedChunk(fileId, chunkIndex);
+        }
+        if (chunkData && conn && conn.open) {
+            conn.send({
+                type: 'SWARM_CHUNK_DATA',
+                fileId: fileId,
+                chunkIndex: chunkIndex,
+                chunk: chunkData
+            });
+        }
+    } catch (err) {
+        console.warn(`Guest error serving swarm chunk ${chunkIndex} for ${fileId}:`, err);
+    }
+}
+
+function handleIncomingSwarmChunk(fileId, chunkIndex, chunkData, fromPeerId) {
+    if (activeSwarmDownloads.has(fileId)) {
+        activeSwarmDownloads.get(fileId).receiveChunk(chunkIndex, chunkData, fromPeerId);
+    }
+    if (activeMediaStreamDownloader && activeMediaStreamDownloader.fileId === fileId) {
+        activeMediaStreamDownloader.receiveChunk(chunkIndex, chunkData, fromPeerId);
+    }
+    if (incomingTransfers[fileId]) {
+        const transfer = incomingTransfers[fileId];
+        if (!transfer.chunks[chunkIndex]) {
+            transfer.chunks[chunkIndex] = chunkData;
+            transfer.received++;
+            updateTransferProgress(fileId, chunkData.byteLength, transfer.size);
+            saveChunkToCache(fileId, chunkIndex, chunkData, transfer);
+            broadcastSwarmHave(fileId, chunkIndex, transfer.total);
+            if (transfer.received === transfer.total) {
+                finishTransfer(fileId);
+                const blob = new Blob(transfer.chunks, { type: transfer.mime });
+                triggerDownload(blob, transfer.name, transfer.mime, fileId);
+                delete incomingTransfers[fileId];
+            }
+        }
+    }
+}
+
+class SwarmDownloader {
+    constructor({ fileId, fileName, fileMime, fileSize, totalChunks, isSequential = false, onChunk, onProgress, onComplete, onError }) {
+        this.fileId = fileId;
+        this.fileName = fileName;
+        this.fileMime = fileMime;
+        this.fileSize = fileSize || (totalChunks * CHUNK_SIZE);
+        this.totalChunks = totalChunks;
+        this.isSequential = isSequential;
+        this.onChunk = onChunk;
+        this.onProgress = onProgress;
+        this.onComplete = onComplete;
+        this.onError = onError;
+
+        this.chunks = new Array(totalChunks);
+        this.completedIndices = new Set();
+        this.inFlight = new Map(); // chunkIndex -> { conn, time }
+        this.pendingQueue = [];
+        this.aborted = false;
+        this.isDone = false;
+        this.pumpInterval = null;
+        this.maxConcurrent = 5;
+    }
+
+    async start() {
+        try {
+            const cachedMeta = await getCachedTransferMeta(this.fileId);
+            if (cachedMeta && cachedMeta.receivedIndices && cachedMeta.receivedIndices.length > 0) {
+                for (const idx of cachedMeta.receivedIndices) {
+                    if (idx < this.totalChunks) {
+                        const chunkData = await getCachedChunk(this.fileId, idx);
+                        if (chunkData) {
+                            this.chunks[idx] = chunkData;
+                            this.completedIndices.add(idx);
+                            if (this.onChunk) this.onChunk(idx, chunkData);
+                        }
+                    }
+                }
+                if (this.completedIndices.size > 0 && this.completedIndices.size < this.totalChunks) {
+                    showToast(`⚡ Resumed "${this.fileName}" (${this.completedIndices.size}/${this.totalChunks} chunks from cache)`);
+                }
+            }
+        } catch (e) {
+            console.warn("Resumable cache check error:", e);
+        }
+
+        if (this.completedIndices.size === this.totalChunks) {
+            this.finish();
+            return;
+        }
+
+        const missing = [];
+        for (let i = 0; i < this.totalChunks; i++) {
+            if (!this.completedIndices.has(i)) {
+                missing.push(i);
+            }
+        }
+
+        if (this.isSequential) {
+            this.pendingQueue = missing.sort((a, b) => a - b);
+        } else {
+            this.pendingQueue = missing;
+        }
+
+        this.pump();
+        this.pumpInterval = setInterval(() => {
+            if (this.aborted || this.isDone) {
+                if (this.pumpInterval) clearInterval(this.pumpInterval);
+                return;
+            }
+            this.checkTimeouts();
+            this.pump();
+        }, 150);
+    }
+
+    getEligibleConnections(chunkIndex) {
+        const eligible = [];
+        if (!isHost && hostConnection && hostConnection.open) {
+            eligible.push({ conn: hostConnection, isHost: true });
+        }
+        swarmConnections.forEach(conn => {
+            if (conn.open) {
+                const bitfield = swarmBitfields.get(`${conn.peer}:${this.fileId}`);
+                if (bitfield && bitfield.has(chunkIndex)) {
+                    eligible.push({ conn, isHost: false });
+                }
+            }
+        });
+        return eligible;
+    }
+
+    pump() {
+        if (this.aborted || this.isDone) return;
+
+        if (this.completedIndices.size >= this.totalChunks) {
+            this.finish();
+            return;
+        }
+
+        while (this.inFlight.size < this.maxConcurrent && this.pendingQueue.length > 0) {
+            const chunkIndex = this.pendingQueue.shift();
+            const eligible = this.getEligibleConnections(chunkIndex);
+
+            if (eligible.length === 0) {
+                if (!isHost && hostConnection && hostConnection.open) {
+                    eligible.push({ conn: hostConnection, isHost: true });
+                } else {
+                    this.pendingQueue.push(chunkIndex);
+                    break;
+                }
+            }
+
+            let bestPeer = eligible[0];
+            let minLoad = Infinity;
+            for (const item of eligible) {
+                let load = 0;
+                for (const inflight of this.inFlight.values()) {
+                    if (inflight.conn === item.conn) load++;
+                }
+                if (load < minLoad) {
+                    minLoad = load;
+                    bestPeer = item;
+                }
+            }
+
+            try {
+                bestPeer.conn.send({
+                    type: 'SWARM_REQUEST_CHUNK',
+                    fileId: this.fileId,
+                    chunkIndex: chunkIndex
+                });
+                this.inFlight.set(chunkIndex, { conn: bestPeer.conn, time: Date.now() });
+            } catch (err) {
+                console.warn(`Failed to request chunk ${chunkIndex}:`, err);
+                this.pendingQueue.push(chunkIndex);
+                break;
+            }
+        }
+    }
+
+    checkTimeouts() {
+        const now = Date.now();
+        const TIMEOUT_MS = 3500;
+        for (const [idx, item] of this.inFlight.entries()) {
+            if (now - item.time > TIMEOUT_MS) {
+                this.inFlight.delete(idx);
+                if (!this.completedIndices.has(idx) && !this.pendingQueue.includes(idx)) {
+                    this.pendingQueue.unshift(idx);
+                }
+            }
+        }
+    }
+
+    receiveChunk(chunkIndex, chunkData, fromPeerId) {
+        if (this.aborted || this.completedIndices.has(chunkIndex)) return;
+        this.inFlight.delete(chunkIndex);
+        this.chunks[chunkIndex] = chunkData;
+        this.completedIndices.add(chunkIndex);
+
+        if (!localFileBitfields.has(this.fileId)) localFileBitfields.set(this.fileId, new Set());
+        localFileBitfields.get(this.fileId).add(chunkIndex);
+
+        saveChunkToCache(this.fileId, chunkIndex, chunkData, {
+            name: this.fileName,
+            mime: this.fileMime,
+            size: this.fileSize,
+            totalChunks: this.totalChunks
+        });
+
+        broadcastSwarmHave(this.fileId, chunkIndex, this.totalChunks);
+
+        if (this.onChunk) {
+            try { this.onChunk(chunkIndex, chunkData); } catch (e) { console.warn("onChunk error:", e); }
+        }
+        if (this.onProgress) {
+            try { this.onProgress(this.completedIndices.size, this.totalChunks); } catch (e) { console.warn("onProgress error:", e); }
+        }
+
+        if (this.completedIndices.size >= this.totalChunks) {
+            this.finish();
+        } else {
+            this.pump();
+        }
+    }
+
+    async finish() {
+        if (this.isDone) return;
+        this.isDone = true;
+        if (this.pumpInterval) {
+            clearInterval(this.pumpInterval);
+            this.pumpInterval = null;
+        }
+
+        let fullBlob = null;
+        try {
+            const blobParts = [];
+            for (let i = 0; i < this.totalChunks; i++) {
+                if (this.chunks[i]) {
+                    blobParts.push(this.chunks[i]);
+                } else {
+                    const ch = await getCachedChunk(this.fileId, i);
+                    if (ch) blobParts.push(ch);
+                    else throw new Error(`Missing chunk ${i}`);
+                }
+            }
+            fullBlob = new Blob(blobParts, { type: this.fileMime });
+        } catch (e) {
+            console.error("Assembly error, attempting cache assembly:", e);
+            const fromCache = await assembleFileFromCache(this.fileId);
+            if (fromCache) fullBlob = fromCache.blob;
+        }
+
+        if (fullBlob) {
+            if (this.onComplete) {
+                try { this.onComplete(fullBlob); } catch(e) { console.error("onComplete error:", e); }
+            }
+        } else if (this.onError) {
+            this.onError("Failed to assemble complete file blob");
+        }
+    }
+
+    abort() {
+        this.aborted = true;
+        if (this.pumpInterval) {
+            clearInterval(this.pumpInterval);
+            this.pumpInterval = null;
+        }
+        this.inFlight.clear();
+        this.pendingQueue = [];
+    }
+}
+
+function startSwarmDownload(fileId) {
+    const node = findClientNode(clientVFS, fileId);
+    if (!node) return;
+    const totalChunks = Math.max(1, Math.ceil(node.size / CHUNK_SIZE));
+    createTransferItem(fileId, node.name, 'download');
+
+    // Add swarm badge to transfer item if swarm peers active
+    const transferEl = document.getElementById('transfer-' + fileId);
+    if (transferEl && swarmConnections.length > 0) {
+        const header = transferEl.querySelector('.transfer-header');
+        if (header) {
+            const badge = document.createElement('span');
+            badge.className = 'swarm-badge';
+            badge.innerHTML = `⚡ SWARM (${swarmConnections.length + 1} SOURCES)`;
+            header.insertBefore(badge, header.querySelector('.transfer-speed'));
+        }
+    }
+
+    const downloader = new SwarmDownloader({
+        fileId,
+        fileName: node.name,
+        fileMime: node.mime,
+        fileSize: node.size,
+        totalChunks,
+        isSequential: false,
+        onChunk: (index, chunk) => {
+            const pct = Math.floor((downloader.completedIndices.size / totalChunks) * 100);
+            const previewPct = document.getElementById('preview-progress-text');
+            if (previewPct) previewPct.textContent = `${pct}%`;
+            updateTransferProgress(fileId, chunk.byteLength, node.size);
+        },
+        onComplete: (blob) => {
+            finishTransfer(fileId);
+            triggerDownload(blob, node.name, node.mime, fileId);
+            activeSwarmDownloads.delete(fileId);
+        },
+        onError: (err) => {
+            failTransfer(fileId, 'SWARM_FAILED');
+            activeSwarmDownloads.delete(fileId);
+        }
+    });
+
+    activeSwarmDownloads.set(fileId, downloader);
+    downloader.start();
+}
+
+
+// =========================================================================
+// MODULE 4: STREAMING VIDEO/AUDIO TORRENT PLAYER
+// =========================================================================
+
+async function startMediaStream(fileId, name, mime, size) {
+    previewModal.classList.add('hidden');
+    mediaModal.classList.remove('hidden');
+    mediaTitle.innerText = name;
+    mediaContainer.innerHTML = '';
+
+    const bufferContainer = document.getElementById('stream-buffer-container');
+    const bufferDetail = document.getElementById('stream-buffer-detail');
+    const bufferPct = document.getElementById('stream-buffer-pct');
+    const bufferFill = document.getElementById('stream-buffer-fill');
+
+    if (bufferContainer) bufferContainer.classList.remove('hidden');
+    if (bufferFill) bufferFill.style.width = '0%';
+    if (bufferPct) bufferPct.textContent = '0%';
+    if (bufferDetail) {
+        bufferDetail.textContent = 'INITIALIZING STREAM...';
+        bufferDetail.style.color = 'var(--neon-blue)';
+    }
+
+    if (btnDownloadMedia) {
+        btnDownloadMedia.style.display = 'none';
+    }
+
+    const totalChunks = Math.max(1, Math.ceil(size / CHUNK_SIZE));
+    let mediaElement = null;
+    let playbackStarted = false;
+    const streamChunks = new Array(totalChunks);
+    let receivedCount = 0;
+
+    const lowerName = name.toLowerCase();
+    const isVideo = (mime && mime.startsWith('video/')) || lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg');
+    const isAudio = (mime && mime.startsWith('audio/')) || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a');
+
+    if (isVideo) {
+        mediaContainer.innerHTML = `<video id="active-stream-media" controls autoplay playsinline style="width:100%; max-height:70vh; display:block; background:#000;"></video>`;
+        mediaElement = document.getElementById('active-stream-media');
+    } else if (isAudio) {
+        mediaContainer.innerHTML = `<div style="padding: 2rem; text-align: center;"><div style="font-family: var(--font-mono); color: var(--neon-blue); margin-bottom: 1rem;">⚡ STREAMING P2P AUDIO</div><audio id="active-stream-media" controls autoplay style="width:100%;"></audio></div>`;
+        mediaElement = document.getElementById('active-stream-media');
+    } else {
+        mediaContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--neon-blue);">STREAMING PREVIEW...</div>`;
+    }
+
+    if (activeMediaStreamDownloader) {
+        activeMediaStreamDownloader.abort();
+        activeMediaStreamDownloader = null;
+    }
+
+    const downloader = new SwarmDownloader({
+        fileId,
+        fileName: name,
+        fileMime: mime,
+        fileSize: size,
+        totalChunks,
+        isSequential: true, // Sequential chunks 0, 1, 2, 3...
+        onChunk: (index, chunk) => {
+            streamChunks[index] = chunk;
+            receivedCount++;
+
+            const pct = Math.floor((receivedCount / totalChunks) * 100);
+            if (bufferFill) bufferFill.style.width = `${pct}%`;
+            if (bufferPct) bufferPct.textContent = `${pct}%`;
+            if (bufferDetail) bufferDetail.textContent = `BUFFERED ${receivedCount}/${totalChunks} CHUNKS (${pct}%)`;
+
+            // Start playback as soon as initial sequential buffer arrives (e.g. first 4 chunks or 10%)
+            if (!playbackStarted && (receivedCount >= Math.min(4, totalChunks) || pct >= 10)) {
+                if (streamChunks[0]) {
+                    playbackStarted = true;
+                    const consecutive = [];
+                    for (let i = 0; i < totalChunks; i++) {
+                        if (streamChunks[i]) consecutive.push(streamChunks[i]);
+                        else break;
+                    }
+                    const partialBlob = new Blob(consecutive, { type: mime });
+                    const partialUrl = URL.createObjectURL(partialBlob);
+                    if (mediaElement) {
+                        mediaElement.src = partialUrl;
+                        mediaElement.play().catch(e => console.log("Stream play awaiting user gesture:", e));
+                    }
+                    if (bufferDetail) {
+                        bufferDetail.textContent = '⚡ LIVE STREAM PLAYBACK ACTIVE';
+                        bufferDetail.style.color = 'var(--neon-green)';
+                    }
+                }
+            }
+        },
+        onComplete: (fullBlob) => {
+            const fullUrl = URL.createObjectURL(fullBlob);
+            if (bufferDetail) {
+                bufferDetail.textContent = '⚡ STREAM FULLY BUFFERED (COMPLETE)';
+                bufferDetail.style.color = 'var(--neon-green)';
+            }
+            if (bufferFill) bufferFill.style.width = '100%';
+            if (bufferPct) bufferPct.textContent = '100%';
+
+            if (mediaElement && !playbackStarted) {
+                mediaElement.src = fullUrl;
+                mediaElement.play().catch(e => console.log("Playback play error:", e));
+            }
+
+            if (btnDownloadMedia) {
+                btnDownloadMedia.href = fullUrl;
+                btnDownloadMedia.download = name;
+                btnDownloadMedia.style.display = 'block';
+                btnDownloadMedia.textContent = 'DOWNLOAD BUFFERED FILE';
+            }
+            activeMediaStreamDownloader = null;
+        },
+        onError: (err) => {
+            if (bufferDetail) {
+                bufferDetail.textContent = 'STREAM ERROR: ' + err;
+                bufferDetail.style.color = 'var(--neon-red)';
+            }
+            activeMediaStreamDownloader = null;
+        }
+    });
+
+    activeMediaStreamDownloader = downloader;
+    downloader.start();
 }
 
 // Logo click resets to fresh Host mode if in client or query session
