@@ -546,6 +546,22 @@ function finishTransfer(id) {
         }, 3000);
     }
 }
+function failTransfer(id, reason = 'FAILED') {
+    const t = activeTransfers[id];
+    if (t) {
+        t.progEl.style.width = '100%';
+        t.progEl.style.background = 'var(--neon-red, #ff0055)';
+        t.speedEl.textContent = reason;
+        t.speedEl.style.color = 'var(--neon-red, #ff0055)';
+        setTimeout(() => {
+            if (t.el.parentNode) t.el.parentNode.removeChild(t.el);
+            delete activeTransfers[id];
+            if (Object.keys(activeTransfers).length === 0 && transferDashboard) {
+                transferDashboard.classList.add('hidden');
+            }
+        }, 4000);
+    }
+}
 
 const fileInput = document.getElementById('file-input');
 const folderInput = document.getElementById('folder-input');
@@ -2750,7 +2766,11 @@ async function initClient() {
                     }
                 });
             } else if (data.type === 'KICK') {
-                window.location.reload();
+                if (peer && !peer.destroyed) {
+                    try { peer.destroy(); } catch(e) {}
+                }
+                alert("You have been disconnected from the session by the host.");
+                window.location.href = window.location.origin + window.location.pathname;
             } else if (data.type === 'PEER_LIST') {
                 activePeers = {};
                 data.peers.forEach(p => activePeers[p.id] = p);
@@ -3076,8 +3096,10 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
         const isText = lowerName.endsWith('.txt') || lowerName.endsWith('.md');
         
         if (isMedia) {
-            btnDownloadDirect.classList.add('hidden');
-            btnDownloadDirect.style.display = "none";
+            btnDownloadDirect.href = url;
+            btnDownloadDirect.download = name;
+            btnDownloadDirect.classList.remove('hidden');
+            btnDownloadDirect.style.display = "block";
             btnStreamDirect.classList.remove('hidden');
             btnStreamDirect.style.display = "block";
             btnStreamDirect.onclick = () => {
@@ -3123,10 +3145,18 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
     conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks, ...extraData });
     createTransferItem(fileId, fileName, 'upload');
     for (let i = 0; i < totalChunks; i++) {
+        if (!conn.open || isServerBurned) {
+            console.warn("Connection closed during transfer, aborting:", fileId);
+            failTransfer(fileId, 'DISCONNECTED');
+            break;
+        }
+
         // Prevent WebRTC buffer overflow by waiting for the data channel buffer to drain
-        if (conn.dataChannel) {
-            while (conn.dataChannel.bufferedAmount > 1024 * 128) { // Wait if buffer > 128KB
-                await new Promise(r => setTimeout(r, 50));
+        const dc = conn.dataChannel || conn._dc;
+        if (dc && typeof dc.bufferedAmount === 'number') {
+            while (dc.bufferedAmount > 1024 * 128) { // Wait if buffer > 128KB
+                if (!conn.open || isServerBurned) break;
+                await new Promise(r => setTimeout(r, 40));
             }
         }
         
@@ -3142,13 +3172,14 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
         } catch (e) {
             console.warn("Chunk send error, retrying...", e);
             try {
-                await new Promise(r => setTimeout(r, 500));
+                await new Promise(r => setTimeout(r, 300));
+                if (!conn.open || isServerBurned) { failTransfer(fileId, 'ABORTED'); break; }
                 conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
                 updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
                 if (i === totalChunks - 1) finishTransfer(fileId);
             } catch (err) {
                 console.error("Unrecoverable chunk error", err);
-                finishTransfer(fileId);
+                failTransfer(fileId, 'FAILED');
                 break;
             }
         }
@@ -3495,7 +3526,33 @@ if (ctxDownload) {
                     await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                 }
             } else if (node && node.type === 'folder') {
-                await cyberAlert("Folder download via context menu not implemented. Use 'Download Backup' for now.", "NOTICE");
+                try {
+                    showToast("Zipping folder: " + node.name + "...");
+                    const zip = new JSZip();
+                    async function addNodeToZip(curNode, curZip) {
+                        for (const child of (curNode.children || [])) {
+                            if (child.type === 'folder') {
+                                const subZip = curZip.folder(child.name);
+                                await addNodeToZip(child, subZip);
+                            } else if (child.type === 'file') {
+                                const fileData = await getDecryptedFileObj(child);
+                                if (fileData) curZip.file(child.name, fileData);
+                            }
+                        }
+                    }
+                    await addNodeToZip(node, zip);
+                    const blob = await zip.generateAsync({ type: 'blob' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${node.name || 'folder'}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                } catch (err) {
+                    console.error("Folder zip error:", err);
+                    await cyberAlert("Failed to zip folder: " + err.message, "DOWNLOAD ERROR", true);
+                }
             }
         } else {
             // Guest logic
@@ -3598,9 +3655,17 @@ document.body.addEventListener('drop', async (e) => {
             files.push(file);
         } else if (item.isDirectory) {
             const dirReader = item.createReader();
-            const entries = await new Promise(r => dirReader.readEntries(r));
-            for (let i = 0; i < entries.length; i++) {
-                await traverseFileTree(entries[i], path + item.name + '/');
+            const readEntriesBatch = () => new Promise((resolve) => {
+                dirReader.readEntries((entries) => resolve(entries || []), () => resolve([]));
+            });
+            let allEntries = [];
+            let batch = await readEntriesBatch();
+            while (batch && batch.length > 0) {
+                allEntries = allEntries.concat(batch);
+                batch = await readEntriesBatch();
+            }
+            for (let i = 0; i < allEntries.length; i++) {
+                await traverseFileTree(allEntries[i], path + item.name + '/');
             }
         }
     }
@@ -3648,9 +3713,10 @@ ctxRename.addEventListener('click', async () => {
 });
 
 function searchVFS(dir, query, results) {
+    if (!dir || !Array.isArray(dir.children)) return;
     dir.children.forEach(c => {
-        if (c.name.toLowerCase().includes(query)) results.push(c);
-        if (c.type === 'folder') searchVFS(c, query, results);
+        if (c && c.name && c.name.toLowerCase().includes(query)) results.push(c);
+        if (c && c.type === 'folder') searchVFS(c, query, results);
     });
 }
 // --- END V14 LOGIC ---
@@ -3951,7 +4017,7 @@ if (btnWhiteboard && wbCanvas) {
     btnClearWhiteboard.addEventListener('click', () => {
         wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
         if (isHost) {
-            Object.values(connections).forEach(c => {
+            connections.forEach(c => {
                 if (c.open && c.isAuthenticated) c.send({ type: 'WHITEBOARD_CLEAR' });
             });
         } else if (hostConnection && hostConnection.open) {
@@ -3982,7 +4048,7 @@ if (btnWhiteboard && wbCanvas) {
         };
 
         if (isHost) {
-            Object.values(connections).forEach(c => {
+            connections.forEach(c => {
                 if (c.open && c.isAuthenticated) c.send(payload);
             });
         } else if (hostConnection && hostConnection.open) {
@@ -3992,9 +4058,11 @@ if (btnWhiteboard && wbCanvas) {
 
     function getPos(e) {
         const rect = wbCanvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        return { x: clientX - rect.left, y: clientY - rect.top };
+        const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+        const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+        const scaleX = rect.width ? (wbCanvas.width / rect.width) : 1;
+        const scaleY = rect.height ? (wbCanvas.height / rect.height) : 1;
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
     }
 
     function onDown(e) {
@@ -4022,9 +4090,9 @@ if (btnWhiteboard && wbCanvas) {
     wbCanvas.addEventListener('mouseup', onUp);
     wbCanvas.addEventListener('mouseout', onUp);
     
-    wbCanvas.addEventListener('touchstart', onDown, {passive: true});
-    wbCanvas.addEventListener('touchmove', onMove, {passive: true});
-    wbCanvas.addEventListener('touchend', onUp);
+    wbCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); onDown(e); }, { passive: false });
+    wbCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, { passive: false });
+    wbCanvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
 }
 
 
@@ -4042,6 +4110,7 @@ function playAudioStream(stream, peerId) {
     audio.autoplay = true;
     audio.id = `audio-${peerId}`;
     document.body.appendChild(audio);
+    audio.play().catch(e => console.log('Intercom audio autoplay prevented:', e));
 }
 
 function cleanupAudio(peerId) {
@@ -4377,8 +4446,13 @@ function drawRadar() {
         if (radarModal && radarModal.classList.contains('hidden')) return;
         
         const canvas = radarCanvas;
-        canvas.width = canvas.parentElement.clientWidth;
-        canvas.height = canvas.parentElement.clientHeight;
+        if (!canvas || !canvas.parentElement) return;
+        const pw = canvas.parentElement.clientWidth;
+        const ph = canvas.parentElement.clientHeight;
+        if (canvas.width !== pw || canvas.height !== ph) {
+            canvas.width = pw;
+            canvas.height = ph;
+        }
         const ctx = canvas.getContext('2d');
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -4720,12 +4794,52 @@ if (cliTerminal) {
                 
                 try {
                     if (cmd === 'help') {
-                        printCli('COMMANDS:\\n  ls        - List contents of current directory\\n  cd <id>   - Change directory\\n  mkdir <n> - Create a new folder\\n  rm <id>   - Delete a file/folder\\n  clear     - Clear terminal\\n  whoami    - Print user info', 'var(--neon-blue)');
+                        printCli('LOCAL-CAST TERMINAL COMMANDS:', 'var(--neon-blue)');
+                        printCli('  ls           - List contents of current directory');
+                        printCli('  cd <id>      - Change directory (or "cd .." to go up)');
+                        printCli('  mkdir <name> - Create a new folder (Host only)');
+                        printCli('  rm <id>      - Delete a file/folder (Host only)');
+                        printCli('  peers        - List connected peers');
+                        printCli('  kick <id>    - Kick a connected peer (Host only)');
+                        printCli('  whoami       - Print user identity & peer ID');
+                        printCli('  clear        - Clear terminal output');
                     } else if (cmd === 'clear') {
                         cliOutput.innerHTML = '';
+                    } else if (cmd === 'peers') {
+                        if (isHost) {
+                            if (!connections.length) {
+                                printCli('No connected peers.', 'var(--text-muted)');
+                            } else {
+                                printCli('CONNECTED PEERS (' + connections.length + '):', 'var(--neon-blue)');
+                                connections.forEach(c => {
+                                    const alias = (c.profile && c.profile.name) ? c.profile.name : 'Guest';
+                                    printCli('  ' + c.peer + ' [' + alias + ']', 'var(--neon-green)');
+                                });
+                            }
+                        } else {
+                            printCli('Host: ' + (hostConnection ? hostConnection.peer : 'Disconnected'), 'var(--neon-blue)');
+                        }
+                    } else if (cmd === 'kick') {
+                        if (!isHost) {
+                            printCli('Error: Only Host can kick peers.', 'var(--neon-red)');
+                        } else {
+                            const target = args[1];
+                            if (!target) {
+                                printCli('Usage: kick <peerId>', 'var(--text-muted)');
+                            } else {
+                                const conn = connections.find(c => c.peer === target || c.peer.startsWith(target));
+                                if (conn) {
+                                    try { conn.send({ type: 'KICK' }); } catch(e) {}
+                                    try { conn.close(); } catch(e) {}
+                                    printCli('Kicked peer: ' + conn.peer, 'var(--neon-green)');
+                                } else {
+                                    printCli('Peer not found: ' + target, 'var(--neon-red)');
+                                }
+                            }
+                        }
                     } else if (cmd === 'whoami') {
-                        printCli('ALIAS: ' + (typeof profile !== 'undefined' ? profile.name : guestAlias), 'var(--neon-purple)');
-                        printCli('ID: ' + peer.id, 'var(--neon-purple)');
+                        printCli('ALIAS: ' + (typeof profile !== 'undefined' && profile.name ? profile.name : (typeof guestAlias !== 'undefined' ? guestAlias : 'HOST')), 'var(--neon-purple)');
+                        printCli('ID: ' + (peer ? peer.id : 'N/A'), 'var(--neon-purple)');
                     } else if (cmd === 'ls') {
                         const currentDir = vfs.findNode(cliCurrentDirId);
                         const children = currentDir ? currentDir.children : [];
