@@ -1012,14 +1012,27 @@ if (roomCode) {
 }
 
 function initApp() {
-    if (magicPeerId && magicFileId) {
-        initMagicPeer(magicPeerId, magicFileId);
-    } else if (isHost) {
-        hostView.classList.remove('hidden');
-        initHost();
-    } else {
-        clientView.classList.remove('hidden');
-        initClient();
+    try {
+        if (magicPeerId && magicFileId) {
+            initMagicPeer(magicPeerId, magicFileId);
+        } else if (isHost) {
+            hostView.classList.remove('hidden');
+            initHost().catch(err => {
+                console.error("Host init error:", err);
+                setupHostPeer();
+            });
+        } else {
+            clientView.classList.remove('hidden');
+            initClient().catch(err => {
+                console.error("Client init error:", err);
+                setupClientPeer();
+            });
+        }
+    } catch(err) {
+        console.error("initApp fatal error:", err);
+        try {
+            if (isHost) setupHostPeer(); else setupClientPeer();
+        } catch(e) {}
     }
 }
 
@@ -1260,88 +1273,103 @@ async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'v
 async function initHost() {
     updateStatus('CONNECTING...', 'offline');
     
-    const savedRoot = await localforage.getItem("vfs_root");
-    if (savedRoot) {
-        function linkParents(node, parent) {
-            node.parent = parent;
-            if (node.children) node.children.forEach(c => linkParents(c, node));
-        }
-        linkParents(savedRoot, null);
-        vfs.root = savedRoot;
-        vfs.currentDir = vfs.root;
+    // Start PeerJS broker connection and UI actions immediately (non-blocking)
+    setupHostPeer();
+    setupHostActions();
+    renderHostExplorer();
+    
+    try {
+        const savedRoot = await localforage.getItem("vfs_root");
+        if (savedRoot) {
+            function linkParents(node, parent) {
+                node.parent = parent;
+                if (node.children) node.children.forEach(c => linkParents(c, node));
+            }
+            linkParents(savedRoot, null);
+            vfs.root = savedRoot;
+            vfs.currentDir = vfs.root;
 
-        // Backfill missing thumbnails for existing media files
-        (async () => {
-            let updated = false;
-            async function backfill(node) {
-                if (node.type === 'file' && !node.thumbnail && node.fileObj) {
-                    const isMedia = (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/'))) ||
-                                    (node.name && node.name.match(/\.(jpe?g|png|gif|webp|svg|bmp|mp4|webm|mov)$/i));
-                    if (isMedia) {
-                        try {
-                            const thumb = await generateThumbnail(node.fileObj);
-                            if (thumb) {
-                                node.thumbnail = thumb;
-                                updated = true;
-                            }
-                        } catch(e) {}
+            // Backfill missing thumbnails for existing media files
+            (async () => {
+                let updated = false;
+                async function backfill(node) {
+                    if (node.type === 'file' && !node.thumbnail && node.fileObj) {
+                        const isMedia = (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/'))) ||
+                                        (node.name && node.name.match(/\.(jpe?g|png|gif|webp|svg|bmp|mp4|webm|mov)$/i));
+                        if (isMedia) {
+                            try {
+                                const thumb = await generateThumbnail(node.fileObj);
+                                if (thumb) {
+                                    node.thumbnail = thumb;
+                                    updated = true;
+                                }
+                            } catch(e) {}
+                        }
+                    }
+                    if (node.children) {
+                        for (const c of node.children) await backfill(c);
                     }
                 }
-                if (node.children) {
-                    for (const c of node.children) await backfill(c);
+                await backfill(vfs.root);
+                if (updated) {
+                    saveVFSToDB();
+                    renderHostExplorer();
+                    broadcastTree();
                 }
-            }
-            await backfill(vfs.root);
-            if (updated) {
-                saveVFSToDB();
-                renderHostExplorer();
-                broadcastTree();
-            }
-        })();
+            })();
+        }
+    } catch(e) {
+        console.warn("VFS restore warning:", e);
     }
     
-    const savedHostPass = await localforage.getItem("host_password");
-    if (savedHostPass) {
-        hostPassword = savedHostPass;
-        iconUnlocked.classList.add('hidden');
-        iconLocked.classList.remove('hidden');
+    try {
+        const savedHostPass = await localforage.getItem("host_password");
+        if (savedHostPass) {
+            hostPassword = savedHostPass;
+            if (iconUnlocked) iconUnlocked.classList.add('hidden');
+            if (iconLocked) iconLocked.classList.remove('hidden');
+        }
+    } catch(e) {
+        console.warn("Host password restore warning:", e);
     }
 
-    btnLock.classList.remove('hidden');
-    btnLock.addEventListener('click', async () => {
-        if (!hostPassword) {
-            const pwd = await cyberPrompt("Enter a password to lock this session:", "", "SESSION LOCK");
-            if (pwd) {
-                hostPassword = pwd;
-                localforage.setItem("host_password", hostPassword);
-                iconUnlocked.classList.add('hidden');
-                iconLocked.classList.remove('hidden');
-                showToast("Session locked");
-                connections.forEach(conn => {
-                    if (!conn.isAuthenticated) {
-                        conn.send({ type: 'AUTH_REQUIRED' });
-                    }
-                });
+    if (btnLock) {
+        btnLock.classList.remove('hidden');
+        btnLock.addEventListener('click', async () => {
+            if (!hostPassword) {
+                const pwd = await cyberPrompt("Enter a password to lock this session:", "", "SESSION LOCK");
+                if (pwd) {
+                    hostPassword = pwd;
+                    try { await localforage.setItem("host_password", hostPassword); } catch(e) {}
+                    if (iconUnlocked) iconUnlocked.classList.add('hidden');
+                    if (iconLocked) iconLocked.classList.remove('hidden');
+                    showToast("Session locked");
+                    connections.forEach(conn => {
+                        if (!conn.isAuthenticated) {
+                            conn.send({ type: 'AUTH_REQUIRED' });
+                        }
+                    });
+                }
+            } else {
+                if (await cyberConfirm("Remove password protection from this session?", "SECURITY PROTOCOL")) {
+                    hostPassword = null;
+                    try { await localforage.removeItem("host_password"); } catch(e) {}
+                    if (iconUnlocked) iconUnlocked.classList.remove('hidden');
+                    if (iconLocked) iconLocked.classList.add('hidden');
+                    showToast("Session lock removed");
+                    connections.forEach(conn => {
+                        if (!conn.isAuthenticated) {
+                            conn.isAuthenticated = true;
+                            conn.send({ type: 'AUTH_SUCCESS' });
+                            conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                            conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                        }
+                    });
+                    broadcastPeers();
+                }
             }
-        } else {
-            if (await cyberConfirm("Remove password protection from this session?", "SECURITY PROTOCOL")) {
-                hostPassword = null;
-                localforage.removeItem("host_password");
-                iconUnlocked.classList.remove('hidden');
-                iconLocked.classList.add('hidden');
-                showToast("Session lock removed");
-                connections.forEach(conn => {
-                    if (!conn.isAuthenticated) {
-                        conn.isAuthenticated = true;
-                        conn.send({ type: 'AUTH_SUCCESS' });
-                        conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
-                        conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
-                    }
-                });
-                broadcastPeers();
-            }
-        }
-    });
+        });
+    }
 
     try {
         await localforage.removeItem("host_peer_id");
@@ -1863,15 +1891,14 @@ async function initHost() {
     });
     }
 
-    setupHostPeer();
-    setupHostActions();
-    renderHostExplorer();
-    hostExplorerGrid.addEventListener('click', (e) => {
-        if (e.target === hostExplorerGrid) {
-            selectedNodes.clear();
-            document.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
-        }
-    });
+    if (hostExplorerGrid) {
+        hostExplorerGrid.addEventListener('click', (e) => {
+            if (e.target === hostExplorerGrid) {
+                selectedNodes.clear();
+                document.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
+            }
+        });
+    }
 }
 
 
