@@ -983,6 +983,31 @@ function generatePeerId(prefix = 'lc_') {
     }
 }
 
+let setupHostPeer = () => {};
+let setupClientPeer = () => {};
+
+function renderHostQR(url, attempts = 0) {
+    if (!qrcodeEl) return;
+    if (typeof QRCode !== 'undefined') {
+        try {
+            qrcodeEl.innerHTML = '';
+            new QRCode(qrcodeEl, { 
+                text: url, 
+                width: 130, 
+                height: 130, 
+                colorDark : "#00f0ff", 
+                colorLight : "#0a0b10", 
+                correctLevel : QRCode.CorrectLevel.L 
+            });
+            if (qrPlaceholder) qrPlaceholder.classList.add('hidden');
+        } catch(err) {
+            console.error("QR Render Error:", err);
+        }
+    } else if (attempts < 20) {
+        setTimeout(() => renderHostQR(url, attempts + 1), 200);
+    }
+}
+
 function getPeerConfig() {
     return {
         debug: 1,
@@ -1273,8 +1298,6 @@ async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'v
 async function initHost() {
     updateStatus('CONNECTING...', 'offline');
     
-    // Start PeerJS broker connection and UI actions immediately (non-blocking)
-    setupHostPeer();
     setupHostActions();
     renderHostExplorer();
     
@@ -1374,30 +1397,7 @@ async function initHost() {
     try {
         await localforage.removeItem("host_peer_id");
     } catch(e) {}
-
-    function renderHostQR(url, attempts = 0) {
-        if (!qrcodeEl) return;
-        if (typeof QRCode !== 'undefined') {
-            try {
-                qrcodeEl.innerHTML = '';
-                new QRCode(qrcodeEl, { 
-                    text: url, 
-                    width: 130, 
-                    height: 130, 
-                    colorDark : "#00f0ff", 
-                    colorLight : "#0a0b10", 
-                    correctLevel : QRCode.CorrectLevel.L 
-                });
-                if (qrPlaceholder) qrPlaceholder.classList.add('hidden');
-            } catch(err) {
-                console.error("QR Render Error:", err);
-            }
-        } else if (attempts < 20) {
-            setTimeout(() => renderHostQR(url, attempts + 1), 200);
-        }
-    }
-
-    function setupHostPeer(attempts = 0) {
+    setupHostPeer = function(attempts = 0) {
         if (typeof Peer === 'undefined') {
             if (attempts < 25) {
                 setTimeout(() => setupHostPeer(attempts + 1), 200);
@@ -1889,7 +1889,9 @@ async function initHost() {
             broadcastPeers();
         });
     });
-    }
+    };
+
+    setupHostPeer();
 
     if (hostExplorerGrid) {
         hostExplorerGrid.addEventListener('click', (e) => {
@@ -2591,7 +2593,7 @@ function renderBreadcrumbs(currentDir, container, onClick) {
 async function initClient() {
     updateStatus('CONNECTING...', 'offline');
     
-    function setupClientPeer(attempts = 0) {
+    setupClientPeer = function(attempts = 0) {
         if (typeof Peer === 'undefined') {
             if (attempts < 25) {
                 setTimeout(() => setupClientPeer(attempts + 1), 200);

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=63">
+    <link rel="stylesheet" href="style.css?v=64">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#07090e">
     
@@ -122,20 +122,6 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                             <span>New Note</span>
                         </button>
-                        <button id="btn-live-scratchpad" class="custom-btn action-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                            <span>Scratchpad</span>
-                        </button>
-                        <button id="btn-whiteboard" class="custom-btn action-btn" style="border-color: #fcee0a; color: #fcee0a;">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
-                            <span>Whiteboard</span>
-                        </button>
-                        
-                        <button id="btn-mount-native" class="custom-btn action-btn" style="border-color: #00f0ff; color: #00f0ff;">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>
-                            <span>Mount Vault</span>
-                        </button>
-                        
                         <button id="btn-upload-files" class="custom-btn action-btn">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
                             <span>Upload Files</span>
@@ -143,6 +129,20 @@
                         <button id="btn-upload-folder" class="custom-btn action-btn">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                             <span>Upload Folder</span>
+                        </button>
+                        
+                        <button id="btn-mount-native" class="custom-btn action-btn" style="border-color: #00f0ff; color: #00f0ff;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>
+                            <span>Mount Vault</span>
+                        </button>
+                        
+                        <button id="btn-live-scratchpad" class="custom-btn action-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                            <span>Scratchpad</span>
+                        </button>
+                        <button id="btn-whiteboard" class="custom-btn action-btn" style="border-color: #fcee0a; color: #fcee0a;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
+                            <span>Whiteboard</span>
                         </button>
                         <button id="btn-download-all-host" class="custom-btn action-btn" style="border-color: var(--neon-blue);">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -1013,11 +1013,11 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=63"></script>
+    <script src="app.js?v=64"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=104').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=105').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
