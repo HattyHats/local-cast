@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=64">
+    <link rel="stylesheet" href="style.css?v=65">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#07090e">
     
@@ -480,8 +480,10 @@
                 </ul>
 
                 <h3 style="color: #fff; margin-top: 1.5rem; font-family: var(--font-mono); letter-spacing: 1px;">Security & Privacy Transparency</h3>
-                <p style="margin-bottom: 0.8rem;"><strong>Is the connection secure?</strong><br>Yes. WebRTC mandates End-to-End Encryption (E2EE) using DTLS and SRTP protocols. No middleman can intercept, read, or listen to your files or audio calls. The browser sandbox prevents the app from accessing your hard drive or OS.</p>
-                <p style="margin-bottom: 0.8rem;"><strong>Can this be used with strangers?</strong><br>Yes, BUT it is <strong>NOT anonymous</strong>. Because this is a Peer-to-Peer network, the browsers must exchange IP addresses to connect. Anyone you connect with can see your public IP address using basic networking tools. If you need to stay completely anonymous, all parties must use a VPN before connecting.</p>
+                <p style="margin-bottom: 0.8rem;"><strong>Is the connection secure?</strong><br>Yes, absolutely. Local-Cast enforces <strong>Zero-Knowledge End-to-End Encryption (E2EE)</strong> using hardware-accelerated WebCrypto Elliptic Curve Diffie-Hellman (ECDH P-256) and AES-GCM-256. Cryptographic session keys are ephemeral and generated exclusively in volatile browser RAM. Neither intermediate signaling brokers, Cloudflare, ISPs, nor eavesdroppers can read, inspect, or intercept your files, chat, or voice streams.</p>
+                <p style="margin-bottom: 0.8rem;"><strong>Can this be used with strangers?</strong><br>Yes, but keep in mind the difference between <strong>Content Privacy</strong> and <strong>Network Anonymity</strong>:<br>
+                • <strong>Content is 100% Zero-Knowledge:</strong> Strangers cannot see your files without permission, cannot decrypt locked folders or hidden dead drops, and cannot snoop on your transfers.<br>
+                • <strong>Network Layer is NOT IP-Anonymous:</strong> Because WebRTC creates direct, decentralized device-to-device connections (without centralized proxy relays storing or routing your data), browsers must directly exchange network packets. Any peer you directly connect with can see your public IP address using standard networking tools, exactly like BitTorrent or direct VoIP calls. If you require complete IP address masking when connecting with strangers, use a <strong>VPN</strong> before joining.</p>
                 
                 <p style="margin-top: 1.5rem; font-style: italic;">To invite guests, they just need to scan your QR code or navigate to the connection URL. Stay secure.</p>
             </div>
@@ -1013,11 +1015,11 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=64"></script>
+    <script src="app.js?v=65"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=105').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=106').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
