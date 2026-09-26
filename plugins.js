@@ -95,13 +95,23 @@ window.handleEmulatorStream = function(remoteStream) {
         video = document.createElement('video');
         video.id = 'emu-guest-video';
         video.autoplay = true;
+        video.muted = true;
+        video.playsInline = true;
         video.style.width = '512px';
         video.style.maxWidth = '100%';
         video.style.border = '2px solid #ff00ff';
         emulatorContainer.insertBefore(video, emulatorContainer.firstChild);
         emulatorCanvas.style.display = 'none';
+        
+        const controlsHint = document.createElement('p');
+        controlsHint.style.color = '#ff00ff';
+        controlsHint.style.textAlign = 'center';
+        controlsHint.style.marginTop = '10px';
+        controlsHint.innerText = 'Controls: Arrows/WASD to Move | Z/J/Space to Jump | X/K/Ctrl to Shoot | Enter to Start';
+        emulatorContainer.appendChild(controlsHint);
     }
     video.srcObject = remoteStream;
+    video.play().catch(e => console.warn("Emulator video play error:", e));
 
     // Guest sends inputs to Host
     document.addEventListener('keydown', (e) => {
@@ -143,6 +153,16 @@ document.addEventListener('click', (e) => {
             if (isHost) {
                 emulatorRomInput.style.display = 'block';
                 isEmulatorHost = true;
+                
+                if (!document.getElementById('emu-host-controls-hint')) {
+                    const controlsHint = document.createElement('p');
+                    controlsHint.id = 'emu-host-controls-hint';
+                    controlsHint.style.color = '#ff00ff';
+                    controlsHint.style.textAlign = 'center';
+                    controlsHint.style.marginTop = '10px';
+                    controlsHint.innerText = 'Controls: Arrows/WASD to Move | Z/J/Space to Jump | X/K/Ctrl to Shoot | Enter to Start';
+                    emulatorContainer.appendChild(controlsHint);
+                }
             } else {
                 emulatorRomInput.style.display = 'none';
                 document.getElementById('arcade-game-title').textContent = 'WAITING FOR HOST TO START GAME';
@@ -209,12 +229,21 @@ function initEmulator(romBinaryData) {
 
 function mapKeyToNes(key) {
     switch (key.toLowerCase()) {
-        case 'arrowup': return jsnes.Controller.BUTTON_UP;
-        case 'arrowdown': return jsnes.Controller.BUTTON_DOWN;
-        case 'arrowleft': return jsnes.Controller.BUTTON_LEFT;
-        case 'arrowright': return jsnes.Controller.BUTTON_RIGHT;
-        case 'z': return jsnes.Controller.BUTTON_A;
-        case 'x': return jsnes.Controller.BUTTON_B;
+        case 'arrowup':
+        case 'w': return jsnes.Controller.BUTTON_UP;
+        case 'arrowdown':
+        case 's': return jsnes.Controller.BUTTON_DOWN;
+        case 'arrowleft':
+        case 'a': return jsnes.Controller.BUTTON_LEFT;
+        case 'arrowright':
+        case 'd': return jsnes.Controller.BUTTON_RIGHT;
+        case 'z': 
+        case 'j':
+        case ' ': return jsnes.Controller.BUTTON_A;
+        case 'x': 
+        case 'k':
+        case 'control':
+        case 'alt': return jsnes.Controller.BUTTON_B;
         case 'enter': return jsnes.Controller.BUTTON_START;
         case 'shift': return jsnes.Controller.BUTTON_SELECT;
         default: return null;
