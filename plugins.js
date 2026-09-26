@@ -115,14 +115,18 @@ window.handleEmulatorStream = function(remoteStream) {
 
     // Guest sends inputs to Host
     document.addEventListener('keydown', (e) => {
+        if (emulatorContainer.classList.contains('hidden')) return;
         const btn = mapKeyToNes(e.key);
         if (btn !== null && connections[0]) {
+            e.preventDefault();
             connections[0].send({ type: 'EMU_INPUT', event: 'down', button: btn });
         }
     });
     document.addEventListener('keyup', (e) => {
+        if (emulatorContainer.classList.contains('hidden')) return;
         const btn = mapKeyToNes(e.key);
         if (btn !== null && connections[0]) {
+            e.preventDefault();
             connections[0].send({ type: 'EMU_INPUT', event: 'up', button: btn });
         }
     });
@@ -162,6 +166,15 @@ document.addEventListener('click', (e) => {
                     controlsHint.style.marginTop = '10px';
                     controlsHint.innerText = 'Controls: Arrows/WASD to Move | Z/J/Space to Jump | X/K/Ctrl to Shoot | Enter to Start';
                     emulatorContainer.appendChild(controlsHint);
+                    
+                    const btnResync = document.createElement('button');
+                    btnResync.className = 'custom-btn';
+                    btnResync.style.borderColor = '#00ffff';
+                    btnResync.style.color = '#00ffff';
+                    btnResync.style.marginTop = '10px';
+                    btnResync.innerText = 'RE-SYNC LATE GUESTS';
+                    btnResync.onclick = broadcastEmulatorStream;
+                    emulatorContainer.appendChild(btnResync);
                 }
             } else {
                 emulatorRomInput.style.display = 'none';
@@ -175,10 +188,13 @@ if (emulatorRomInput) {
     emulatorRomInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        emulatorRomInput.blur(); // Remove focus so Space/Enter don't trigger it again
         const reader = new FileReader();
         reader.onload = function(evt) {
             initEmulator(evt.target.result);
-            broadcastEmulatorStream();
+            setTimeout(() => {
+                broadcastEmulatorStream();
+            }, 500); // Give canvas time to draw first frame
         };
         reader.readAsBinaryString(file);
     });
@@ -216,14 +232,20 @@ function initEmulator(romBinaryData) {
 
     // Host listens to its own keys
     document.addEventListener('keydown', (e) => {
-        if (!isEmulatorHost) return;
+        if (!isEmulatorHost || emulatorContainer.classList.contains('hidden')) return;
         const btn = mapKeyToNes(e.key);
-        if (btn !== null) nes.buttonDown(1, btn);
+        if (btn !== null) {
+            e.preventDefault();
+            nes.buttonDown(1, btn);
+        }
     });
     document.addEventListener('keyup', (e) => {
-        if (!isEmulatorHost) return;
+        if (!isEmulatorHost || emulatorContainer.classList.contains('hidden')) return;
         const btn = mapKeyToNes(e.key);
-        if (btn !== null) nes.buttonUp(1, btn);
+        if (btn !== null) {
+            e.preventDefault();
+            nes.buttonUp(1, btn);
+        }
     });
 }
 
