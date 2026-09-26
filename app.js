@@ -510,7 +510,10 @@ document.addEventListener('dragleave', (e) => {
         dragOverlay.style.display = 'none';
     }
 });
-document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+});
 document.addEventListener('drop', (e) => {
     e.preventDefault();
     dragCounter = 0;
@@ -1262,6 +1265,16 @@ function endCommLink() {
 }
 
 async function handleIncomingCall(call) {
+    if (call.metadata && call.metadata.type === 'EMULATOR') {
+        call.answer();
+        call.on('stream', (remoteStream) => {
+            if (window.handleEmulatorStream) {
+                window.handleEmulatorStream(remoteStream);
+            }
+        });
+        return;
+    }
+
     if (inIntercom) {
         if (localAudioStream) {
             call.answer(localAudioStream);
@@ -1573,6 +1586,7 @@ async function initHost() {
             }
         
         conn.on('data', (data) => {
+            if (window.handlePluginMessage) window.handlePluginMessage(data);
             if (data.type === 'ECDH_KEY_EXCHANGE') {
                 handlePeerEcdhKey(conn.peer, data.publicKey).then(key => {
                     if (key && !conn._ecdhSent) {
@@ -2820,6 +2834,7 @@ async function initClient() {
             });
         
         hostConnection.on('data', (data) => {
+            if (window.handlePluginMessage) window.handlePluginMessage(data);
             if (data.type === 'ECDH_KEY_EXCHANGE') {
                 handlePeerEcdhKey(hostConnection.peer || roomCode, data.publicKey).then(key => {
                     if (key && !hostConnection._ecdhSent) {
@@ -4010,21 +4025,27 @@ if (ctxDeaddrop) {
 }
 
 // Global Drop Zone
-document.body.addEventListener('dragover', (e) => e.preventDefault());
-document.body.addEventListener('drop', async (e) => {
+document.addEventListener('dragover', (e) => {
     e.preventDefault();
-    if (!e.dataTransfer.items) return;
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+});
+document.addEventListener('drop', async (e) => {
+    e.preventDefault();
     
     const files = [];
     async function traverseFileTree(item, path = '') {
         if (item.isFile) {
-            const file = await new Promise(r => item.file(r));
-            Object.defineProperty(file, 'webkitRelativePath', { value: path + file.name });
-            files.push(file);
+            const file = await new Promise((resolve) => {
+                item.file(resolve, (err) => { console.warn("File err:", err); resolve(null); });
+            });
+            if (file) {
+                Object.defineProperty(file, 'webkitRelativePath', { value: path + file.name });
+                files.push(file);
+            }
         } else if (item.isDirectory) {
             const dirReader = item.createReader();
             const readEntriesBatch = () => new Promise((resolve) => {
-                dirReader.readEntries((entries) => resolve(entries || []), () => resolve([]));
+                dirReader.readEntries((entries) => resolve(entries || []), (err) => { console.warn("Dir err:", err); resolve([]); });
             });
             let allEntries = [];
             let batch = await readEntriesBatch();
@@ -4038,10 +4059,42 @@ document.body.addEventListener('drop', async (e) => {
         }
     }
     
-    for (let i = 0; i < e.dataTransfer.items.length; i++) {
-        const item = e.dataTransfer.items[i].webkitGetAsEntry();
-        if (item) await traverseFileTree(item);
+    const dtFiles = [];
+    if (e.dataTransfer.files) {
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+            dtFiles.push(e.dataTransfer.files[i]);
+        }
     }
+    
+    if (e.dataTransfer.items) {
+        const entries = [];
+        for (let i = 0; i < e.dataTransfer.items.length; i++) {
+            try {
+                if (typeof e.dataTransfer.items[i].webkitGetAsEntry === 'function') {
+                    const item = e.dataTransfer.items[i].webkitGetAsEntry();
+                    if (item) entries.push(item);
+                }
+            } catch(err) { console.warn("Drop item extraction error:", err); }
+        }
+        for (const entry of entries) {
+            try {
+                await traverseFileTree(entry);
+            } catch(err) { console.warn("Tree traversal error:", err); }
+        }
+    }
+    
+    if (files.length === 0 && dtFiles.length > 0) {
+        for (let i = 0; i < dtFiles.length; i++) {
+            files.push(dtFiles[i]);
+        }
+    }
+    
+    if (files.length === 0) {
+        if (typeof showToast === 'function') showToast("Drop received, but no valid files found. (If dragging from Mac Photos, drag to Desktop first!)");
+        return;
+    }
+    
+    if (typeof showToast === 'function') showToast(`Processing ${files.length} dragged items...`);
     
     if (files.length > 0) {
         if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
