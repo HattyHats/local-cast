@@ -188,6 +188,7 @@ if (emulatorRomInput) {
     emulatorRomInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        emulatorRomInput.style.display = 'none';
         emulatorRomInput.blur(); // Remove focus so Space/Enter don't trigger it again
         const reader = new FileReader();
         reader.onload = function(evt) {
@@ -201,9 +202,12 @@ if (emulatorRomInput) {
 }
 
 function initEmulator(romBinaryData) {
-    if (emuInterval) clearInterval(emuInterval);
+    if (emuInterval) cancelAnimationFrame(emuInterval);
     const ctx = emulatorCanvas.getContext('2d');
     const imageData = ctx.createImageData(256, 240);
+    const buf = new ArrayBuffer(imageData.data.length);
+    const buf8 = new Uint8ClampedArray(buf);
+    const buf32 = new Uint32Array(buf);
     
     if (typeof jsnes === 'undefined') {
         alert("jsnes library not loaded!");
@@ -212,13 +216,10 @@ function initEmulator(romBinaryData) {
 
     nes = new jsnes.NES({
         onFrame: function(frameBuffer) {
-            for (let i = 0; i < 256 * 240; i++) {
-                const pixel = frameBuffer[i];
-                imageData.data[i * 4] = pixel & 0xFF;
-                imageData.data[i * 4 + 1] = (pixel >> 8) & 0xFF;
-                imageData.data[i * 4 + 2] = (pixel >> 16) & 0xFF;
-                imageData.data[i * 4 + 3] = 255;
+            for (let i = 0; i < 61440; i++) {
+                buf32[i] = 0xFF000000 | frameBuffer[i];
             }
+            imageData.data.set(buf8);
             ctx.putImageData(imageData, 0, 0);
         },
         onAudioSample: function(left, right) { }
@@ -226,9 +227,13 @@ function initEmulator(romBinaryData) {
 
     nes.loadROM(romBinaryData);
 
-    emuInterval = setInterval(() => {
-        nes.frame();
-    }, 1000 / 60);
+    function frameLoop() {
+        if (!emulatorContainer.classList.contains('hidden')) {
+            nes.frame();
+        }
+        emuInterval = requestAnimationFrame(frameLoop);
+    }
+    emuInterval = requestAnimationFrame(frameLoop);
 
     // Host listens to its own keys
     document.addEventListener('keydown', (e) => {
