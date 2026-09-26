@@ -227,11 +227,23 @@ function initEmulator(romBinaryData) {
 
     nes.loadROM(romBinaryData);
 
-    function frameLoop() {
-        if (!emulatorContainer.classList.contains('hidden')) {
+    let lastTime = 0;
+    const fpsInterval = 1000 / 60; // NES strict 60 FPS
+
+    function frameLoop(timestamp) {
+        emuInterval = requestAnimationFrame(frameLoop);
+        
+        if (emulatorContainer.classList.contains('hidden')) return;
+
+        if (!lastTime) lastTime = timestamp;
+        const elapsed = timestamp - lastTime;
+
+        // Only draw a frame if enough time has passed (syncs 60fps on 120hz/144hz monitors)
+        if (elapsed > fpsInterval) {
+            // Adjust lastTime to account for slight delays
+            lastTime = timestamp - (elapsed % fpsInterval);
             nes.frame();
         }
-        emuInterval = requestAnimationFrame(frameLoop);
     }
     emuInterval = requestAnimationFrame(frameLoop);
 
@@ -348,7 +360,8 @@ function initCyberspace() {
     camera.position.z = 40;
     camera.position.y = 15;
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25)); // Cap resolution to save GPU
     renderer.setSize(window.innerWidth, window.innerHeight);
     cyberspaceContainer.appendChild(renderer.domElement);
 
