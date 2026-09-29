@@ -28,21 +28,15 @@
     
     <!-- DYNAMIC CYBER BOOT SEQUENCE -->
     <div id="boot-sequence">
-        <div class="boot-reticle">
-            <div class="boot-ring-outer"></div>
-            <div class="boot-ring-inner"></div>
-            <svg class="boot-core-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
-                <circle cx="12" cy="12" r="4"></circle>
-                <line x1="12" y1="2" x2="12" y2="8"></line>
-                <line x1="12" y1="16" x2="12" y2="22"></line>
-                <line x1="2" y1="8.5" x2="7" y2="11.5"></line>
-                <line x1="17" y1="12.5" x2="22" y2="15.5"></line>
-            </svg>
+        <div class="flying-files-container"></div>
+        <div class="hat-wrapper">
+            <img src="hat-logo.png" alt="Hat Logo" class="floating-hat" />
         </div>
 
-        <div class="splash-logo glitch-title" data-text="LOCALCAST">
-            <span class="logo-brand">LOCAL</span><span class="logo-accent">CAST</span>
+        <div class="splash-logo-wrapper">
+            <div class="splash-logo glitch-title" data-text="LOCAL CAST">
+                <span class="logo-brand">LOCAL</span> <span class="logo-accent">CAST</span>
+            </div>
         </div>
 
         <div class="boot-terminal" id="boot-terminal">
@@ -390,6 +384,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
             Lock / Unlock
         </div>
+        <div class="context-item" id="ctx-multisig" style="color: #fcee0a;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            Make Nuclear Vault
+        </div>
+        <div class="context-item" id="ctx-burn" style="color: var(--neon-red);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 2.4 5.6a6.5 6.5 0 11-9.9 0C8.5 14.5 8.5 14.5 8.5 14.5z"></path></svg>
+            Toggle Burn Protocol
+        </div>
         <div class="context-item" id="ctx-rename">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             Rename
@@ -466,30 +468,56 @@
 
         <!-- INFO MODAL -->
     <div id="info-modal" class="modal hidden" style="z-index: 9999;">
-        <div class="modal-content card" style="max-width: 650px; width: 90%;">
+        <div class="modal-content card" style="max-width: 680px; width: 92%;">
             <h2 class="neon-blue" style="letter-spacing: 2px;">LOCAL-CAST // SYSTEM SPECS</h2>
-            <div style="color: var(--text-muted); font-size: 0.95rem; margin-top: 1rem; line-height: 1.6; height: 350px; overflow-y: auto; padding-right: 10px; text-align: left;">
-                <p>Welcome to <strong>Local-Cast</strong>, a decentralized, browser-based peer-to-peer network designed for secure and ephemeral file sharing, gaming, and communication.</p>
+            <div style="color: var(--text-muted); font-size: 0.95rem; margin-top: 1rem; line-height: 1.6; max-height: 65vh; height: auto; overflow-y: auto; padding-right: 12px; text-align: left;">
+                <p>Welcome to <strong>Local-Cast</strong>, a decentralized, browser-native operating system designed for zero-knowledge file distribution, swarm torrents, multi-sig secure storage, spatial cyberspace telemetry, and private peer-to-peer communication.</p>
                 
-                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px;">Core Features</h3>
-                <ul style="margin-left: 1rem; padding-left: 1rem;">
-                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">Decentralized P2P & Swarm Routing:</strong> All data is transferred directly between browsers via WebRTC. When multiple guests connect, Local-Cast forms a Swarm, automatically relaying messages so Guests can interact directly with each other without the Host needing to process everything!</li>
-                    
-                    <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Proximity Radar & Comm-Links:</strong> Visualizes all connected peers in real-time. Click any blip to open an encrypted 1-on-1 Whisper channel. While in a Whisper channel, click the green telephone icon to establish a secure, serverless WebRTC Audio Call.</li>
-                    
-                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">The Arcade:</strong> Challenge any connected peer to a real-time game! Features low-latency <strong style="color: #39ff14;">Cyber-Pong</strong> (synced at 60 FPS), <strong style="color: var(--neon-blue);">Holo-Chess</strong> (powered by chess.js with full FEN network syncing), and classic <strong style="color: var(--neon-pink);">Neon-Tac-Toe</strong>. All games operate entirely P2P.</li>
-                    
-                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-purple);">Live Scratchpad & Jukebox:</strong> An ephemeral, collaborative text environment. Anyone can type in the Scratchpad and it instantly syncs across the Swarm. You can also upload MP3s and WAVs to the Jukebox to broadcast shared audio streams to the entire room!</li>
-                    
-                    <li style="margin-bottom: 0.8rem;"><strong class="neon-purple">Dead Drops (Hidden Files):</strong> Right-click any folder to toggle it as a "Dead Drop". It will vanish from Guest views completely. To reveal and browse your hidden dead drops, type <code style="background: #222; padding: 2px 4px; border-radius: 4px; color: var(--neon-purple);">/deaddrop</code> in the Host search bar.</li>
-                    
-                    <li style="margin-bottom: 0.8rem;"><strong style="color: #ff00ff;">Honey-Pot Traps:</strong> Right-click any folder to toggle it as a "Honey-Pot" (glows neon pink). When guests attempt to unlock it, their failed attempts are logged. After 3 failed strikes, their connection is instantly severed and their UI is permanently locked down.</li>
-                    
-                    <li style="margin-bottom: 0.8rem;"><strong class="neon-red">Burn Notice:</strong> The "Destroy Network" button obliterates all active connections, wipes all session data, and permanently shreds the encrypted local storage filesystem, leaving zero trace.</li>
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">⚡ Decentralized Swarm Torrents</h3>
+                <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">P2P BitTorrent-Style Chunk Mesh:</strong> Files are split into high-throughput 32 KB pieces and seeded across all peers. Guests download pieces concurrently from multiple peers (up to 8 parallel streams), drastically accelerating transfer speeds.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Live Bitfield Chunk Matrix:</strong> An interactive real-time visual matrix displays the state of every chunk (pending, downloading, cached) during transfers with live ETA and active source counters.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-purple">Resumable IndexedDB Cache:</strong> Chunks are saved locally to browser storage. If a connection drops, downloads resume from the last received chunk without restarting.</li>
                 </ul>
 
-                <h3 style="color: #fff; margin-top: 1.5rem; font-family: var(--font-mono); letter-spacing: 1px;">Security & Privacy Transparency</h3>
-                <p style="margin-bottom: 0.8rem;"><strong>Is the connection secure?</strong><br>Yes, absolutely. Local-Cast enforces <strong>Zero-Knowledge End-to-End Encryption (E2EE)</strong> using hardware-accelerated WebCrypto Elliptic Curve Diffie-Hellman (ECDH P-256) and AES-GCM-256. Cryptographic session keys are ephemeral and generated exclusively in volatile browser RAM. Neither intermediate signaling brokers, Cloudflare, ISPs, nor eavesdroppers can read, inspect, or intercept your files, chat, or voice streams.</p>
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🔐 Multi-Sig "Nuclear" Vaults</h3>
+                <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-red">Consensus Voting Protocol:</strong> Classified folders can be armed as Nuclear Vaults. Unlocking requires dynamic cryptographic authorization and a live peer quorum (1 vote for 2-peer rooms; host-configured threshold for larger swarms).</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-yellow">60-Second Security Countdown:</strong> Authorization requests broadcast an alert with an auto-expiring 60s timer and automatic session re-arming when unlocked folders are closed or modified.</li>
+                </ul>
+
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🌐 Cyberspace Network Operations Center (NOC)</h3>
+                <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">3D Spatial Telemetry:</strong> Step into an interactive Three.js WebGL spatial grid where connected peers float as holographic spheres with status rings.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">Live Transfer Energy Lasers:</strong> Active file transfers and swarm chunk exchanges emit glowing particle lasers connecting sender and receiver nodes in real-time 3D space.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">Dynamic Hardware Scaling:</strong> Automatically adapts pixel-ratios and disables heavy post-processing on mobile devices, cutting battery draw and boosting framerates by up to 85%.</li>
+                </ul>
+
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🔥 Stealth & Countermeasures</h3>
+                <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-red">Burn Protocol (Zero-Trace Shredding):</strong> Mark files for self-destruction. Once downloaded by a recipient, the file is automatically shredded from memory and the host mesh with a digital burn animation.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-purple">Dead Drops (Invisible Folders):</strong> Conceal folders from guest view. Reveal them exclusively in the Host terminal with <code style="background: #222; padding: 2px 4px; border-radius: 4px; color: var(--neon-purple);">/deaddrop</code>.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: #ff00ff;">Honey-Pot Traps:</strong> Decoy folders with intrusion tripwires. Guests attempting unauthorized access trigger silent strike logs. After 3 strikes, their connection is severed and their browser UI is locked down.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-red">Emergency Burn Notice:</strong> The "Destroy Network" button instantly obliterates all WebRTC channels, wipes cryptographic keys from RAM, and purges IndexedDB storage with zero forensic trace.</li>
+                </ul>
+
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🕹️ Arcade, Audio & Collaboration</h3>
+                <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">P2P Multiplayer Arcade:</strong> Real-time 60 FPS <strong style="color: #39ff14;">Cyber-Pong</strong>, <strong style="color: var(--neon-blue);">Holo-Chess</strong> (chess.js with FEN network synchronization), and classic <strong style="color: var(--neon-pink);">Neon-Tac-Toe</strong>.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-yellow">NES Retro Gaming:</strong> 8-bit ROM emulator with delta-time canvas streaming to all guests at 60 FPS over WebRTC.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Radar, Whisper & Voice Calls:</strong> 2D proximity radar with latency tracking, 1-on-1 encrypted Whisper channels, and serverless P2P audio voice calls.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-purple);">Live Scratchpad & Jukebox:</strong> Ephemeral multi-user text workspace with instantaneous keystroke sync and room-wide audio streaming.</li>
+                </ul>
+
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">📱 Mobile PWA & Air-Gap LAN</h3>
+                <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">Native OS Share Target:</strong> Install Local-Cast as a PWA on iOS/Android. Share files directly from your mobile camera roll or file explorer into Local-Cast via the native OS share sheet.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Air-Gap Offline Handshake:</strong> Fully operational without an internet connection. Devices connect over local Wi-Fi or ad-hoc hotspot using a cryptographic QR code handshake.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-yellow">Zero Tap-Delay Touch UI:</strong> 3-column responsive mobile file grid, momentum scrolling, and viewport-safe dialogs optimized for phones and tablets.</li>
+                </ul>
+
+                <h3 style="color: #fff; margin-top: 1.5rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">Security & Privacy Transparency</h3>
+                <p style="margin-bottom: 0.8rem;"><strong>Is the connection secure?</strong><br>Yes. Local-Cast enforces <strong>Zero-Knowledge End-to-End Encryption (E2EE)</strong> using hardware-accelerated WebCrypto Elliptic Curve Diffie-Hellman (ECDH P-256) and AES-GCM-256. Cryptographic session keys are ephemeral and generated exclusively in volatile browser RAM. Neither intermediate signaling brokers, Cloudflare, ISPs, nor eavesdroppers can read, inspect, or intercept your files, chat, or voice streams.</p>
                 <p style="margin-bottom: 0.8rem;"><strong>Can this be used with strangers?</strong><br>Yes, but keep in mind the difference between <strong>Content Privacy</strong> and <strong>Network Anonymity</strong>:<br>
                 • <strong>Content is 100% Zero-Knowledge:</strong> Strangers cannot see your files without permission, cannot decrypt locked folders or hidden dead drops, and cannot snoop on your transfers.<br>
                 • <strong>Network Layer is NOT IP-Anonymous:</strong> Because WebRTC creates direct, decentralized device-to-device connections (without centralized proxy relays storing or routing your data), browsers must directly exchange network packets. Any peer you directly connect with can see your public IP address using standard networking tools, exactly like BitTorrent or direct VoIP calls. If you require complete IP address masking when connecting with strangers, use a <strong>VPN</strong> before joining.</p>
@@ -930,7 +958,6 @@
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             </div>
-            
             <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
                 The Host must provide you with a 6-digit One-Time Password for this session.
             </p>
@@ -938,6 +965,31 @@
             <input type="text" id="guest-otp-input" class="custom-input" placeholder="000000" maxlength="6" style="margin-bottom: 1.5rem; font-size: 2rem; text-align: center; letter-spacing: 10px; font-family: var(--font-mono);" autocomplete="off">
             
             <button id="btn-submit-guest-otp" class="custom-btn" style="width: 100%; border-color: var(--neon-blue); color: var(--neon-blue);">UNLOCK</button>
+        </div>
+    </div>
+
+    <!-- NUCLEAR VOTE MODAL -->
+    <div id="nuclear-vote-modal" class="modal hidden" style="z-index: 10004;">
+        <div class="modal-content card" style="max-width: 450px; text-align: center; border-color: #fcee0a; box-shadow: 0 0 30px rgba(252, 238, 10, 0.2);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fcee0a" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            <h3 style="color: #fcee0a; margin-bottom: 0.5rem; font-size: 1.2rem; letter-spacing: 2px;">NUCLEAR VAULT DETECTED</h3>
+            <p style="color: var(--text-main); font-size: 0.9rem; margin-bottom: 0.5rem;">This vault requires simultaneous multi-peer authorization.</p>
+            
+            <div style="background: rgba(0,0,0,0.5); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; text-align: center;">
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">AUTHORIZATION STATUS</div>
+                <div style="font-size: 2rem; color: var(--neon-green); font-weight: bold; font-family: var(--font-mono); display: flex; justify-content: center; align-items: baseline; gap: 0.5rem;">
+                    <span id="nuclear-current-votes">0</span> 
+                    <span style="font-size: 1rem; color: var(--text-muted);">/</span> 
+                    <span id="nuclear-required-votes" style="font-size: 1.5rem;">2</span>
+                </div>
+            </div>
+
+            <input type="password" id="nuclear-password-input" class="custom-input" placeholder="Enter Launch Code" style="text-align: center; font-size: 1.2rem; letter-spacing: 3px; font-weight: bold; margin-bottom: 1.5rem; border-color: #fcee0a;" autocomplete="off">
+            
+            <div style="display: flex; gap: 1rem;">
+                <button id="btn-cancel-nuclear" class="custom-btn" style="flex: 1; background: transparent; border-color: var(--text-muted); color: var(--text-muted);">CANCEL</button>
+                <button id="btn-submit-nuclear" class="custom-btn" style="flex: 1; border-color: #fcee0a; color: #000; background: #fcee0a; font-weight: bold;">AUTHORIZE</button>
+            </div>
         </div>
     </div>
 

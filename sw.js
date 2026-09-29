@@ -22,9 +22,34 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-    if (e.request.method !== 'GET') return;
-
     const url = e.request.url;
+
+    // Intercept Web Share Target POST request
+    if (e.request.method === 'POST' && url.includes('/index.html')) {
+        e.respondWith((async () => {
+            try {
+                const formData = await e.request.formData();
+                const files = formData.getAll('shared_files');
+                if (files && files.length > 0) {
+                    const db = await new Promise((resolve, reject) => {
+                        const req = indexedDB.open('LocalCastShareDB', 1);
+                        req.onupgradeneeded = () => req.result.createObjectStore('shares');
+                        req.onsuccess = () => resolve(req.result);
+                        req.onerror = () => reject(req.error);
+                    });
+                    const tx = db.transaction('shares', 'readwrite');
+                    tx.objectStore('shares').put(files, 'pending_files');
+                    await new Promise(r => tx.oncomplete = r);
+                }
+            } catch (err) {
+                console.error("SW Share Target Error:", err);
+            }
+            return Response.redirect('./index.html', 303);
+        })());
+        return;
+    }
+
+    if (e.request.method !== 'GET') return;
 
     // CRITICAL: NEVER intercept PeerJS signaling, WebSockets, or live broker endpoints
     if (url.includes('0.peerjs.com') || (url.includes('/peerjs/') && !url.endsWith('.js')) || url.startsWith('ws:') || url.startsWith('wss:')) {

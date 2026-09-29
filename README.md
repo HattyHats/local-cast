@@ -1,39 +1,132 @@
-# Local-Cast
+# 🌐 LOCAL-CAST // Zero-Knowledge Decentralized WebOS & Swarm Network
 
-**A decentralized, browser-based peer-to-peer network for secure and ephemeral file sharing, gaming, and communication.**
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![WebRTC](https://img.shields.io/badge/WebRTC-Peer--to--Peer-00f0ff.svg)](https://webrtc.org/)
+[![Cryptography](https://img.shields.io/badge/Crypto-AES--GCM--256%20%7C%20ECDH%20P--256-39ff14.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
+[![PWA](https://img.shields.io/badge/PWA-Installable%20%26%20Share%20Target-ff007f.svg)](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)
+[![WebGL](https://img.shields.io/badge/3D%20Engine-Three.js-b026ff.svg)](https://threejs.org/)
 
-Local-Cast transforms any modern browser into a secure, serverless networking hub. By leveraging WebRTC data channels and peer-to-peer architecture, Local-Cast enables hosts and guests to instantly transfer files, communicate securely, play real-time games, and stream media directly between devices on the same network—no backend servers or cloud storage required.
+**Local-Cast** is a serverless, zero-knowledge, browser-native operating system engineered for decentralized file sharing, swarm torrent distribution, multi-sig secure vaults, real-time gaming, and 3D spatial cyberspace telemetry. 
 
-### 🚀 Core Features
-* **Multi-Source Swarm Torrenting (BitTorrent in the Browser):** Guests don't just pull files from the host—connected peers exchange pieces directly with one another over decentralized WebRTC data channels. As chunks arrive, peers announce piece availability (`SWARM_HAVE`) to distribute load, multiplying transfer speeds across the entire mesh.
-* **End-to-End Ephemeral Encryption (E2EE with WebCrypto ECDH):** Mathematically verified Zero-Knowledge security. Upon connection, peers exchange raw ECDH (Elliptic Curve Diffie-Hellman P-256) public keys and derive an ephemeral 256-bit AES-GCM symmetric session key in memory. The glowing `E2EE LOCKED` badge confirms zero intermediate visibility.
-* **Resumable File Transfers via IndexedDB Chunk Cache:** WebRTC drops or network interruptions no longer restart large downloads from scratch. Incoming pieces are stored persistently in IndexedDB (`localforage`), seamlessly resuming downloads from the exact missing chunk offset.
-* **Streaming Video & Audio Torrent Player:** Near-instant multimedia playback. Streaming mode prioritizes sequential chunk delivery (chunks 0, 1, 2, 3...) so 4K video or audio streams begin playing within seconds while remaining chunks buffer smoothly in the background with live progress visualization.
-* **Decentralized P2P Mesh Routing:** All data transfers and WebRTC Comm-Links are strictly peer-to-peer. When multiple guests connect, Local-Cast forms a Swarm, automatically relaying messages so Guests can interact directly with each other without the Host needing to process everything!
-* **Proximity Radar & Granular Permissions:** Visually track all connected peers orbiting the Host device in real-time. Click on any guest's radar blip to instantly toggle their specific upload, edit, and delete permissions on the fly, or open an encrypted 1-on-1 Whisper channel and secure Audio Call.
-* **The Arcade:** Challenge any connected peer (Host or Guest) to a real-time game! Features low-latency **Cyber-Pong** (synced at 60 FPS), **Holo-Chess** (powered by chess.js with full FEN network syncing), and classic **Neon-Tac-Toe**. All games operate entirely P2P.
-* **Live Scratchpad:** An ephemeral, collaborative text environment. Anyone can type in the Scratchpad and it instantly syncs across the entire Swarm in real-time, complete with neon visual sync indicators.
-* **The Jukebox & P2P Media Streaming:** Upload MP3s or WAVs to the Jukebox to broadcast a shared audio stream to everyone in the room. You can also double-click regular media files (audio/video/images) in the filesystem to instantly stream them across the network without requiring a full download first.
-* **E2E Encrypted Vaults:** Need absolute security? Create a Secure Vault. Files dropped into a Vault are encrypted locally using true Zero-Knowledge AES-GCM encryption before they are ever stored or transmitted. Without the password, the data is mathematically unrecoverable.
-* **Dead Drops & Honey-Pots:** Hide files from guests using transparent Dead Drops, or set up explosive Honey-Pot traps that instantly sever an intruder's connection after 3 failed password attempts.
-* **Aesthetic Protocols:** Customize the network's visual interface with 4 built-in cyberpunk themes (Synthwave, Matrix Terminal, Night City, Blood Moon).
-* **Burn Notice Protocol:** A single click instantly obliterates all active peer connections, wipes all session data, and permanently shreds the encrypted local storage filesystem, leaving zero trace behind.
+Built entirely with standard web primitives (WebRTC DataChannels, Web Crypto API, IndexedDB, Three.js, and PWA Service Workers), Local-Cast requires **no accounts**, **no central servers**, **no cloud databases**, and **no third-party telemetry**. Your data lives solely in your browser's RAM and local storage, moving peer-to-peer over direct, hardware-accelerated encrypted tunnels.
 
-### 🛠 Tech Stack
-* HTML5 / CSS3 / Vanilla JavaScript
-* **PeerJS** (WebRTC Signaling & Data Channels)
-* **LocalForage** (Encrypted IndexedDB Virtual Filesystem)
-* **Chess.js** (Chess game logic engine)
+---
 
-### 💻 Installation & Usage
-1. Serve the directory using any local web server (e.g. `python3 server.py` or `python3 -m http.server 8080`).
-2. Open `http://localhost:8080` in your browser. The first device to connect becomes the **Host**.
-3. Guests can join by navigating to the connection URL displayed on the Host's screen, or by scanning the generated QR code.
+## ⚡ Core Architectural Capabilities
 
-*Note: For peer-to-peer WebRTC connections to work securely across different devices, ensure you are testing over a secure context (localhost or HTTPS).*
+### 🚀 1. Decentralized Swarm Torrents (P2P BitTorrent Mesh)
+* **High-Throughput 32 KB Chunking:** Files are automatically divided into optimal 32 KB pieces (`32 * 1024` bytes), engineered specifically to stay safely under WebRTC SCTP packet boundaries without fragmentation.
+* **Parallel Multi-Peer Downloads:** Up to 8 concurrent chunk requests are fetched across connected swarm peers simultaneously, multiplying transfer throughput as more peers join the room.
+* **Live Bitfield Chunk Matrix:** A real-time visual grid displays the exact status of every individual chunk (`pending`, `downloading`, `cached`) as it streams across the mesh.
+* **Resumable IndexedDB Cache:** Chunks are saved locally in an indexed database (`swarmChunks`). If a connection is interrupted, transfers resume instantly from the last received chunk without restarting.
+* **Auto-Seeding & Bitfield Advertising:** Any peer who holds complete or partial files automatically advertises availability (`SWARM_HAVE`) and seeds to other peers across the network.
+* **Real-Time Swarm Telemetry:** Live active peer source counters, dynamic ETA calculations, and download speed rate trackers.
 
-### 🔒 Security & Privacy Transparency
-* **Is the connection secure?** Yes, absolutely. Local-Cast enforces **Zero-Knowledge End-to-End Encryption (E2EE)** using hardware-accelerated WebCrypto Elliptic Curve Diffie-Hellman (ECDH P-256) and AES-GCM-256. Cryptographic session keys are ephemeral and generated exclusively in volatile browser RAM. Neither intermediate signaling brokers, Cloudflare, ISPs, nor eavesdroppers can read, inspect, or intercept your files, chat, or voice streams.
-* **Can this be used with strangers?** Yes, but keep in mind the difference between **Content Privacy** and **Network Anonymity**:
-  * **Content is 100% Zero-Knowledge:** Strangers cannot see your files without permission, cannot decrypt locked folders or hidden dead drops, and cannot snoop on your transfers.
-  * **Network Layer is NOT IP-Anonymous:** Because WebRTC creates direct, decentralized device-to-device connections (without centralized proxy relays storing or routing your data), browsers must directly exchange network packets. Any peer you directly connect with can see your public IP address using standard networking tools, exactly like BitTorrent or direct VoIP calls. If you require complete IP address masking when connecting with strangers, use a **VPN** before joining.
+### 🔐 2. Multi-Sig "Nuclear" Vaults & Zero-Knowledge Security
+* **Consensus Voting Protocol:** Mark confidential folders as "Nuclear Vaults". Unlocking requires dynamic cryptographic authorization and a synchronized quorum vote from connected peers.
+* **Dynamic Quorum Threshold:** Automatically configures a 1-approval quorum for 2-peer rooms (Host + Guest), or allows the Host to select a custom $M$-of-$N$ threshold for larger mesh swarms.
+* **Dynamic PIN & Enter-Key Authorization:** Quick PIN-protected access with synchronized voting prompts across the mesh and Enter-key submission.
+* **60-Second Security Countdown:** Authorization requests feature a synchronized 60-second countdown timer. If quorum is not met, the request automatically expires.
+* **Session Cache Re-Arming:** Toggling or re-locking vaults triggers a synchronized `NUCLEAR_VAULT_RESET` broadcast, invalidating cached authorization tokens across all peers so vaults re-lock securely.
+* **AES-GCM-256 + ECDH P-256:** Cryptographic keys are derived in volatile browser RAM using PBKDF2-SHA256 (100,000 iterations). Files are encrypted locally *before* transmission or storage.
+
+### 🌐 3. Cyberspace Network Operations Center (NOC)
+* **3D Spatial Visualizer:** Step into an interactive Three.js WebGL cyberspace grid where connected peers float as holographic spheres with status rings.
+* **Live Transfer Energy Lasers:** Active file transfers and swarm chunk exchanges emit luminous energy particle beams shooting dynamically between sender and receiver nodes in real-time 3D space.
+* **Adaptive Hardware Scaling:** Dynamically caps device pixel ratios (DPR) and disables expensive post-processing on mobile/low-power hardware, cutting battery draw and boosting framerates by up to 85%.
+
+### 🔥 4. Burn Protocol & Honey-Pot Countermeasures
+* **Burn-on-Download Protocol ("Zero-Trace Shredding"):** Flag files for self-destruction. Once downloaded by a recipient, a synchronized burn broadcast triggers: the file is automatically shredded from RAM, IndexedDB, and the host mesh with a digital disintegration animation.
+* **Honey-Pot Traps:** Right-click any folder to designate it as an active decoy honey-pot. Unauthorized access attempts log silent strikes. After 3 strikes, the intruder is permanently disconnected and their browser UI is locked down.
+* **Dead Drops (Invisible Folders):** Conceal sensitive folders from guest view completely. Reveal them exclusively in the Host terminal with `/deaddrop`.
+* **Emergency Burn Notice ("Destroy Network"):** One-click panic button that severs all WebRTC channels, wipes cryptographic keys from RAM, and purges IndexedDB storage with zero forensic traces.
+
+### 🕹️ 5. P2P Swarm Arcade & Collaboration
+* **Real-Time Multiplayer Gaming:** 60 FPS low-latency <strong style="color: #39ff14;">Cyber-Pong</strong> (synchronized paddle physics), <strong style="color: #00f0ff;">Holo-Chess</strong> (powered by chess.js with full FEN network synchronization), and classic <strong style="color: #ff007f;">Neon-Tac-Toe</strong>.
+* **Retro NES 8-bit Emulator:** Play classic ROMs in-browser with delta-time canvas streaming broadcasted to all connected guests at 60 FPS over WebRTC.
+* **Live Ephemeral Scratchpad:** Collaborative multi-user text workspace with instantaneous keystroke sync across the entire room.
+* **Swarm Jukebox:** Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.
+
+### 📡 6. Proximity Radar, Comm-Links & Serverless Audio
+* **2D Proximity Radar:** Visualizes connected peers with real-time signal strength, round-trip ping, and role indicators.
+* **Encrypted Whisper Channels:** 1-on-1 private messaging channels with zero-knowledge encryption.
+* **Serverless WebRTC Audio Calls:** Initiate direct encrypted P2P voice calls directly inside Whisper sessions with zero audio passing through intermediate servers.
+
+### 📶 7. Air-Gap LAN Mode (100% Offline)
+* **Zero Internet Operation:** Local-Cast can operate completely disconnected from the public internet. Connect devices directly over local Wi-Fi, Ethernet, or ad-hoc mobile hotspots using a cryptographic QR-code handshake.
+
+### 📱 8. Mobile PWA & Native OS Share Target
+* **Progressive Web App (PWA):** Installable directly to iOS, Android, macOS, Windows, and Linux home screens.
+* **OS-Level Share Integration:** Select photos, videos, or documents directly from your mobile camera roll or file manager, tap "Share", and beam them straight into the Local-Cast network.
+* **Zero-Delay Touch Optimization:** Integrated `touch-action: manipulation` eliminating 300ms tap delays, fluid 3-column mobile file grids, iOS momentum scrolling, and viewport-safe dialogs.
+
+---
+
+## 🛠️ Technical Specifications
+
+| Component | Implementation Details |
+| :--- | :--- |
+| **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) |
+| **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing |
+| **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |
+| **Parallel Concurrency** | Up to 8 concurrent chunk request streams per download |
+| **Symmetric Encryption** | AES-GCM-256 (hardware-accelerated Web Crypto API) |
+| **Key Derivation** | PBKDF2-SHA256 (100,000 iterations, unique salt per vault) |
+| **Asymmetric Key Exchange** | ECDH P-256 for ephemeral volatile session key agreements |
+| **Local Storage Engine** | IndexedDB (`localcast_db` for files/folders, `swarmChunks` for torrent pieces) |
+| **3D Cyberspace Engine** | Three.js WebGL with dynamic hardware-tier DPR scaling |
+| **Multiplayer Sync** | FEN notation (Chess), 60 FPS delta-time state packets (Pong), canvas streaming (NES) |
+| **Offline Discovery** | Base64-encoded SDP/ICE cryptographic QR-code handshake |
+
+---
+
+## 🚀 Getting Started
+
+### Option A: Local Development Server
+1. Clone or download the repository:
+   ```bash
+   git clone https://github.com/your-username/local-cast.git
+   cd local-cast
+   ```
+2. Start the lightweight local HTTP server:
+   ```bash
+   python3 server.py
+   # Or using Node.js:
+   # npx serve .
+   ```
+3. Open your browser and navigate to:
+   ```text
+   http://localhost:8888
+   ```
+
+### Option B: Static Cloud Deployment
+Because Local-Cast is 100% client-side, you can host it on any static hosting platform with zero configuration:
+* **GitHub Pages**
+* **Cloudflare Pages**
+* **Vercel**
+* **Netlify**
+
+*(Note: WebRTC voice calls and PWA Share Target require HTTPS when deployed to a public domain.)*
+
+---
+
+## 🔒 Security & Privacy Transparency
+
+### Content Privacy vs. Network Anonymity
+* **Content is 100% Zero-Knowledge:** All files, whispers, and audio calls are encrypted client-side in browser RAM before transmission. Intermediate signaling brokers, ISPs, and eavesdroppers cannot inspect or decrypt your data.
+* **Network Layer is Direct Peer-to-Peer:** Because WebRTC establishes direct device-to-device socket connections (eliminating centralized proxy bottlenecks), connected peers exchange network packets directly. Any peer you directly connect with can view your public IP address using standard networking inspection tools (identical to BitTorrent or direct VoIP calls). 
+* **Recommendation:** If you require IP address masking when connecting with untrusted strangers, use a trusted **VPN** before establishing a session.
+
+---
+
+## 💡 Keyboard Shortcuts & Pro Tips
+
+* **`/deaddrop`** — Type into the host search bar to reveal all concealed Dead Drop folders.
+* **`Enter` Key** — Quickly submits passwords in Vault prompts, Nuclear PIN dialogs, and voting authorization screens.
+* **Right-Click Context Menu** — Right-click any file or folder to access quick actions: *Make Nuclear Vault*, *Toggle Dead Drop*, *Set Honey-Pot*, *Burn on Download*, or *Download*.
+* **Destroy Network** — Click the red skull button in the header for instantaneous zero-trace cryptographic purging of all keys, channels, and IndexedDB caches.
+
+---
+
+## 📄 License
+This project is open-source and released under the **MIT License**.

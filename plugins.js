@@ -399,6 +399,42 @@ function initCyberspace() {
     const starsMesh = new THREE.Points(starsGeo, starsMat);
     scene.add(starsMesh);
 
+    window.cyberspaceBeams = [];
+    window.triggerCyberspaceBeam = function(fromId, toId, color = '#00f0ff') {
+        if (typeof scene === 'undefined' || !scene || cyberspaceOverlay.classList.contains('hidden') || isCyberspacePaused) return;
+        
+        // Throttle beams to prevent memory leaks / extreme lag during torrents
+        if (window.cyberspaceBeams.length > 50) return; 
+
+        let p1, p2;
+        if (fromId === 'host') p1 = hostMesh.position;
+        else if (peerMeshes[fromId]) p1 = peerMeshes[fromId].mesh.position;
+        else p1 = hostMesh.position; // fallback
+
+        if (toId === 'host') p2 = hostMesh.position;
+        else if (peerMeshes[toId]) p2 = peerMeshes[toId].mesh.position;
+        else p2 = hostMesh.position; // fallback
+
+        if (!p1 || !p2) return;
+
+        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color) });
+        // Create an elongated diamond/laser shape
+        const geo = new THREE.CylinderGeometry(0, 0.4, 2, 4);
+        geo.rotateX(Math.PI / 2); // Point along Z axis
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(p1);
+        mesh.lookAt(p2);
+        
+        scene.add(mesh);
+        window.cyberspaceBeams.push({
+            mesh: mesh,
+            start: p1.clone(),
+            end: p2.clone(),
+            progress: 0,
+            speed: 0.03 + (Math.random() * 0.02)
+        });
+    };
+
     let angle = 0;
     peerMeshes = {};
 
@@ -504,6 +540,21 @@ function initCyberspace() {
                 
                 updateLabel(p.mesh, alias, colorHex, p.label);
             });
+        }
+
+        if (window.cyberspaceBeams) {
+            for (let i = window.cyberspaceBeams.length - 1; i >= 0; i--) {
+                const b = window.cyberspaceBeams[i];
+                if (!isCyberspacePaused) b.progress += b.speed;
+                if (b.progress >= 1) {
+                    scene.remove(b.mesh);
+                    if (b.mesh.geometry) b.mesh.geometry.dispose();
+                    if (b.mesh.material) b.mesh.material.dispose();
+                    window.cyberspaceBeams.splice(i, 1);
+                } else {
+                    b.mesh.position.lerpVectors(b.start, b.end, b.progress);
+                }
+            }
         }
 
         renderer.render(scene, camera);

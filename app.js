@@ -105,10 +105,10 @@ function cyberAlert(message, title = 'SECURITY NOTICE', isDanger = false) {
         const onConfirm = () => {
             btnCyberConfirm.removeEventListener('click', onConfirm);
             cyberDialogModal.classList.add('hidden');
-            resolve();
+            setTimeout(resolve, 80);
         };
         if (btnCyberConfirm) btnCyberConfirm.addEventListener('click', onConfirm, { once: true });
-        else resolve();
+        else setTimeout(resolve, 80);
     });
 }
 
@@ -145,7 +145,7 @@ function cyberConfirm(message, title = 'SECURITY CONFIRMATION', isDanger = false
             if (btnCyberConfirm) btnCyberConfirm.removeEventListener('click', onConfirm);
             if (btnCyberCancel) btnCyberCancel.removeEventListener('click', onCancel);
             cyberDialogModal.classList.add('hidden');
-            resolve(result);
+            setTimeout(() => resolve(result), 80);
         };
         const onConfirm = () => cleanup(true);
         const onCancel = () => cleanup(false);
@@ -175,7 +175,10 @@ function cyberPrompt(message, defaultValue = '', title = 'INPUT REQUIRED') {
         }
         if (cyberDialogIcon) cyberDialogIcon.classList.remove('danger');
         cyberDialogModal.classList.remove('hidden');
-        if (cyberDialogInput) cyberDialogInput.focus();
+        if (cyberDialogInput) {
+            cyberDialogInput.value = defaultValue;
+            setTimeout(() => cyberDialogInput.focus(), 50);
+        }
         playCyberChime(600, 'sine', 0.15);
 
         const cleanup = (val) => {
@@ -183,7 +186,7 @@ function cyberPrompt(message, defaultValue = '', title = 'INPUT REQUIRED') {
             if (btnCyberCancel) btnCyberCancel.removeEventListener('click', onCancel);
             if (cyberDialogInput) cyberDialogInput.removeEventListener('keydown', onKey);
             cyberDialogModal.classList.add('hidden');
-            resolve(val);
+            setTimeout(() => resolve(val), 80);
         };
         const onConfirm = () => cleanup(cyberDialogInput ? cyberDialogInput.value : '');
         const onCancel = () => cleanup(null);
@@ -326,7 +329,7 @@ try {
 } catch (e) {
     console.warn("LocalForage config failed:", e);
 }
-const CHUNK_SIZE = 16 * 1024; // 16 KB for safe WebRTC transmission
+const CHUNK_SIZE = 32 * 1024; // 32 KB for high-throughput WebRTC data delivery
 const incomingTransfers = {};
 let selectedNodes = new Set();
 
@@ -403,7 +406,8 @@ const btnConfirmVaultPassword = document.getElementById('btn-confirm-vault-passw
 const vaultPasswordInput = document.getElementById('vault-password-input');
 
 let unlockedVaults = {}; // mapping: folderId -> password
-
+let activeNuclearVotes = {}; // mapping: folderId -> Set of peerIds
+let nuclearVoteTimers = {}; // mapping: folderId_peerId -> timeoutId
 // Crypto Engine
 async function deriveKey(password, salt) {
     const enc = new TextEncoder();
@@ -535,22 +539,49 @@ if (btnMinimizeTransfers) {
 }
 
 const activeTransfers = {};
-function createTransferItem(id, name, type) { // type: 'upload' or 'download'
+function createTransferItem(id, name, type, extra = {}) { // type: 'upload' or 'download'
     if (transferDashboard) {
         transferDashboard.classList.remove('hidden');
     }
     const el = document.createElement('div');
-    el.className = 'transfer-item ' + type;
+    const isSwarm = extra.isSwarm || (typeof swarmConnections !== 'undefined' && swarmConnections.length > 0) || type === 'download';
+    el.className = 'transfer-item ' + type + (isSwarm ? ' swarm' : '');
     const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
     const safeName = escapeHtml(name);
+    const totalChunks = extra.totalChunks || 24;
+    const numCells = Math.min(32, Math.max(12, totalChunks));
+    let matrixCellsHtml = '';
+    if (isSwarm) {
+        for (let i = 0; i < numCells; i++) {
+            matrixCellsHtml += `<div class="swarm-chunk-cell" id="cell-${safeId}-${i}"></div>`;
+        }
+    }
+    
     el.innerHTML = `
         <div class="transfer-header">
-            <span class="transfer-filename" title="${safeName}">${safeName}</span>
+            <div class="transfer-title-group">
+                <span class="transfer-filename" title="${safeName}">${safeName}</span>
+                ${isSwarm ? `
+                <span class="swarm-badge" id="swarm-badge-${safeId}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                    <span>SWARM</span>
+                </span>` : ''}
+            </div>
             <span class="transfer-speed" id="speed-${safeId}">0 MB/s</span>
         </div>
         <div class="transfer-progress-bg">
             <div class="transfer-progress-fill" id="prog-${safeId}"></div>
         </div>
+        ${isSwarm ? `
+        <div class="swarm-matrix-track" id="matrix-${safeId}" title="Swarm Chunk Bitfield Matrix">
+            ${matrixCellsHtml}
+        </div>
+        <div class="swarm-telemetry-row">
+            <span class="swarm-stat-sources" id="sources-${safeId}">
+                ⚡ ${typeof swarmConnections !== 'undefined' && swarmConnections.length > 0 ? (swarmConnections.length + 1) + ' Sources (Host + ' + swarmConnections.length + ' Peers)' : 'Initial Seeder (Host)'}
+            </span>
+            <span class="swarm-stat-eta" id="eta-${safeId}">Calculating ETA...</span>
+        </div>` : ''}
     `;
     if (transferList) {
         transferList.prepend(el); // newest on top
@@ -560,12 +591,17 @@ function createTransferItem(id, name, type) { // type: 'upload' or 'download'
         bytes: 0,
         lastBytes: 0,
         lastTime: Date.now(),
-        speedEl: el.querySelector('#speed-' + id),
-        progEl: el.querySelector('#prog-' + id),
-        totalSize: 1 // prevent div by zero
+        speedEl: el.querySelector('#speed-' + safeId),
+        progEl: el.querySelector('#prog-' + safeId),
+        sourcesEl: el.querySelector('#sources-' + safeId),
+        etaEl: el.querySelector('#eta-' + safeId),
+        matrixTrack: el.querySelector('#matrix-' + safeId),
+        totalChunks: totalChunks,
+        numCells: numCells,
+        totalSize: extra.totalSize || 1
     };
 }
-function updateTransferProgress(id, newBytesSent, totalSize) {
+function updateTransferProgress(id, newBytesSent, totalSize, chunkIndex = null) {
     const t = activeTransfers[id];
     if (!t) return;
     t.bytes += newBytesSent;
@@ -573,15 +609,41 @@ function updateTransferProgress(id, newBytesSent, totalSize) {
     
     const now = Date.now();
     const dt = now - t.lastTime;
-    if (dt >= 500) { // Update speed every 500ms
+    if (dt >= 400) { // Update speed & telemetry every 400ms
         const dBytes = t.bytes - t.lastBytes;
-        const speedMBps = (dBytes / (1024 * 1024)) / (dt / 1000);
-        t.speedEl.textContent = speedMBps.toFixed(2) + ' MB/s';
+        const speedBps = dBytes / (dt / 1000);
+        const speedMBps = speedBps / (1024 * 1024);
+        if (t.speedEl) t.speedEl.textContent = speedMBps.toFixed(2) + ' MB/s';
+        
+        if (t.etaEl && speedBps > 0) {
+            const remainingBytes = Math.max(0, totalSize - t.bytes);
+            const etaSec = Math.ceil(remainingBytes / speedBps);
+            t.etaEl.textContent = etaSec > 60 ? `ETA: ${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ${etaSec}s`;
+        }
+        
+        if (t.sourcesEl && typeof swarmConnections !== 'undefined') {
+            const activeCount = swarmConnections.filter(c => c && c.open).length;
+            t.sourcesEl.textContent = activeCount > 0 
+                ? `⚡ ${activeCount + 1} Sources (Host + ${activeCount} Peers)` 
+                : `⚡ 1 Source (Host)`;
+        }
+
         t.lastBytes = t.bytes;
         t.lastTime = now;
     }
     const percent = Math.min(100, (t.bytes / totalSize) * 100);
-    t.progEl.style.width = percent + '%';
+    if (t.progEl) t.progEl.style.width = percent + '%';
+
+    // Illuminate chunk in visual bitfield matrix
+    if (t.matrixTrack && chunkIndex !== null && t.totalChunks) {
+        const cellIdx = Math.floor((chunkIndex / t.totalChunks) * t.numCells);
+        const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+        const cell = t.matrixTrack.querySelector(`#cell-${safeId}-${cellIdx}`);
+        if (cell) {
+            cell.classList.remove('inflight');
+            cell.classList.add('completed');
+        }
+    }
 }
 function finishTransfer(id) {
     const t = activeTransfers[id];
@@ -972,7 +1034,10 @@ class VirtualFileSystem {
             const n = { 
                 id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, thumbnail: node.thumbnail,
                 isLocked: !!node.password, isVault: !!node.isVault, isUnlocked, isHidden: node.isHidden,
-                isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv
+                isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv,
+                isBurn: !!node.isBurn,
+                isNuclear: !!node.isNuclear,
+                nuclearVotesRequired: node.nuclearVotesRequired
             };
             if (node.children) {
                 if ((node.password || node.isVault) && !isUnlocked) {
@@ -1835,6 +1900,9 @@ async function initHost() {
                     transfer.chunks[data.index] = data.chunk;
                     transfer.received++;
                     updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
+                    if (window.triggerCyberspaceBeam) {
+                        window.triggerCyberspaceBeam(conn.peer, 'host', '#00f0ff');
+                    }
                     if (transfer.received === transfer.total) {
                         finishTransfer(data.id);
                         const fileBlob = new Blob(transfer.chunks, { type: transfer.mime });
@@ -1925,6 +1993,24 @@ async function initHost() {
                         notifyFileAdded(transfer.name);
                     }
                 }
+            } else if (data.type === 'BURN_CONSUMED') {
+                const node = vfs.findNode(data.fileId);
+                if (node && node.isBurn && node.parent) {
+                    node.parent.children = node.parent.children.filter(c => c.id !== data.fileId);
+                    saveVFSToDB();
+                    renderHostExplorer();
+                    broadcastTree();
+                    
+                    showToast(`🔥 Burn Protocol Activated: ${node.name} has self-destructed.`);
+                    
+                    // Force the screen to flash red
+                    document.body.style.transition = 'none';
+                    document.body.style.backgroundColor = 'rgba(255, 0, 0, 0.4)';
+                    setTimeout(() => {
+                        document.body.style.transition = 'background-color 2s ease-out';
+                        document.body.style.backgroundColor = '';
+                    }, 50);
+                }
             } else if (data.type === 'CLIENT_MOVE_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
                     const node = vfs.findNode(data.id);
@@ -1957,6 +2043,24 @@ async function initHost() {
                 } else {
                     conn.send({ type: 'ALERT', message: 'Rename failed: No delete permission on Host. Permissions object: ' + JSON.stringify(conn.permissions) });
                 }
+            } else if (data.type === 'CLIENT_TOGGLE_BURN') {
+                if (conn.permissions && (conn.permissions.upload || conn.permissions.edit)) {
+                    const node = vfs.findNode(data.id);
+                    if (node && node.type === 'file' && !node.isLocked && isNodeAuthorizedForConnection(node, conn)) {
+                        if (node.isBurn) {
+                            delete node.isBurn;
+                        } else {
+                            node.isBurn = true;
+                        }
+                        saveVFSToDB();
+                        renderHostExplorer();
+                        broadcastTree();
+                    }
+                } else {
+                    conn.send({ type: 'ALERT', message: 'Action failed: No upload or edit permission.' });
+                }
+            } else if (data.type === 'NUCLEAR_VOTE') {
+                handleNuclearVote(data.folderId, conn.peer, data.pin);
             } else if (data.type === 'CLIENT_DELETE_NODE') {
                 if (conn.permissions && conn.permissions.delete) {
                     const node = vfs.findNode(data.id);
@@ -2027,6 +2131,67 @@ async function initHost() {
     }
 }
 
+
+function broadcastNuclearUpdate(folderId, current, required) {
+    const msg = { type: 'NUCLEAR_VOTE_UPDATE', folderId, current, required };
+    if (typeof updateNuclearModalUI === 'function') updateNuclearModalUI(folderId, current, required);
+    connections.forEach(c => {
+        if (c.open && c.isAuthenticated) c.send(msg);
+    });
+}
+
+function handleNuclearVote(folderId, peerId, pin) {
+    const node = vfs.findNode(folderId);
+    if (!node || !node.isNuclear) return false;
+    if (node.password !== pin) {
+        if (peerId === 'host') {
+            showToast("❌ Incorrect Nuclear Launch Code", "error");
+        } else {
+            const c = connections.find(conn => conn.peer === peerId);
+            if (c && c.open) c.send({ type: 'ALERT', message: '❌ Incorrect Nuclear Launch Code. Authorization rejected.' });
+        }
+        return false;
+    }
+    
+    if (!activeNuclearVotes[folderId]) activeNuclearVotes[folderId] = new Set();
+    activeNuclearVotes[folderId].add(peerId);
+    
+    const currentVotes = activeNuclearVotes[folderId].size;
+    const requiredVotes = node.nuclearVotesRequired;
+    
+    broadcastNuclearUpdate(folderId, currentVotes, requiredVotes);
+    
+    // Set 60-second timer to remove vote
+    const voteKey = folderId + '_' + peerId;
+    if (nuclearVoteTimers[voteKey]) clearTimeout(nuclearVoteTimers[voteKey]);
+    nuclearVoteTimers[voteKey] = setTimeout(() => {
+        if (activeNuclearVotes[folderId]) {
+            activeNuclearVotes[folderId].delete(peerId);
+            broadcastNuclearUpdate(folderId, activeNuclearVotes[folderId].size, requiredVotes);
+        }
+    }, 60000);
+    
+    // Check if unlocked
+    if (currentVotes >= requiredVotes) {
+        // Unlock it globally for this session
+        unlockedVaults[folderId] = pin;
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated) c.unlockedFolders.add(folderId);
+        });
+        
+        // Notify success
+        const successMsg = { type: 'NUCLEAR_UNLOCK_SUCCESS', folderId, pin };
+        if (typeof handleNuclearUnlockSuccess === 'function') handleNuclearUnlockSuccess(folderId, pin);
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated) c.send(successMsg);
+        });
+        
+        broadcastTree();
+        if (typeof renderHostExplorer === 'function') renderHostExplorer();
+        return true;
+    }
+    return false;
+}
 
 function broadcastPeers() {
     if (!isHost) return;
@@ -2501,7 +2666,9 @@ function renderHostExplorer() {
             `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password || child.isVault ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
-        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${safeName}</div>`;
+        const burnIcon = child.isBurn ? '🔥 ' : '';
+        const nuclearIcon = child.isNuclear ? '☢️ ' : '';
+        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>`;
         item.draggable = true;
         
         if (child.isHoneyPot) {
@@ -2574,7 +2741,9 @@ function renderHostExplorer() {
             });
             
             item.addEventListener('dblclick', () => {
-                if (child.isVault && !unlockedVaults[child.id]) {
+                if (child.isNuclear && !unlockedVaults[child.id]) {
+                    openNuclearModal(child);
+                } else if (child.isVault && !unlockedVaults[child.id]) {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
                     
@@ -2609,6 +2778,15 @@ function renderHostExplorer() {
             contextMenu.classList.remove('hidden');
             if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = child.type === 'folder' ? 'flex' : 'none';
             if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = child.type === 'file' ? 'flex' : 'none';
+            if (document.getElementById('ctx-multisig')) {
+                const el = document.getElementById('ctx-multisig');
+                el.style.display = child.type === 'folder' ? 'flex' : 'none';
+                if (child.type === 'folder') {
+                    el.innerHTML = child.isNuclear 
+                        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Disarm Nuclear Vault`
+                        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Make Nuclear Vault`;
+                }
+            }
         });
         
         if (child.type === 'file' && (child.name.endsWith('.txt') || child.name.endsWith('.md'))) {
@@ -2718,6 +2896,57 @@ function renderBreadcrumbs(currentDir, container, onClick) {
     });
 }
 
+function setupSwarmPeerConnection(conn) {
+    if (!conn) return;
+    const handleOpen = () => {
+        if (!swarmConnections.find(c => c.peer === conn.peer)) {
+            swarmConnections.push(conn);
+            printCli('⚡ Swarm peer connected: ' + conn.peer, 'var(--neon-green)');
+            sendEcdhHandshake(conn);
+            // Immediately broadcast local bitfields so peer knows what we have
+            if (typeof localFileBitfields !== 'undefined') {
+                localFileBitfields.forEach((bitfield, fileId) => {
+                    bitfield.forEach(chunkIdx => {
+                        try { conn.send({ type: 'SWARM_HAVE', fileId, chunkIndex: chunkIdx }); } catch(e) {}
+                    });
+                });
+            }
+            if (window.triggerCyberspaceBeam && peer) {
+                window.triggerCyberspaceBeam(peer.id, conn.peer, '#00f0ff');
+            }
+        }
+    };
+    if (conn.open) handleOpen();
+    else conn.on('open', handleOpen);
+
+    conn.on('data', (data) => {
+        if (data.type === 'ECDH_KEY_EXCHANGE') {
+            handlePeerEcdhKey(conn.peer, data.publicKey).then(key => {
+                if (key && !conn._ecdhSent) {
+                    conn._ecdhSent = true;
+                    sendEcdhHandshake(conn);
+                }
+            });
+        } else if (data.type === 'SWARM_REQUEST_CHUNK') {
+            handleGuestSwarmChunkRequest(conn, data.fileId, data.chunkIndex);
+        } else if (data.type === 'SWARM_CHUNK_DATA') {
+            handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, conn.peer);
+        } else if (data.type === 'SWARM_HAVE') {
+            registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
+        } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
+            handleArcadeNetwork(data);
+        }
+    });
+
+    conn.on('close', () => {
+        swarmConnections = swarmConnections.filter(c => c.peer !== conn.peer);
+    });
+    conn.on('error', (err) => {
+        console.warn('Swarm peer error:', conn.peer, err);
+        swarmConnections = swarmConnections.filter(c => c.peer !== conn.peer);
+    });
+}
+
 // --- CLIENT LOGIC ---
 async function initClient() {
     updateStatus('CONNECTING...', 'offline');
@@ -2767,36 +2996,7 @@ async function initClient() {
         // Intercept incoming connections for Swarm
         peer.on('connection', (conn) => {
             if (!isHost) {
-                conn.on('open', () => {
-                    if (!swarmConnections.find(c => c.peer === conn.peer)) {
-                        swarmConnections.push(conn);
-                        printCli('Swarm peer connected: ' + conn.peer, 'var(--neon-green)');
-                        sendEcdhHandshake(conn);
-                    }
-                });
-                
-                conn.on('data', (data) => {
-                    if (data.type === 'ECDH_KEY_EXCHANGE') {
-                        handlePeerEcdhKey(conn.peer, data.publicKey).then(key => {
-                            if (key && !conn._ecdhSent) {
-                                conn._ecdhSent = true;
-                                sendEcdhHandshake(conn);
-                            }
-                        });
-                    } else if (data.type === 'SWARM_REQUEST_CHUNK') {
-                        handleGuestSwarmChunkRequest(conn, data.fileId, data.chunkIndex);
-                    } else if (data.type === 'SWARM_CHUNK_DATA') {
-                        handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, conn.peer);
-                    } else if (data.type === 'SWARM_HAVE') {
-                        registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
-                    } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
-                        handleArcadeNetwork(data);
-                    }
-                });
-                
-                conn.on('close', () => {
-                    swarmConnections = swarmConnections.filter(c => c.peer !== conn.peer);
-                });
+                setupSwarmPeerConnection(conn);
             }
         });
 
@@ -2881,6 +3081,9 @@ async function initClient() {
                 // Reconstruct parent links for client navigation
                 function linkParents(node, parent) {
                     node.parent = parent;
+                    if (node.isNuclear && !node.isUnlocked && typeof clientUnlockedVaults !== 'undefined') {
+                        delete clientUnlockedVaults[node.id];
+                    }
                     if (node.children) node.children.forEach(c => linkParents(c, node));
                 }
                 linkParents(clientVFS, null);
@@ -2915,6 +3118,9 @@ async function initClient() {
                     transfer.chunks[data.index] = data.chunk;
                     transfer.received++;
                     updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
+                    if (window.triggerCyberspaceBeam) {
+                        window.triggerCyberspaceBeam('host', peer ? peer.id : 'unknown', '#39ff14');
+                    }
                     saveChunkToCache(data.id, data.index, data.chunk, transfer);
                     broadcastSwarmHave(data.id, data.index, transfer.total);
                     if (activeMediaStreamDownloader && activeMediaStreamDownloader.fileId === data.id) {
@@ -2992,6 +3198,24 @@ async function initClient() {
                 const ctxDelete = document.getElementById('ctx-delete');
                 if (ctxRename) ctxRename.style.display = myPermissions.delete ? 'flex' : 'none';
                 if (ctxDelete) ctxDelete.style.display = myPermissions.delete ? 'flex' : 'none';
+            } else if (data.type === 'NUCLEAR_VOTE_UPDATE') {
+                if (typeof updateNuclearModalUI === 'function') {
+                    updateNuclearModalUI(data.folderId, data.current, data.required);
+                }
+            } else if (data.type === 'NUCLEAR_UNLOCK_SUCCESS') {
+                if (typeof handleNuclearUnlockSuccess === 'function') {
+                    handleNuclearUnlockSuccess(data.folderId, data.pin);
+                }
+            } else if (data.type === 'NUCLEAR_VAULT_RESET') {
+                if (typeof clientUnlockedVaults !== 'undefined' && clientUnlockedVaults) {
+                    delete clientUnlockedVaults[data.folderId];
+                }
+                if (typeof activeNuclearFolderId !== 'undefined' && activeNuclearFolderId === data.folderId) {
+                    const m = document.getElementById('nuclear-vote-modal');
+                    if (m) m.classList.add('hidden');
+                    activeNuclearFolderId = null;
+                }
+                renderClientExplorer();
             } else if (data.type === 'UPLOAD_COMPLETE') {
                 // Let the processClientFiles loop handle the UI and final alert
             } else if (data.type === 'WHITEBOARD_DRAW') {
@@ -3036,33 +3260,11 @@ async function initClient() {
                 const map = data.peers;
                 map.forEach(peerId => {
                     if (peerId !== peer.id && !swarmConnections.find(c => c.peer === peerId)) {
-                        const conn = peer.connect(peerId, { reliable: true });
-                        conn.on('open', () => {
-                            swarmConnections.push(conn);
-                            printCli('Connected to Swarm peer: ' + peerId, 'var(--neon-green)');
-                            sendEcdhHandshake(conn);
-                        });
-                        conn.on('close', () => {
-                            swarmConnections = swarmConnections.filter(c => c.peer !== peerId);
-                        });
-                        conn.on('data', (d) => {
-                            if (d.type === 'ECDH_KEY_EXCHANGE') {
-                                handlePeerEcdhKey(conn.peer, d.publicKey).then(key => {
-                                    if (key && !conn._ecdhSent) {
-                                        conn._ecdhSent = true;
-                                        sendEcdhHandshake(conn);
-                                    }
-                                });
-                            } else if (d.type === 'SWARM_REQUEST_CHUNK') {
-                                handleGuestSwarmChunkRequest(conn, d.fileId, d.chunkIndex);
-                            } else if (d.type === 'SWARM_CHUNK_DATA') {
-                                handleIncomingSwarmChunk(d.fileId, d.chunkIndex, d.chunk, conn.peer);
-                            } else if (d.type === 'SWARM_HAVE') {
-                                registerSwarmHave(conn.peer, d.fileId, d.chunkIndex);
-                            } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(d.type)) {
-                                handleArcadeNetwork(d);
-                            }
-                        });
+                        // Deterministic initiator: only connect if my peer.id is alphabetically less than peerId
+                        if (peer.id < peerId) {
+                            const conn = peer.connect(peerId, { reliable: true });
+                            setupSwarmPeerConnection(conn);
+                        }
                     }
                 });
             } else if (data.type === 'KICK') {
@@ -3232,11 +3434,7 @@ btnRequestFile.addEventListener('click', async () => {
             showToast(`Resuming transfer: ${cachedMeta.receivedIndices.length}/${cachedMeta.totalChunks} chunks in cache`);
         }
 
-        if (swarmConnections.length > 0) {
-            startSwarmDownload(activePreviewFileId);
-        } else if (hostConnection && hostConnection.open) {
-            hostConnection.send({ type: 'REQUEST_FILE', id: activePreviewFileId });
-        }
+        startSwarmDownload(activePreviewFileId);
     }
 });
 
@@ -3275,7 +3473,9 @@ function renderClientExplorer() {
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
         const sizeText = (typeof child.size === 'number' && child.size > 0) ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
-        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${safeName}</div>${sizeText}`;
+        const burnIcon = child.isBurn ? '🔥 ' : '';
+        const nuclearIcon = child.isNuclear ? '☢️ ' : '';
+        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}`;
         item.draggable = true;
         
         item.addEventListener('dragstart', (e) => {
@@ -3301,7 +3501,9 @@ function renderClientExplorer() {
         
         item.addEventListener('click', () => {
             if (child.type === 'folder') {
-                if (child.isLocked && !child.isUnlocked) {
+                if (child.isNuclear && !clientUnlockedVaults[child.id]) {
+                    openNuclearModal(child);
+                } else if (child.isLocked && !child.isUnlocked) {
                     activeAuthFolderId = child.id;
                     folderPasswordInput.value = '';
                     folderPasswordError.classList.add('hidden');
@@ -3414,6 +3616,10 @@ function renderClientExplorer() {
             if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = 'none';
             if (document.getElementById('ctx-lock')) document.getElementById('ctx-lock').style.display = 'none';
             if (document.getElementById('ctx-honeypot')) document.getElementById('ctx-honeypot').style.display = 'none';
+            if (document.getElementById('ctx-multisig')) document.getElementById('ctx-multisig').style.display = 'none';
+            
+            const hasPrivileges = myPermissions && (myPermissions.upload || myPermissions.edit);
+            if (document.getElementById('ctx-burn')) document.getElementById('ctx-burn').style.display = hasPrivileges ? 'flex' : 'none';
         });
         
         clientExplorerGrid.appendChild(item);
@@ -3437,7 +3643,23 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
             const a = document.createElement('a');
             a.href = url; a.download = name; document.body.appendChild(a); a.click();
             setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+            
+            // Check for BURN-AFTER-READING
+            if (fileId && hostConnection && hostConnection.open) {
+                const node = findClientNode(clientVFS, fileId);
+                if (node && node.isBurn) {
+                    hostConnection.send({ type: 'BURN_CONSUMED', fileId: fileId });
+                }
+            }
             return;
+        }
+        
+        // If preview mode
+        if (fileId && hostConnection && hostConnection.open) {
+            const node = findClientNode(clientVFS, fileId);
+            if (node && node.isBurn) {
+                hostConnection.send({ type: 'BURN_CONSUMED', fileId: fileId });
+            }
         }
         
         const lowerName = name.toLowerCase();
@@ -3520,6 +3742,12 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
         try {
             conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
             updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
+            if (window.triggerCyberspaceBeam) {
+                const isH = typeof isHost !== 'undefined' && isHost;
+                const fromId = isH ? 'host' : (peer ? peer.id : 'unknown');
+                const toId = isH ? conn.peer : 'host';
+                window.triggerCyberspaceBeam(fromId, toId, isH ? '#39ff14' : '#00f0ff');
+            }
             if (i === totalChunks - 1) finishTransfer(fileId);
         } catch (e) {
             console.warn("Chunk send error, retrying...", e);
@@ -3940,13 +4168,7 @@ if (ctxDownload) {
             const node = findClientNode(clientVFS, contextTargetId);
             if (node && node.type === 'file') {
                 activePreviewFileId = null; // We are just downloading, not editing
-                if (swarmConnections.length > 0) {
-                    startSwarmDownload(node.id);
-                } else if (hostConnection && hostConnection.open) {
-                    hostConnection.send({ type: 'REQUEST_FILE', id: node.id });
-                    const loaderContainer = document.getElementById('preview-loader-container');
-                    if (loaderContainer) loaderContainer.classList.remove('hidden');
-                }
+                startSwarmDownload(node.id);
             }
         }
         
@@ -3963,6 +4185,10 @@ ctxLock.addEventListener('click', async () => {
         if (node.password) {
             if (await cyberConfirm("Remove password from this folder?", "SECURITY PROTOCOL")) {
                 delete node.password;
+                delete unlockedVaults[node.id];
+                connections.forEach(c => {
+                    if (c.unlockedFolders) c.unlockedFolders.delete(node.id);
+                });
                 showToast("Folder unlocked");
             }
         } else {
@@ -3982,6 +4208,118 @@ ctxLock.addEventListener('click', async () => {
         contextMenu.classList.add('hidden');
     }
 });
+
+const ctxMultisig = document.getElementById('ctx-multisig');
+if (ctxMultisig) {
+    ctxMultisig.addEventListener('click', async () => {
+        if (!contextTargetId) return;
+        const targetId = contextTargetId;
+        contextTargetId = null;
+        contextMenu.classList.add('hidden');
+
+        const node = vfs.findNode(targetId);
+        if (node && node.type === 'folder') {
+            if (node.isNuclear) {
+                const confirmed = await cyberConfirm("Disarm this Nuclear Vault?", "NUCLEAR PROTOCOL");
+                if (confirmed) {
+                    delete node.isNuclear;
+                    delete node.nuclearVotesRequired;
+                    delete node.password;
+                    delete unlockedVaults[node.id];
+                    if (activeNuclearVotes[node.id]) delete activeNuclearVotes[node.id];
+                    connections.forEach(c => {
+                        if (c.unlockedFolders) c.unlockedFolders.delete(node.id);
+                        if (c.open) {
+                            try { c.send({ type: 'NUCLEAR_VAULT_RESET', folderId: node.id }); } catch(e) {}
+                        }
+                    });
+                    showToast("Nuclear Vault Disarmed");
+                    saveVFSToDB();
+                    renderHostExplorer();
+                    broadcastTree();
+                }
+            } else {
+                const activeGuests = connections.filter(c => c && c.open).length;
+                let required = 1;
+                if (activeGuests > 1) {
+                    const requiredStr = await cyberPrompt(`You have ${activeGuests} guests connected. How many Guest approvals are required to unlock?`, "2", "NUCLEAR PROTOCOL");
+                    if (requiredStr === null) return;
+                    required = Math.max(1, Math.min(parseInt(requiredStr, 10) || 1, activeGuests));
+                    await new Promise(r => setTimeout(r, 80));
+                }
+
+                const promptMsg = activeGuests <= 1 
+                    ? "Enter Nuclear Launch Code (1 Guest approval required):" 
+                    : `Enter Nuclear Launch Code (${required} Guest approvals required):`;
+                const pwd = await cyberPrompt(promptMsg, "", "ARM NUCLEAR VAULT");
+                if (pwd && pwd.trim()) {
+                    node.isNuclear = true;
+                    node.nuclearVotesRequired = required;
+                    node.password = pwd.trim();
+                    delete unlockedVaults[node.id];
+                    if (activeNuclearVotes[node.id]) delete activeNuclearVotes[node.id];
+                    connections.forEach(c => {
+                        if (c.unlockedFolders) c.unlockedFolders.delete(node.id);
+                        if (c.open) {
+                            try { c.send({ type: 'NUCLEAR_VAULT_RESET', folderId: node.id }); } catch(e) {}
+                        }
+                    });
+                    showToast(`☢️ Nuclear Vault Armed! (${required} approval${required > 1 ? 's' : ''} required)`);
+                    saveVFSToDB();
+                    renderHostExplorer();
+                    broadcastTree();
+                } else if (pwd !== null) {
+                    showToast("Launch code cannot be empty", "error");
+                }
+            }
+        } else {
+            await cyberAlert("Nuclear Vaults can only be applied to folders.", "NOTICE");
+        }
+    });
+}
+
+const ctxBurn = document.getElementById('ctx-burn');
+if (ctxBurn) {
+    ctxBurn.addEventListener('click', async () => {
+        if (!contextTargetId) return;
+        
+        if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+            const node = findClientNode(clientVFS, contextTargetId);
+            if (node && node.type === 'file') {
+                const action = node.isBurn ? "Disable" : "Enable";
+                if (await cyberConfirm(`${action} Burn-After-Reading? The file will be permanently deleted from the Host after the first guest downloads it.`, "BURN PROTOCOL")) {
+                    hostConnection.send({ type: 'CLIENT_TOGGLE_BURN', id: contextTargetId });
+                    showToast(`Burn Protocol ${node.isBurn ? "Disabled" : "Enabled"}`);
+                }
+            } else {
+                await cyberAlert("You can only apply Burn Protocol to files.", "NOTICE");
+            }
+            contextMenu.classList.add('hidden');
+            return;
+        }
+
+        const node = vfs.findNode(contextTargetId);
+        if (node && node.type === 'file') {
+            if (node.isBurn) {
+                delete node.isBurn;
+                showToast("Burn Protocol Disabled");
+            } else {
+                if (await cyberConfirm("Enable Burn-After-Reading? The file will be permanently deleted from your system after the first guest downloads it.", "BURN PROTOCOL")) {
+                    node.isBurn = true;
+                    showToast("Burn Protocol Enabled");
+                }
+            }
+            contextTargetId = null;
+            contextMenu.classList.add('hidden');
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
+        } else {
+            await cyberAlert("You can only apply Burn Protocol to files.", "NOTICE");
+            contextMenu.classList.add('hidden');
+        }
+    });
+}
 
 ctxDelete.addEventListener('click', async () => {
     if (!contextTargetId) return;
@@ -4187,6 +4525,23 @@ async function initLogic() {
         if (isSoundMuted) btnBootMute.style.color = 'var(--text-muted)';
     }
 
+    const flyingFilesContainer = document.querySelector('.flying-files-container');
+    if (flyingFilesContainer) {
+        for (let i = 0; i < 40; i++) {
+            const file = document.createElement('div');
+            file.className = 'flying-file';
+            file.style.setProperty('--startX', (Math.random() * 200 - 100) + 'vw');
+            file.style.setProperty('--startY', (Math.random() * 200 - 100) + 'vh');
+            file.style.setProperty('--endX', (Math.random() * 200 - 100) + 'vw');
+            file.style.setProperty('--endY', (Math.random() * 200 - 100) + 'vh');
+            file.style.setProperty('--rotX', (Math.random() * 720 - 360) + 'deg');
+            file.style.setProperty('--rotY', (Math.random() * 720 - 360) + 'deg');
+            file.style.animationDuration = (2 + Math.random() * 3) + 's';
+            file.style.animationDelay = (Math.random() * 2) + 's';
+            flyingFilesContainer.appendChild(file);
+        }
+    }
+
     const logSteps = [
         { text: '> [SYS_INIT] Initializing Zero-Knowledge Cryptographic Engine...', class: 'boot-line' },
         { text: '> [KEY_GEN] AES-GCM 256-bit ephemeral keys derived via PBKDF2.', class: 'boot-line accent' },
@@ -4243,6 +4598,28 @@ async function initLogic() {
     } catch(e) {
         console.warn("DB init warning:", e);
     }
+    
+    // CHECK FOR PENDING MOBILE SHARED FILES
+    try {
+        const db = await new Promise((resolve, reject) => {
+            const req = indexedDB.open('LocalCastShareDB', 1);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            req.onupgradeneeded = () => { req.transaction.abort(); resolve(null); }; // DB doesn't exist
+        });
+        if (db) {
+            const tx = db.transaction('shares', 'readwrite');
+            const req = tx.objectStore('shares').get('pending_files');
+            req.onsuccess = () => {
+                const files = req.result;
+                if (files && files.length > 0) {
+                    showToast(`Intercepted ${files.length} file(s) from mobile Share menu!`);
+                    if (typeof processFiles === 'function') processFiles(files);
+                    tx.objectStore('shares').delete('pending_files');
+                }
+            };
+        }
+    } catch(e) { console.warn("No pending share files."); }
     
     if (magicPeerId && magicFileId) {
         if (!localStorage.getItem('localcast_alias')) {
@@ -4827,6 +5204,78 @@ const radarGuestDot = document.getElementById('radar-guest-dot');
 const radarPermUpload = document.getElementById('radar-perm-upload');
 const radarPermDelete = document.getElementById('radar-perm-delete');
 const radarPermEdit = document.getElementById('radar-perm-edit');
+
+let activeNuclearFolderId = null;
+
+function updateNuclearModalUI(folderId, current, required) {
+    if (activeNuclearFolderId === folderId) {
+        document.getElementById('nuclear-current-votes').innerText = current;
+        document.getElementById('nuclear-required-votes').innerText = required;
+    }
+}
+
+function handleNuclearUnlockSuccess(folderId, pin) {
+    if (typeof clientUnlockedVaults !== 'undefined') {
+        clientUnlockedVaults[folderId] = pin;
+    }
+    if (activeNuclearFolderId === folderId) {
+        document.getElementById('nuclear-vote-modal').classList.add('hidden');
+        showToast("Nuclear Vault Unlocked!", "success");
+        activeNuclearFolderId = null;
+    }
+    if (typeof isHost !== 'undefined' && !isHost && clientCurrentDir && clientCurrentDir.id === folderId) {
+        renderClientExplorer();
+    }
+}
+
+function openNuclearModal(child) {
+    activeNuclearFolderId = child.id;
+    const modal = document.getElementById('nuclear-vote-modal');
+    modal.classList.remove('hidden');
+    
+    // Reset UI
+    const currentCount = (typeof activeNuclearVotes !== 'undefined' && activeNuclearVotes[child.id]) ? activeNuclearVotes[child.id].size : 0;
+    document.getElementById('nuclear-current-votes').innerText = currentCount;
+    document.getElementById('nuclear-required-votes').innerText = child.nuclearVotesRequired || 1;
+    const pwdInput = document.getElementById('nuclear-password-input');
+    pwdInput.value = '';
+    pwdInput.placeholder = "Enter Launch Code";
+    setTimeout(() => pwdInput.focus(), 60);
+    
+    const btnSubmit = document.getElementById('btn-submit-nuclear');
+    const btnCancel = document.getElementById('btn-cancel-nuclear');
+    
+    // Remove old listeners to avoid multiple fires
+    const newSubmit = btnSubmit.cloneNode(true);
+    const newCancel = btnCancel.cloneNode(true);
+    btnSubmit.parentNode.replaceChild(newSubmit, btnSubmit);
+    btnCancel.parentNode.replaceChild(newCancel, btnCancel);
+    
+    newCancel.addEventListener('click', () => {
+        modal.classList.add('hidden');
+        activeNuclearFolderId = null;
+    });
+
+    pwdInput.onkeydown = (e) => {
+        if (e.key === 'Enter') newSubmit.click();
+    };
+    
+    newSubmit.addEventListener('click', () => {
+        const pin = pwdInput.value;
+        if (!pin || !pin.trim()) return;
+        
+        if (typeof isHost !== 'undefined' && isHost) {
+            handleNuclearVote(child.id, 'host', pin.trim());
+        } else {
+            if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'NUCLEAR_VOTE', folderId: child.id, pin: pin.trim() });
+            }
+        }
+        
+        pwdInput.value = '';
+        pwdInput.placeholder = "VOTE CAST... WAITING...";
+    });
+}
 
 let currentRadarGuestId = null;
 let currentRadarGuestAlias = null;
@@ -6322,6 +6771,9 @@ async function handleHostSwarmChunkRequest(conn, fileId, chunkIndex) {
                 chunkIndex: chunkIndex,
                 chunk: arrayBuffer
             });
+            if (window.triggerCyberspaceBeam) {
+                window.triggerCyberspaceBeam('host', conn.peer, '#ff00ff');
+            }
         }
     } catch (err) {
         console.warn(`Host error serving swarm chunk ${chunkIndex} for ${fileId}:`, err);
@@ -6343,6 +6795,10 @@ async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex) {
                 chunkIndex: chunkIndex,
                 chunk: chunkData
             });
+            if (window.triggerCyberspaceBeam) {
+                const to = (conn.peer === hostConnection?.peer) ? 'host' : conn.peer;
+                window.triggerCyberspaceBeam(peer.id, to, '#fcee0a');
+            }
         }
     } catch (err) {
         console.warn(`Guest error serving swarm chunk ${chunkIndex} for ${fileId}:`, err);
@@ -6350,6 +6806,11 @@ async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex) {
 }
 
 function handleIncomingSwarmChunk(fileId, chunkIndex, chunkData, fromPeerId) {
+    if (window.triggerCyberspaceBeam) {
+        const to = (typeof isHost !== 'undefined' && isHost) ? 'host' : (peer ? peer.id : 'unknown');
+        const from = fromPeerId === (hostConnection && hostConnection.peer) ? 'host' : fromPeerId;
+        window.triggerCyberspaceBeam(from, to, '#fcee0a');
+    }
     if (activeSwarmDownloads.has(fileId)) {
         activeSwarmDownloads.get(fileId).receiveChunk(chunkIndex, chunkData, fromPeerId);
     }
@@ -6394,7 +6855,7 @@ class SwarmDownloader {
         this.aborted = false;
         this.isDone = false;
         this.pumpInterval = null;
-        this.maxConcurrent = 5;
+        this.maxConcurrent = 8;
     }
 
     async start() {
@@ -6609,19 +7070,7 @@ function startSwarmDownload(fileId) {
     const node = findClientNode(clientVFS, fileId);
     if (!node) return;
     const totalChunks = Math.max(1, Math.ceil(node.size / CHUNK_SIZE));
-    createTransferItem(fileId, node.name, 'download');
-
-    // Add swarm badge to transfer item if swarm peers active
-    const transferEl = document.getElementById('transfer-' + fileId);
-    if (transferEl && swarmConnections.length > 0) {
-        const header = transferEl.querySelector('.transfer-header');
-        if (header) {
-            const badge = document.createElement('span');
-            badge.className = 'swarm-badge';
-            badge.innerHTML = `⚡ SWARM (${swarmConnections.length + 1} SOURCES)`;
-            header.insertBefore(badge, header.querySelector('.transfer-speed'));
-        }
-    }
+    createTransferItem(fileId, node.name, 'download', { isSwarm: true, totalChunks, totalSize: node.size });
 
     const downloader = new SwarmDownloader({
         fileId,
@@ -6634,11 +7083,28 @@ function startSwarmDownload(fileId) {
             const pct = Math.floor((downloader.completedIndices.size / totalChunks) * 100);
             const previewPct = document.getElementById('preview-progress-text');
             if (previewPct) previewPct.textContent = `${pct}%`;
-            updateTransferProgress(fileId, chunk.byteLength, node.size);
+            updateTransferProgress(fileId, chunk.byteLength, node.size, index);
         },
-        onComplete: (blob) => {
+        onComplete: async (blob) => {
             finishTransfer(fileId);
-            triggerDownload(blob, node.name, node.mime, fileId);
+            if (node.isEncrypted) {
+                const pass = (clientCurrentDir && clientUnlockedVaults[clientCurrentDir.id]) || clientUnlockedVaults[fileId];
+                if (pass) {
+                    try {
+                        const buffer = await blob.arrayBuffer();
+                        const decryptedBuffer = await decryptFile(buffer, pass, node.salt, node.iv);
+                        const decryptedBlob = new Blob([decryptedBuffer], { type: node.mime });
+                        triggerDownload(decryptedBlob, node.name, node.mime, fileId);
+                    } catch (e) {
+                        cyberAlert("Decryption failed: " + e.message, "DECRYPTION ERROR", true);
+                        triggerDownload(blob, node.name, node.mime, fileId);
+                    }
+                } else {
+                    triggerDownload(blob, node.name, node.mime, fileId);
+                }
+            } else {
+                triggerDownload(blob, node.name, node.mime, fileId);
+            }
             activeSwarmDownloads.delete(fileId);
         },
         onError: (err) => {
