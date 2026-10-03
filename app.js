@@ -1189,7 +1189,9 @@ function triggerBurnSequence() {
 
 
 // --- VIRTUAL FILE SYSTEM ---
-async function saveVFSToDB() {
+let saveVFSTimer = null;
+
+async function doSaveVFSToDB() {
     if(!isHost) return;
     function stripParents(node) {
         return {
@@ -1203,7 +1205,27 @@ async function saveVFSToDB() {
             children: node.children ? node.children.map(stripParents) : []
         };
     }
-    await localforage.setItem("vfs_root", stripParents(vfs.root));
+    try {
+        await localforage.setItem("vfs_root", stripParents(vfs.root));
+    } catch(e) {
+        console.warn("doSaveVFSToDB error:", e);
+    }
+}
+
+async function saveVFSToDB(immediate = false) {
+    if (!isHost) return;
+    if (immediate) {
+        if (saveVFSTimer) { clearTimeout(saveVFSTimer); saveVFSTimer = null; }
+        return await doSaveVFSToDB();
+    }
+    return new Promise(resolve => {
+        if (saveVFSTimer) clearTimeout(saveVFSTimer);
+        saveVFSTimer = setTimeout(async () => {
+            saveVFSTimer = null;
+            await doSaveVFSToDB();
+            resolve();
+        }, 250);
+    });
 }
 
 
@@ -1686,9 +1708,13 @@ async function handleIncomingCall(call) {
             attachStream(remoteStream);
             if (typeof isHost !== 'undefined' && isHost) {
                 connections.filter(c => c.open && c.isAuthenticated && c.peer !== call.peer).forEach(c => {
-                    peer.call(c.peer, remoteStream, {
+                    const relayCall = peer.call(c.peer, remoteStream, {
                         metadata: { type: 'SCREEN_SHARE', sharerName: call.metadata.sharerName, sharerId: call.metadata.sharerId }
                     });
+                    if (relayCall) {
+                        activeScreenCalls[c.peer] = relayCall;
+                        if (typeof optimizeScreenShareCall === 'function') optimizeScreenShareCall(relayCall);
+                    }
                 });
             }
         });
@@ -2044,6 +2070,12 @@ async function initHost() {
                 registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
                 return;
             }
+            if (data.type === 'SWARM_HAVES') {
+                if (Array.isArray(data.chunkIndices)) {
+                    registerSwarmHaves(conn.peer, data.fileId, data.chunkIndices);
+                }
+                return;
+            }
             if (data.type === 'REQUEST_MAGIC_FILE') {
                 const node = vfs.findNode(data.fileId);
                 if (node && node.type === 'file') {
@@ -2089,6 +2121,17 @@ async function initHost() {
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                     broadcastPeers();
                     broadcastNetworkMap();
+
+                    if (isScreenSharing && localScreenStream) {
+                        const call = peer.call(conn.peer, localScreenStream, {
+                            metadata: { type: 'SCREEN_SHARE', sharerName: getMyAlias(), sharerId: peer.id }
+                        });
+                        if (call) {
+                            activeScreenCalls[conn.peer] = call;
+                            if (typeof optimizeScreenShareCall === 'function') optimizeScreenShareCall(call);
+                        }
+                        try { conn.send({ type: 'SCREEN_SHARE_STARTED', sharerName: getMyAlias(), sharerId: peer.id }); } catch(e) {}
+                    }
                 } else {
                     conn.authFailures = (conn.authFailures || 0) + 1;
                     if (conn.authFailures >= 5) {
@@ -2374,7 +2417,9 @@ async function initHost() {
                     transfer.chunks[data.index] = data.chunk;
                     transfer.received++;
                     updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
-                    if (window.triggerCyberspaceBeam) {
+                    const now = Date.now();
+                    if (window.triggerCyberspaceBeam && (!transfer.lastBeamTime || now - transfer.lastBeamTime > 250)) {
+                        transfer.lastBeamTime = now;
                         window.triggerCyberspaceBeam(conn.peer, 'host', '#00f0ff');
                     }
                     if (transfer.received === transfer.total) {
@@ -2689,7 +2734,9 @@ function broadcastPeers() {
     if (typeof renderSpGuestList === 'function') renderSpGuestList();
 }
 
-function broadcastTree() {
+let broadcastTreeTimer = null;
+
+function doBroadcastTree() {
     connections.forEach(conn => {
         if (conn.open && conn.isAuthenticated) {
             try {
@@ -2699,6 +2746,19 @@ function broadcastTree() {
             }
         }
     });
+}
+
+function broadcastTree(immediate = false) {
+    if (immediate) {
+        if (broadcastTreeTimer) { clearTimeout(broadcastTreeTimer); broadcastTreeTimer = null; }
+        doBroadcastTree();
+        return;
+    }
+    if (broadcastTreeTimer) clearTimeout(broadcastTreeTimer);
+    broadcastTreeTimer = setTimeout(() => {
+        broadcastTreeTimer = null;
+        doBroadcastTree();
+    }, 150);
 }
 
 async function generateZipBlob(targetConn = null) {
@@ -3482,6 +3542,10 @@ function setupSwarmPeerConnection(conn) {
             handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, conn.peer);
         } else if (data.type === 'SWARM_HAVE') {
             registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
+        } else if (data.type === 'SWARM_HAVES') {
+            if (Array.isArray(data.chunkIndices)) {
+                registerSwarmHaves(conn.peer, data.fileId, data.chunkIndices);
+            }
         } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
             handleArcadeNetwork(data);
         }
@@ -3601,6 +3665,11 @@ async function initClient() {
             } else if (data.type === 'SWARM_HAVE') {
                 registerSwarmHave(hostConnection.peer, data.fileId, data.chunkIndex);
                 return;
+            } else if (data.type === 'SWARM_HAVES') {
+                if (Array.isArray(data.chunkIndices)) {
+                    registerSwarmHaves(hostConnection.peer, data.fileId, data.chunkIndices);
+                }
+                return;
             } else if (data.type === 'SWARM_ANNOUNCE') {
                 registerSwarmAnnounce(hostConnection.peer, data.fileId, data.totalChunks, data.name, data.mime, data.size);
                 return;
@@ -3667,7 +3736,9 @@ async function initClient() {
                     transfer.chunks[data.index] = data.chunk;
                     transfer.received++;
                     updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
-                    if (window.triggerCyberspaceBeam) {
+                    const now = Date.now();
+                    if (window.triggerCyberspaceBeam && (!transfer.lastBeamTime || now - transfer.lastBeamTime > 250)) {
+                        transfer.lastBeamTime = now;
                         window.triggerCyberspaceBeam('host', peer ? peer.id : 'unknown', '#39ff14');
                     }
                     saveChunkToCache(data.id, data.index, data.chunk, transfer);
@@ -4504,6 +4575,19 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
     if (totalChunks === 0) totalChunks = 1; // Ensure at least 1 chunk for 0-byte files
     conn.send({ type: typeStr + '_START', id: fileId, name: fileName, mime: fileMime, size: fileBlob.size, totalChunks, ...extraData });
     createTransferItem(fileId, fileName, 'upload');
+
+    const dc = conn.dataChannel || conn._dc;
+    const HIGH_WATER_MARK = 512 * 1024; // 512 KB pipelined buffer
+    const LOW_WATER_MARK = 128 * 1024;  // 128 KB resume threshold
+
+    if (dc && typeof dc.bufferedAmount === 'number') {
+        try {
+            dc.bufferedAmountLowThreshold = LOW_WATER_MARK;
+        } catch(e) {}
+    }
+
+    let lastBeamTime = 0;
+
     for (let i = 0; i < totalChunks; i++) {
         if (!conn.open || isServerBurned) {
             console.warn("Connection closed during transfer, aborting:", fileId);
@@ -4511,24 +4595,48 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
             break;
         }
 
-        // Prevent WebRTC buffer overflow by waiting for the data channel buffer to drain
-        const dc = conn.dataChannel || conn._dc;
-        if (dc && typeof dc.bufferedAmount === 'number') {
-            while (dc.bufferedAmount > 1024 * 128) { // Wait if buffer > 128KB
-                if (!conn.open || isServerBurned) break;
-                await new Promise(r => setTimeout(r, 40));
-            }
+        // High-efficiency event-driven flow control:
+        // If data channel buffer exceeds high water mark, wait until it drains below low water mark
+        if (dc && typeof dc.bufferedAmount === 'number' && dc.bufferedAmount > HIGH_WATER_MARK) {
+            await new Promise(resolve => {
+                let resolved = false;
+                const onBufferedAmountLow = () => {
+                    if (!resolved) {
+                        resolved = true;
+                        if (dc.removeEventListener) {
+                            dc.removeEventListener('bufferedamountlow', onBufferedAmountLow);
+                        }
+                        resolve();
+                    }
+                };
+                if (dc.addEventListener) {
+                    dc.addEventListener('bufferedamountlow', onBufferedAmountLow, { once: true });
+                }
+                setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        if (dc.removeEventListener) {
+                            dc.removeEventListener('bufferedamountlow', onBufferedAmountLow);
+                        }
+                        resolve();
+                    }
+                }, 80);
+            });
+            if (!conn.open || isServerBurned) break;
         }
-        
+
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, fileBlob.size);
         const chunk = fileBlob.slice(start, end);
         const arrayBuffer = await chunk.arrayBuffer();
-        
+
         try {
             conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
             updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
-            if (window.triggerCyberspaceBeam) {
+
+            const now = Date.now();
+            if (window.triggerCyberspaceBeam && (now - lastBeamTime > 250)) {
+                lastBeamTime = now;
                 const isH = typeof isHost !== 'undefined' && isHost;
                 const fromId = isH ? 'host' : (peer ? peer.id : 'unknown');
                 const toId = isH ? conn.peer : 'host';
@@ -4538,7 +4646,7 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
         } catch (e) {
             console.warn("Chunk send error, retrying...", e);
             try {
-                await new Promise(r => setTimeout(r, 300));
+                await new Promise(r => setTimeout(r, 200));
                 if (!conn.open || isServerBurned) { failTransfer(fileId, 'ABORTED'); break; }
                 conn.send({ type: typeStr, id: fileId, index: i, chunk: arrayBuffer });
                 updateTransferProgress(fileId, arrayBuffer.byteLength, fileBlob.size);
@@ -4549,7 +4657,11 @@ async function sendFileInChunks(conn, fileId, fileBlob, fileName, fileMime, type
                 break;
             }
         }
-        await new Promise(r => setTimeout(r, 2)); // Tiny yield to event loop
+
+        // Cooperatively yield event loop every 8 chunks to preserve 60 FPS UI
+        if (i % 8 === 0) {
+            await new Promise(r => setTimeout(r, 0));
+        }
     }
 }
 
@@ -6671,8 +6783,9 @@ function openWhiteboardModal() {
         resetWbZoom();
         if (wbHostControls) wbHostControls.style.display = isHost ? 'inline-block' : 'none';
         if (isHost) renderWbGuestList();
-        setTimeout(resizeWbCanvas, 50);
-        setTimeout(resizeWbCanvas, 200);
+        setTimeout(resizeWbCanvas, 30);
+        setTimeout(resizeWbCanvas, 150);
+        setTimeout(resizeWbCanvas, 350);
         if (!isHost && hostConnection && hostConnection.open) {
             hostConnection.send({ type: 'REQUEST_WHITEBOARD' });
         }
@@ -6700,6 +6813,9 @@ if (wbCanvas) {
             document.querySelectorAll('.wb-tool-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             wbActiveTool = tool;
+
+            const btnWbHudPan = document.getElementById('btn-wb-hud-pan');
+            if (btnWbHudPan) btnWbHudPan.classList.toggle('active', tool === 'pan');
 
             if (wbContainer) {
                 if (tool === 'laser') wbContainer.style.cursor = 'crosshair';
@@ -7240,6 +7356,7 @@ if (wbCanvas) {
     const btnWbHudZoomIn = document.getElementById('btn-wb-hud-zoom-in');
     const btnWbHudZoomOut = document.getElementById('btn-wb-hud-zoom-out');
     const wbHudZoomLevel = document.getElementById('wb-hud-zoom-level');
+    const btnWbHudPan = document.getElementById('btn-wb-hud-pan');
 
     if (btnWbZoomIn) btnWbZoomIn.addEventListener('click', () => setWbZoom(wbZoom * 1.25));
     if (btnWbZoomOut) btnWbZoomOut.addEventListener('click', () => setWbZoom(wbZoom / 1.25));
@@ -7248,6 +7365,18 @@ if (wbCanvas) {
     if (btnWbHudZoomIn) btnWbHudZoomIn.addEventListener('click', () => setWbZoom(wbZoom * 1.25));
     if (btnWbHudZoomOut) btnWbHudZoomOut.addEventListener('click', () => setWbZoom(wbZoom / 1.25));
     if (wbHudZoomLevel) wbHudZoomLevel.addEventListener('click', resetWbZoom);
+
+    if (btnWbHudPan) {
+        btnWbHudPan.addEventListener('click', () => {
+            const panBtn = document.getElementById('btn-wb-tool-pan');
+            if (wbActiveTool === 'pan') {
+                const penBtn = document.querySelector('.wb-tool-btn[data-tool="pen"]');
+                if (penBtn) penBtn.click();
+            } else if (panBtn) {
+                panBtn.click();
+            }
+        });
+    }
 
     // Mouse wheel cursor-centered zoom
     if (wbContainer) {
@@ -7280,6 +7409,47 @@ let localScreenStream = null;
 let activeScreenCalls = {};
 let isScreenSharing = false;
 
+function optimizeScreenShareCall(call) {
+    if (!call) return;
+    const applyOptimization = async () => {
+        try {
+            const pc = call.peerConnection;
+            if (!pc || typeof pc.getSenders !== 'function') return;
+            const senders = pc.getSenders();
+            for (const sender of senders) {
+                if (sender && sender.track && sender.track.kind === 'video') {
+                    const params = sender.getParameters ? sender.getParameters() : null;
+                    if (params) {
+                        if (!params.encodings || params.encodings.length === 0) {
+                            params.encodings = [{}];
+                        }
+                        params.encodings[0].maxBitrate = 1800000; // 1.8 Mbps cap: prevents multi-peer bandwidth saturation
+                        params.encodings[0].maxFramerate = 30;
+                        if ('degradationPreference' in params) {
+                            params.degradationPreference = 'maintain-resolution';
+                        }
+                        try {
+                            await sender.setParameters(params);
+                        } catch(e) {}
+                    }
+                }
+            }
+        } catch (e) {
+            console.debug("Screen share sender tuning deferred:", e);
+        }
+    };
+
+    if (call.peerConnection) {
+        applyOptimization();
+        try {
+            call.peerConnection.addEventListener('connectionstatechange', applyOptimization);
+        } catch(e) {}
+    }
+    setTimeout(applyOptimization, 400);
+    setTimeout(applyOptimization, 1200);
+    setTimeout(applyOptimization, 2500);
+}
+
 async function startScreenSharing() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         await cyberAlert("Screen sharing is not supported by your current browser.", "NOT SUPPORTED");
@@ -7288,14 +7458,24 @@ async function startScreenSharing() {
 
     try {
         localScreenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { cursor: "always", frameRate: { ideal: 30, max: 60 } },
+            video: {
+                cursor: "always",
+                width: { max: 1920 },
+                height: { max: 1080 },
+                frameRate: { ideal: 30, max: 30 }
+            },
             audio: true
         });
     } catch (err) {
         if (err.name !== 'NotAllowedError') {
             try {
                 localScreenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { cursor: "always", frameRate: { ideal: 30, max: 60 } },
+                    video: {
+                        cursor: "always",
+                        width: { max: 1920 },
+                        height: { max: 1080 },
+                        frameRate: { ideal: 30, max: 30 }
+                    },
                     audio: false
                 });
             } catch (err2) {
@@ -7328,14 +7508,20 @@ async function startScreenSharing() {
             const call = peer.call(c.peer, localScreenStream, {
                 metadata: { type: 'SCREEN_SHARE', sharerName: getMyAlias(), sharerId: peer.id }
             });
-            if (call) activeScreenCalls[c.peer] = call;
+            if (call) {
+                activeScreenCalls[c.peer] = call;
+                optimizeScreenShareCall(call);
+            }
             try { c.send({ type: 'SCREEN_SHARE_STARTED', sharerName: getMyAlias(), sharerId: peer.id }); } catch(e) {}
         });
     } else if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
         const call = peer.call(hostConnection.peer, localScreenStream, {
             metadata: { type: 'SCREEN_SHARE', sharerName: getMyAlias(), sharerId: peer.id }
         });
-        if (call) activeScreenCalls[hostConnection.peer] = call;
+        if (call) {
+            activeScreenCalls[hostConnection.peer] = call;
+            optimizeScreenShareCall(call);
+        }
         try { hostConnection.send({ type: 'SCREEN_SHARE_STARTED', sharerName: getMyAlias(), sharerId: peer.id }); } catch(e) {}
     }
 
@@ -9209,14 +9395,26 @@ initEcdh();
 // MODULE 2: RESUMABLE TRANSFERS (INDEXEDDB CHUNK CACHE)
 // =========================================================================
 
+const activeTransferMetaCache = new Map();
+let metaCacheSaveTimer = null;
+
+async function flushTransferMetaCache() {
+    metaCacheSaveTimer = null;
+    for (const [metaKey, meta] of activeTransferMetaCache.entries()) {
+        try {
+            await localforage.setItem(metaKey, meta);
+        } catch(e) {}
+    }
+}
+
 async function saveChunkToCache(fileId, chunkIndex, chunkData, meta = {}) {
     if (typeof localforage === 'undefined') return;
     try {
         await localforage.setItem(`chunk_${fileId}_${chunkIndex}`, chunkData);
         const metaKey = `transfer_meta_${fileId}`;
-        let transferMeta = await localforage.getItem(metaKey);
+        let transferMeta = activeTransferMetaCache.get(metaKey);
         if (!transferMeta) {
-            transferMeta = {
+            transferMeta = await localforage.getItem(metaKey) || {
                 fileId,
                 name: meta.name || 'file',
                 mime: meta.mime || 'application/octet-stream',
@@ -9228,12 +9426,15 @@ async function saveChunkToCache(fileId, chunkIndex, chunkData, meta = {}) {
                 iv: meta.iv || null,
                 updatedAt: Date.now()
             };
+            activeTransferMetaCache.set(metaKey, transferMeta);
         }
         if (!transferMeta.receivedIndices.includes(chunkIndex)) {
             transferMeta.receivedIndices.push(chunkIndex);
         }
         transferMeta.updatedAt = Date.now();
-        await localforage.setItem(metaKey, transferMeta);
+        if (!metaCacheSaveTimer) {
+            metaCacheSaveTimer = setTimeout(flushTransferMetaCache, 500);
+        }
         return transferMeta;
     } catch (e) {
         console.warn("saveChunkToCache failed:", e);
@@ -9243,7 +9444,11 @@ async function saveChunkToCache(fileId, chunkIndex, chunkData, meta = {}) {
 async function getCachedTransferMeta(fileId) {
     if (typeof localforage === 'undefined') return null;
     try {
-        return await localforage.getItem(`transfer_meta_${fileId}`);
+        const metaKey = `transfer_meta_${fileId}`;
+        if (activeTransferMetaCache.has(metaKey)) {
+            return activeTransferMetaCache.get(metaKey);
+        }
+        return await localforage.getItem(metaKey);
     } catch (e) {
         return null;
     }
@@ -9281,6 +9486,7 @@ async function clearCachedTransfer(fileId, totalChunks = 0) {
     if (typeof localforage === 'undefined') return;
     try {
         const metaKey = `transfer_meta_${fileId}`;
+        activeTransferMetaCache.delete(metaKey);
         const meta = await localforage.getItem(metaKey);
         const count = meta ? meta.totalChunks : totalChunks;
         for (let i = 0; i < count; i++) {
@@ -9333,6 +9539,23 @@ function registerSwarmAnnounce(peerId, fileId, totalChunks, name, mime, size) {
     }
 }
 
+function registerSwarmHaves(peerId, fileId, chunkIndices) {
+    const key = `${peerId}:${fileId}`;
+    if (!swarmBitfields.has(key)) {
+        swarmBitfields.set(key, new Set());
+    }
+    const bitfield = swarmBitfields.get(key);
+    chunkIndices.forEach(idx => bitfield.add(idx));
+
+    // If an active downloader is running for this file, wake up its pump!
+    if (activeSwarmDownloads.has(fileId)) {
+        activeSwarmDownloads.get(fileId).pump();
+    }
+    if (activeMediaStreamDownloader && activeMediaStreamDownloader.fileId === fileId) {
+        activeMediaStreamDownloader.pump();
+    }
+}
+
 function registerSwarmHave(peerId, fileId, chunkIndex) {
     const key = `${peerId}:${fileId}`;
     if (!swarmBitfields.has(key)) {
@@ -9349,22 +9572,51 @@ function registerSwarmHave(peerId, fileId, chunkIndex) {
     }
 }
 
-function broadcastSwarmHave(fileId, chunkIndex, totalChunks) {
-    const msg = { type: 'SWARM_HAVE', fileId, chunkIndex, totalChunks, fromPeer: peer ? peer.id : null };
-    if (!isHost && hostConnection && hostConnection.open) {
-        try { hostConnection.send(msg); } catch(e) {}
-    }
-    swarmConnections.forEach(c => {
-        if (c.open) {
-            try { c.send(msg); } catch(e) {}
+let pendingSwarmHaves = {};
+let swarmHaveTimer = null;
+
+function flushSwarmHaves() {
+    swarmHaveTimer = null;
+    const entries = Object.entries(pendingSwarmHaves);
+    pendingSwarmHaves = {};
+
+    entries.forEach(([fileId, info]) => {
+        const indices = Array.from(info.indices);
+        if (indices.length === 0) return;
+        const msg = {
+            type: 'SWARM_HAVES',
+            fileId,
+            chunkIndices: indices,
+            totalChunks: info.totalChunks,
+            fromPeer: (typeof peer !== 'undefined' && peer) ? peer.id : null
+        };
+        if (!isHost && hostConnection && hostConnection.open) {
+            try { hostConnection.send(msg); } catch(e) {}
+        }
+        if (Array.isArray(swarmConnections)) {
+            swarmConnections.forEach(c => {
+                if (c.open) {
+                    try { c.send(msg); } catch(e) {}
+                }
+            });
+        }
+        if (typeof isHost !== 'undefined' && isHost && Array.isArray(connections)) {
+            connections.forEach(c => {
+                if (c.open && c.isAuthenticated) {
+                    try { c.send(msg); } catch(e) {}
+                }
+            });
         }
     });
-    if (isHost && Array.isArray(connections)) {
-        connections.forEach(c => {
-            if (c.open && c.isAuthenticated) {
-                try { c.send(msg); } catch(e) {}
-            }
-        });
+}
+
+function broadcastSwarmHave(fileId, chunkIndex, totalChunks) {
+    if (!pendingSwarmHaves[fileId]) {
+        pendingSwarmHaves[fileId] = { totalChunks, indices: new Set() };
+    }
+    pendingSwarmHaves[fileId].indices.add(chunkIndex);
+    if (!swarmHaveTimer) {
+        swarmHaveTimer = setTimeout(flushSwarmHaves, 100);
     }
 }
 
@@ -9389,7 +9641,9 @@ async function handleHostSwarmChunkRequest(conn, fileId, chunkIndex) {
                 chunkIndex: chunkIndex,
                 chunk: arrayBuffer
             });
-            if (window.triggerCyberspaceBeam) {
+            const now = Date.now();
+            if (window.triggerCyberspaceBeam && (!conn._lastBeamTime || now - conn._lastBeamTime > 250)) {
+                conn._lastBeamTime = now;
                 window.triggerCyberspaceBeam('host', conn.peer, '#ff00ff');
             }
         }
@@ -9413,7 +9667,9 @@ async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex) {
                 chunkIndex: chunkIndex,
                 chunk: chunkData
             });
-            if (window.triggerCyberspaceBeam) {
+            const now = Date.now();
+            if (window.triggerCyberspaceBeam && (!conn._lastBeamTime || now - conn._lastBeamTime > 250)) {
+                conn._lastBeamTime = now;
                 const to = (conn.peer === hostConnection?.peer) ? 'host' : conn.peer;
                 window.triggerCyberspaceBeam(peer.id, to, '#fcee0a');
             }
@@ -9424,7 +9680,9 @@ async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex) {
 }
 
 function handleIncomingSwarmChunk(fileId, chunkIndex, chunkData, fromPeerId) {
-    if (window.triggerCyberspaceBeam) {
+    const now = Date.now();
+    if (window.triggerCyberspaceBeam && (!window._lastSwarmChunkBeamTime || now - window._lastSwarmChunkBeamTime > 250)) {
+        window._lastSwarmChunkBeamTime = now;
         const to = (typeof isHost !== 'undefined' && isHost) ? 'host' : (peer ? peer.id : 'unknown');
         const from = fromPeerId === (hostConnection && hostConnection.peer) ? 'host' : fromPeerId;
         window.triggerCyberspaceBeam(from, to, '#fcee0a');

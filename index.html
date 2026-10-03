@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=70">
+    <link rel="stylesheet" href="style.css?v=72">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#07090e">
     
@@ -878,21 +878,25 @@
 
     <!-- WHITEBOARD MODAL -->
     <div id="whiteboard-modal" class="modal hidden">
-        <div class="modal-content card" style="max-width: 1200px; width: 96%; height: 92vh; display: flex; flex-direction: column; padding: 0.8rem 1rem;">
+        <div class="modal-content card wb-modal-card">
             <!-- Modal Header -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.6rem;">
-                <div style="display: flex; align-items: center; gap: 0.8rem;">
-                    <h2 style="margin: 0; color: #fcee0a; font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 6px;">
-                        <span>🎨 COLLABORATIVE WHITEBOARD</span>
+            <div class="wb-modal-header">
+                <div class="wb-title-area">
+                    <h2 class="wb-modal-title">
+                        <span>🎨</span>
+                        <span class="wb-title-text-full">COLLABORATIVE WHITEBOARD</span>
+                        <span class="wb-title-text-short">WHITEBOARD</span>
                     </h2>
-                    <span id="wb-status-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(252, 238, 10, 0.15); color: #fcee0a; border: 1px solid rgba(252, 238, 10, 0.3);">P2P LIVE</span>
+                    <span id="wb-status-badge" class="wb-live-badge">P2P LIVE</span>
                 </div>
-                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <div class="wb-header-btn-row">
                     <!-- Host Guest Access Control -->
                     <div id="wb-host-controls" style="position: relative; display: inline-block;">
-                        <button id="btn-wb-permissions" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.25rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Manage Guest Permissions">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                            <span>GUEST ACCESS</span> (<span id="wb-perm-count">0</span>)
+                        <button id="btn-wb-permissions" class="custom-btn wb-head-btn" title="Manage Guest Permissions" style="border-color: var(--neon-blue); color: var(--neon-blue); display: flex; align-items: center; gap: 4px;">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                            <span class="wb-access-txt-full">GUEST ACCESS</span>
+                            <span class="wb-access-txt-short">ACCESS</span>
+                            (<span id="wb-perm-count">0</span>)
                         </button>
                         <!-- Popover for Guest Access -->
                         <div id="wb-permissions-popover" class="hidden" style="position: absolute; right: 0; top: 100%; margin-top: 6px; width: 280px; background: rgba(15, 19, 32, 0.98); border: 1px solid var(--neon-blue); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); z-index: 10001; padding: 12px; backdrop-filter: blur(10px);">
@@ -910,19 +914,20 @@
                     </div>
 
                     <!-- Action Controls: Undo, Redo, Export PNG, Clear -->
-                    <button id="btn-wb-undo" class="wb-btn" title="Undo (Ctrl+Z)" style="padding: 4px 8px;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+                    <button id="btn-wb-undo" class="wb-btn wb-head-btn" title="Undo (Ctrl+Z)">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
                     </button>
-                    <button id="btn-wb-redo" class="wb-btn" title="Redo (Ctrl+Y)" style="padding: 4px 8px;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path></svg>
+                    <button id="btn-wb-redo" class="wb-btn wb-head-btn" title="Redo (Ctrl+Y)">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path></svg>
                     </button>
-                    <button id="btn-wb-export" class="wb-btn" title="Export as PNG snapshot" style="border-color: var(--neon-green); color: var(--neon-green); padding: 4px 10px; gap: 4px;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                        <span>SAVE PNG</span>
+                    <button id="btn-wb-export" class="wb-btn wb-head-btn wb-save-btn" title="Export as PNG snapshot">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span class="wb-save-txt-full">SAVE PNG</span>
+                        <span class="wb-save-txt-short">PNG</span>
                     </button>
-                    <button id="btn-clear-whiteboard" class="custom-btn" style="border-color: var(--neon-red); background: transparent; color: var(--neon-red); padding: 0.25rem 0.65rem; font-size: 0.75rem;">CLEAR</button>
-                    <button id="btn-close-whiteboard" class="btn-icon btn-close-modal" title="Close">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    <button id="btn-clear-whiteboard" class="custom-btn wb-head-btn wb-clear-btn" title="Clear Canvas">CLEAR</button>
+                    <button id="btn-close-whiteboard" class="btn-icon btn-close-modal" title="Close" style="padding: 2px;">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
                 </div>
             </div>
@@ -932,20 +937,20 @@
                 <!-- Tool Selector -->
                 <div class="wb-tool-group">
                     <button class="wb-btn wb-tool-btn active" data-tool="pen" title="Cyber Pen">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
-                        <span style="margin-left: 4px;">PEN</span>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
+                        <span class="wb-btn-label" style="margin-left: 3px;">PEN</span>
                     </button>
                     <button class="wb-btn wb-tool-btn" data-tool="glow" title="Neon Glow Brush">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path></svg>
-                        <span style="margin-left: 4px;">NEON</span>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path></svg>
+                        <span class="wb-btn-label" style="margin-left: 3px;">NEON</span>
                     </button>
                     <button class="wb-btn wb-tool-btn" data-tool="highlighter" title="Highlighter">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"></path><path d="m22 2-7.5 7.5-3.5-3.5L18.5 2Z"></path></svg>
-                        <span style="margin-left: 4px;">H-LITE</span>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"></path><path d="m22 2-7.5 7.5-3.5-3.5L18.5 2Z"></path></svg>
+                        <span class="wb-btn-label" style="margin-left: 3px;">H-LITE</span>
                     </button>
                     <button class="wb-btn wb-tool-btn" data-tool="eraser" title="Eraser">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path><path d="M22 21H7"></path><path d="m5 11 9 9"></path></svg>
-                        <span style="margin-left: 4px;">ERASER</span>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path><path d="M22 21H7"></path><path d="m5 11 9 9"></path></svg>
+                        <span class="wb-btn-label" style="margin-left: 3px;">ERASER</span>
                     </button>
                 </div>
 
@@ -953,28 +958,29 @@
 
                 <!-- Shapes Selector -->
                 <div class="wb-tool-group">
-                    <button class="wb-btn wb-tool-btn" data-tool="line" title="Straight Line">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
+                    <button class="wb-btn wb-tool-btn" data-tool="line" title="Straight Line" style="padding: 4px 6px;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
                     </button>
-                    <button class="wb-btn wb-tool-btn" data-tool="arrow" title="Arrow">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"></line><polyline points="10 5 19 5 19 14"></polyline></svg>
+                    <button class="wb-btn wb-tool-btn" data-tool="arrow" title="Arrow" style="padding: 4px 6px;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"></line><polyline points="10 5 19 5 19 14"></polyline></svg>
                     </button>
-                    <button class="wb-btn wb-tool-btn" data-tool="rect" title="Rectangle">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
+                    <button class="wb-btn wb-tool-btn" data-tool="rect" title="Rectangle" style="padding: 4px 6px;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
                     </button>
-                    <button class="wb-btn wb-tool-btn" data-tool="circle" title="Circle">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle></svg>
+                    <button class="wb-btn wb-tool-btn" data-tool="circle" title="Circle" style="padding: 4px 6px;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle></svg>
                     </button>
-                    <button class="wb-btn wb-tool-btn" data-tool="text" title="Text Label">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                    <button class="wb-btn wb-tool-btn" data-tool="text" title="Text Label" style="padding: 4px 6px;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
                     </button>
                     <button class="wb-btn wb-tool-btn" data-tool="laser" title="Live Laser Pointer (broadcasts to all guests)" style="border-color: rgba(255, 0, 85, 0.4); color: #ff0055;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" fill="#ff0055"></circle><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
-                        <span style="margin-left: 3px;">LASER</span>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" fill="#ff0055"></circle><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
+                        <span class="wb-btn-label" style="margin-left: 3px;">LASER</span>
                     </button>
                     <button class="wb-btn" id="btn-wb-stamp" title="Stamp Image from Device (or Drag & Drop / Paste)" style="border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                        <span style="margin-left: 3px;">STAMP IMG</span>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                        <span class="wb-stamp-label-full" style="margin-left: 3px;">STAMP IMG</span>
+                        <span class="wb-stamp-label-short" style="margin-left: 3px;">STAMP</span>
                     </button>
                     <input type="file" id="wb-stamp-file-input" accept="image/*" class="hidden">
                 </div>
@@ -1011,7 +1017,7 @@
 
                 <!-- Theme / Grid Mode Selector -->
                 <div class="wb-tool-group">
-                    <select id="wb-theme-select" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(5,8,18,0.8); border: 1px solid var(--neon-blue); color: var(--neon-blue); border-radius: 6px; font-family: var(--font-mono); outline: none; cursor: pointer;">
+                    <select id="wb-theme-select" class="wb-theme-picker">
                         <option value="cyber">🌌 CYBER GRID</option>
                         <option value="blueprint">📐 BLUEPRINT</option>
                         <option value="white">⚪ WHITEBOARD</option>
@@ -1029,8 +1035,8 @@
                     </button>
                     <button class="wb-btn" id="btn-wb-zoom-in" title="Zoom In (+)" style="padding: 4px 8px; font-weight: bold; font-size: 0.9rem;">+</button>
                     <button class="wb-btn wb-tool-btn" data-tool="pan" id="btn-wb-tool-pan" title="Pan / Move Canvas (or hold Spacebar)" style="border-color: rgba(255, 255, 255, 0.2);">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v6"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15"></path></svg>
-                        <span style="margin-left: 3px;">PAN</span>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v6"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15"></path></svg>
+                        <span class="wb-btn-label" style="margin-left: 3px;">PAN</span>
                     </button>
                 </div>
             </div>
@@ -1042,11 +1048,15 @@
                     <canvas id="whiteboard-overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; touch-action: none; pointer-events: none; z-index: 20;"></canvas>
                     <input type="text" id="wb-floating-text-input" class="hidden" placeholder="Type text & hit Enter">
                 </div>
-                <!-- Floating Quick Zoom HUD at bottom right -->
-                <div id="wb-zoom-floating-hud" style="position: absolute; bottom: 12px; right: 12px; z-index: 45; display: flex; align-items: center; gap: 4px; background: rgba(5, 8, 20, 0.85); border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 20px; padding: 3px 8px; backdrop-filter: blur(8px); box-shadow: 0 4px 15px rgba(0,0,0,0.6);">
-                    <button id="btn-wb-hud-zoom-out" style="background: none; border: none; color: #fff; cursor: pointer; padding: 2px 6px; font-weight: bold; font-size: 0.85rem;" title="Zoom Out">−</button>
-                    <span id="wb-hud-zoom-level" style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--neon-blue); min-width: 36px; text-align: center; cursor: pointer;" title="Reset Zoom">100%</span>
-                    <button id="btn-wb-hud-zoom-in" style="background: none; border: none; color: #fff; cursor: pointer; padding: 2px 6px; font-weight: bold; font-size: 0.85rem;" title="Zoom In">+</button>
+                <!-- Floating Quick Zoom & Pan HUD at bottom right -->
+                <div id="wb-zoom-floating-hud">
+                    <button id="btn-wb-hud-pan" class="wb-hud-btn" title="Toggle Pan Mode (Drag to Pan Canvas)">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v6"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15"></path></svg>
+                    </button>
+                    <div class="wb-hud-divider"></div>
+                    <button id="btn-wb-hud-zoom-out" class="wb-hud-btn" title="Zoom Out">−</button>
+                    <span id="wb-hud-zoom-level" class="wb-hud-level" title="Reset Zoom (1:1)">100%</span>
+                    <button id="btn-wb-hud-zoom-in" class="wb-hud-btn" title="Zoom In">+</button>
                 </div>
                 <div id="wb-stamp-drop-overlay" class="hidden" style="position: absolute; inset: 0; background: rgba(0, 240, 255, 0.15); border: 2px dashed var(--neon-blue); z-index: 50; display: flex; align-items: center; justify-content: center; pointer-events: none; backdrop-filter: blur(2px);">
                     <span style="color: var(--neon-blue); font-family: var(--font-mono); font-size: 1rem; font-weight: bold; text-shadow: 0 0 8px var(--neon-blue);">⚡ DROP IMAGE TO STAMP ON WHITEBOARD</span>
@@ -1465,12 +1475,12 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=75"></script>
+    <script src="app.js?v=77"></script>
     <script src="plugins.js?v=5"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=119').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=121').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

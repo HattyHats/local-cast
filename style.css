@@ -2275,4 +2275,350 @@ button, .file-item, .custom-btn, .header-btn {
     cursor: grabbing !important;
 }
 
+/* ==========================================================================
+   RESPONSIVE WHITEBOARD & MOBILE LAYOUTS
+   ========================================================================== */
+.wb-modal-card {
+    max-width: 1200px;
+    width: 96%;
+    height: 92vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0.8rem 1rem;
+    box-sizing: border-box;
+}
+
+.wb-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    flex-shrink: 0;
+}
+
+.wb-title-area {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.wb-modal-title {
+    margin: 0;
+    color: #fcee0a;
+    font-size: 1.15rem;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.wb-title-text-short,
+.wb-save-txt-short,
+.wb-access-txt-short,
+.wb-stamp-label-short {
+    display: none;
+}
+
+.wb-live-badge {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-family: var(--font-mono);
+    background: rgba(252, 238, 10, 0.15);
+    color: #fcee0a;
+    border: 1px solid rgba(252, 238, 10, 0.3);
+}
+
+.wb-header-btn-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.wb-head-btn {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    height: 30px;
+    box-sizing: border-box;
+}
+
+.wb-save-btn {
+    border-color: var(--neon-green) !important;
+    color: var(--neon-green) !important;
+    gap: 4px;
+}
+
+.wb-clear-btn {
+    border-color: var(--neon-red) !important;
+    background: transparent !important;
+    color: var(--neon-red) !important;
+    font-size: 0.75rem;
+}
+
+.wb-theme-picker {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    background: rgba(5,8,18,0.8);
+    border: 1px solid var(--neon-blue);
+    color: var(--neon-blue);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    outline: none;
+    cursor: pointer;
+    height: 28px;
+}
+
+/* Floating Quick Zoom & Pan HUD */
+#wb-zoom-floating-hud {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(5, 8, 20, 0.9);
+    border: 1px solid rgba(0, 240, 255, 0.35);
+    border-radius: 20px;
+    padding: 3px 8px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+}
+
+.wb-hud-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    padding: 2px 6px;
+    font-weight: bold;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.wb-hud-btn:hover {
+    color: var(--neon-blue);
+    background: rgba(0, 240, 255, 0.15);
+}
+
+.wb-hud-btn.active {
+    color: #000 !important;
+    background: var(--neon-blue) !important;
+    box-shadow: 0 0 10px var(--neon-blue);
+}
+
+.wb-hud-divider {
+    width: 1px;
+    height: 14px;
+    background: rgba(255, 255, 255, 0.2);
+    margin: 0 2px;
+}
+
+.wb-hud-level {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--neon-blue);
+    min-width: 36px;
+    text-align: center;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    user-select: none;
+}
+
+.wb-hud-level:hover {
+    background: rgba(0, 240, 255, 0.15);
+}
+
+/* Mobile & Tablet Whiteboard Fullscreen & Ribbon Layout */
+@media (max-width: 768px) {
+    #whiteboard-modal {
+        padding: 0 !important;
+        align-items: stretch !important;
+        justify-content: stretch !important;
+    }
+
+    #whiteboard-modal .wb-modal-card {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        height: 100vh; /* fallback */
+        border-radius: 0 !important;
+        border: none !important;
+        padding: 6px 6px 8px 6px !important;
+        margin: 0 !important;
+        gap: 3px !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .wb-modal-header {
+        margin-bottom: 2px !important;
+        gap: 4px !important;
+        flex-wrap: nowrap !important;
+        justify-content: space-between !important;
+    }
+
+    .wb-title-area {
+        gap: 4px !important;
+    }
+
+    .wb-modal-title {
+        font-size: 0.85rem !important;
+    }
+
+    .wb-title-text-full {
+        display: none !important;
+    }
+
+    .wb-title-text-short {
+        display: inline !important;
+    }
+
+    .wb-live-badge {
+        font-size: 0.65rem !important;
+        padding: 1px 5px !important;
+    }
+
+    .wb-header-btn-row {
+        gap: 3px !important;
+        flex-wrap: nowrap !important;
+    }
+
+    .wb-head-btn {
+        padding: 2px 5px !important;
+        font-size: 0.68rem !important;
+        height: 26px !important;
+    }
+
+    .wb-save-txt-full,
+    .wb-access-txt-full {
+        display: none !important;
+    }
+
+    .wb-save-txt-short,
+    .wb-access-txt-short {
+        display: inline !important;
+    }
+
+    /* Swipeable single-row horizontal toolbar ribbon */
+    .wb-toolbar-container {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        gap: 4px !important;
+        padding: 4px 6px !important;
+        margin-bottom: 4px !important;
+        scrollbar-width: none !important;
+        overscroll-behavior-x: contain !important;
+        flex-shrink: 0 !important;
+        border-radius: 6px !important;
+    }
+
+    .wb-toolbar-container::-webkit-scrollbar {
+        display: none !important;
+    }
+
+    .wb-tool-group {
+        flex-shrink: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 3px !important;
+    }
+
+    .wb-tool-divider {
+        flex-shrink: 0 !important;
+        height: 18px !important;
+        margin: 0 2px !important;
+    }
+
+    .wb-btn {
+        padding: 3px 6px !important;
+        font-size: 0.68rem !important;
+        height: 26px !important;
+        box-sizing: border-box !important;
+        flex-shrink: 0 !important;
+    }
+
+    .wb-btn-label {
+        font-size: 0.68rem !important;
+    }
+
+    .wb-stamp-label-full {
+        display: none !important;
+    }
+
+    .wb-stamp-label-short {
+        display: inline !important;
+    }
+
+    #btn-wb-stamp {
+        padding: 3px 6px !important;
+        font-size: 0.68rem !important;
+        flex-shrink: 0 !important;
+        max-width: none !important;
+    }
+
+    .wb-size-btn {
+        width: 24px !important;
+        height: 24px !important;
+        padding: 0 !important;
+        flex-shrink: 0 !important;
+    }
+
+    .wb-color-swatch {
+        width: 18px !important;
+        height: 18px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .wb-color-input-wrapper {
+        width: 20px !important;
+        height: 20px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .wb-theme-picker {
+        height: 26px !important;
+        padding: 2px 4px !important;
+        font-size: 0.68rem !important;
+        flex-shrink: 0 !important;
+    }
+
+    /* Whiteboard container takes remaining 90% of screen */
+    #whiteboard-container {
+        flex: 1 1 0% !important;
+        min-height: 0 !important;
+        border-radius: 6px !important;
+    }
+
+    #wb-zoom-floating-hud {
+        bottom: 8px !important;
+        right: 8px !important;
+        padding: 2px 6px !important;
+        gap: 3px !important;
+    }
+
+    .wb-hud-btn {
+        padding: 3px 5px !important;
+        font-size: 0.78rem !important;
+    }
+
+    .wb-hud-level {
+        font-size: 0.68rem !important;
+        min-width: 32px !important;
+    }
+}
+
 

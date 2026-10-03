@@ -89,12 +89,14 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 | **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
 | **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing |
 | **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |
+| **P2P Flow Control** | Event-driven `bufferedamountlow` threshold gating (512 KB pipelined buffer window) + coalesced 100ms `SWARM_HAVES` |
+| **Storage Serialization** | Debounced IndexedDB persistence (250ms) and coalesced tree broadcasts (150ms) |
 | **Parallel Concurrency** | Up to 8 concurrent chunk request streams per download |
 | **Symmetric Encryption** | AES-GCM-256 (hardware-accelerated Web Crypto API) |
 | **Key Derivation** | PBKDF2-SHA256 (100,000 iterations, unique salt per vault) |
 | **Asymmetric Key Exchange** | ECDH P-256 for ephemeral volatile session key agreements |
 | **Biometric Security** | WebAuthn / FIDO2 (`navigator.credentials`) with Touch ID, Face ID, Windows Hello |
-| **Screen Sharing** | WebRTC MediaStream (`getDisplayMedia`) 60 FPS video, optional system audio, Picture-in-Picture |
+| **Screen Sharing** | Hardware-downscaled 1080p30 (`getDisplayMedia` with 1.8 Mbps sender bitrate cap and `maintain-resolution` tuning for non-congested multi-peer broadcasting) |
 | **Whiteboard Engine** | Dual-canvas HTML5 Canvas 2D with hardware-accelerated CSS stage transforms (25%-500% zoom, 30 FPS laser throttle) |
 | **Batch File Engine** | Multi-node VFS transaction engine with JSZip batch archive packaging |
 | **Local Storage Engine** | IndexedDB (`localcast_db` for files/folders, `swarmChunks` for torrent pieces) |
