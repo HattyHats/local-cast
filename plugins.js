@@ -325,12 +325,221 @@ const btnPauseCyberspace = document.getElementById('btn-pause-cyberspace');
 
 let scene, camera, renderer, animationId;
 let peerMeshes = {};
+let hostPlanet = null;
+let hostMesh = null;
 let raycaster, mouse;
 let cyberspaceLabelsContainer = null;
 let isCyberspacePaused = false;
 
-if (typeof isHost !== 'undefined' && !isHost && btnCyberspace) {
-    btnCyberspace.style.display = 'none';
+const avatarCanvasCache = {};
+
+function getAvatarTexture(avatarSrc, alias, colorHex, onReady) {
+    const cleanAlias = (alias || 'Peer').trim();
+    const cleanColor = colorHex || '#00f0ff';
+    const cacheKey = (avatarSrc || 'no_src') + '_' + cleanAlias + '_' + cleanColor;
+    if (avatarCanvasCache[cacheKey]) {
+        onReady(avatarCanvasCache[cacheKey]);
+        return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+
+    function renderFallback() {
+        ctx.clearRect(0, 0, 256, 256);
+
+        // Circular clip
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(128, 128, 116, 0, Math.PI * 2);
+        ctx.clip();
+
+        // Dark gradient base
+        const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 128);
+        grad.addColorStop(0, 'rgba(15, 22, 45, 0.98)');
+        grad.addColorStop(1, 'rgba(5, 7, 18, 0.98)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+
+        // Subtle cyber grid lines
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.lineWidth = 1;
+        for (let i = 32; i < 240; i += 28) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
+        }
+
+        // Monogram initial
+        const initial = cleanAlias.length > 0 ? cleanAlias.charAt(0).toUpperCase() : '?';
+        ctx.font = '900 115px "Courier New", monospace, sans-serif';
+        ctx.fillStyle = cleanColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = cleanColor;
+        ctx.shadowBlur = 18;
+        ctx.fillText(initial, 128, 134);
+        ctx.restore();
+
+        // Glowing outer neon border
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(128, 128, 116, 0, Math.PI * 2);
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = cleanColor;
+        ctx.shadowColor = cleanColor;
+        ctx.shadowBlur = 20;
+        ctx.stroke();
+
+        // Inner dashed cyber ring
+        ctx.beginPath();
+        ctx.arc(128, 128, 104, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.setLineDash([8, 10]);
+        ctx.shadowBlur = 0;
+        ctx.stroke();
+        ctx.restore();
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        avatarCanvasCache[cacheKey] = texture;
+        onReady(texture);
+    }
+
+    if (avatarSrc) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            ctx.clearRect(0, 0, 256, 256);
+
+            // Circular clip for avatar
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(128, 128, 116, 0, Math.PI * 2);
+            ctx.clip();
+
+            // Dark base behind image
+            ctx.fillStyle = '#050712';
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Cover aspect-ratio scaling
+            const sw = img.width;
+            const sh = img.height;
+            const minDim = Math.min(sw, sh);
+            const sx = (sw - minDim) / 2;
+            const sy = (sh - minDim) / 2;
+            ctx.drawImage(img, sx, sy, minDim, minDim, 12, 12, 232, 232);
+            ctx.restore();
+
+            // Glowing neon circular ring
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(128, 128, 116, 0, Math.PI * 2);
+            ctx.lineWidth = 8;
+            ctx.strokeStyle = cleanColor;
+            ctx.shadowColor = cleanColor;
+            ctx.shadowBlur = 20;
+            ctx.stroke();
+
+            // Inner cyber dashed ring
+            ctx.beginPath();
+            ctx.arc(128, 128, 108, 0, Math.PI * 2);
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.setLineDash([6, 8]);
+            ctx.shadowBlur = 0;
+            ctx.stroke();
+            ctx.restore();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            avatarCanvasCache[cacheKey] = texture;
+            onReady(texture);
+        };
+        img.onerror = () => {
+            renderFallback();
+        };
+        img.src = avatarSrc;
+    } else {
+        renderFallback();
+    }
+}
+
+function createPlanetNode(id, alias, colorHex, avatarSrc, isHostPlanet = false) {
+    const group = new THREE.Group();
+    group.userData = { id, name: alias, color: colorHex };
+
+    const radius = isHostPlanet ? 3.4 : 2.2;
+
+    // 1. Central Billboard Avatar Disc (Profile photo / logo)
+    const discGeo = new THREE.CircleGeometry(radius * 0.95, 32);
+    const discMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false
+    });
+    const avatarDisc = new THREE.Mesh(discGeo, discMat);
+    avatarDisc.userData = group.userData;
+    group.add(avatarDisc);
+
+    // 2. Translucent wireframe atmospheric shell
+    const shellGeo = new THREE.SphereGeometry(radius, 20, 20);
+    const shellMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(colorHex),
+        wireframe: true,
+        transparent: true,
+        opacity: isHostPlanet ? 0.45 : 0.35
+    });
+    const shellMesh = new THREE.Mesh(shellGeo, shellMat);
+    shellMesh.userData = group.userData;
+    group.add(shellMesh);
+
+    let currentAvatarKey = null;
+
+    function applyTexture(src, name, col) {
+        const key = (src || '') + '_' + (name || '') + '_' + (col || '');
+        if (key === currentAvatarKey) return;
+        currentAvatarKey = key;
+        getAvatarTexture(src, name, col, (texture) => {
+            discMat.map = texture;
+            discMat.needsUpdate = true;
+        });
+    }
+
+    applyTexture(avatarSrc, alias, colorHex);
+
+    return {
+        group,
+        shellMesh,
+        avatarDisc,
+        applyTexture,
+        getAvatarKey: () => currentAvatarKey,
+        dispose: () => {
+            discGeo.dispose();
+            discMat.dispose();
+            shellGeo.dispose();
+            shellMat.dispose();
+        }
+    };
+}
+
+function getPeerAvatar(id) {
+    if (id === 'host') {
+        const hostInfo = (typeof window !== 'undefined' && window.hostPeerInfo) || null;
+        return (typeof isHost !== 'undefined' && isHost) ? (localStorage.getItem('localcast_avatar') || 'hat-logo.png') : (hostInfo ? hostInfo.avatar : 'hat-logo.png');
+    }
+    if (typeof activePeers !== 'undefined' && activePeers[id] && activePeers[id].avatar) {
+        return activePeers[id].avatar;
+    }
+    if (typeof connections !== 'undefined' && Array.isArray(connections)) {
+        const conn = connections.find(c => c.peer === id);
+        if (conn && conn.profile && conn.profile.avatar) return conn.profile.avatar;
+    }
+    return null;
 }
 
 if (btnCyberspace) {
@@ -342,6 +551,14 @@ if (btnCyberspace) {
     btnExitCyberspace.addEventListener('click', () => {
         cyberspaceOverlay.classList.add('hidden');
         if (animationId) cancelAnimationFrame(animationId);
+        if (hostPlanet) {
+            hostPlanet.dispose();
+            hostPlanet = null;
+        }
+        Object.values(peerMeshes).forEach(p => {
+            if (p.node) p.node.dispose();
+        });
+        peerMeshes = {};
         if (renderer) {
             renderer.dispose();
             cyberspaceContainer.innerHTML = '';
@@ -395,19 +612,22 @@ function initCyberspace() {
     const gridHelper = new THREE.GridHelper(100, 50, 0xff00ff, 0x00ffff);
     scene.add(gridHelper);
 
-    // Host Geometry
-    const hostGeometry = new THREE.SphereGeometry(3, 32, 32);
-    const hostMaterial = new THREE.MeshBasicMaterial({ color: 0x39ff14, wireframe: true });
-    const hostMesh = new THREE.Mesh(hostGeometry, hostMaterial);
+    // Host Celestial Body (Prime Station)
+    const hostInfo = (typeof window !== 'undefined' && window.hostPeerInfo) || null;
+    const hAlias = (typeof isHost !== 'undefined' && isHost) ? "root // HOST" : (hostInfo ? hostInfo.alias : "HOST");
+    const hColor = (typeof isHost !== 'undefined' && isHost) ? "#39ff14" : (hostInfo ? hostInfo.color : "#39ff14");
+    const hAvatar = getPeerAvatar('host');
+
+    hostPlanet = createPlanetNode('host', hAlias, hColor, hAvatar, true);
+    hostMesh = hostPlanet.group;
     hostMesh.position.set(0, 5, 0);
-    hostMesh.userData = { id: 'host', name: 'HOST', color: '#39ff14' };
     scene.add(hostMesh);
 
     // Particle Stars
     const starsGeo = new THREE.BufferGeometry();
     const starsCount = 500;
     const posArray = new Float32Array(starsCount * 3);
-    for(let i = 0; i < starsCount * 3; i++) {
+    for (let i = 0; i < starsCount * 3; i++) {
         posArray[i] = (Math.random() - 0.5) * 200;
     }
     starsGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
@@ -469,15 +689,26 @@ function initCyberspace() {
         mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
         
-        const interactable = [hostMesh, ...Object.values(peerMeshes).map(obj => obj.mesh)];
-        const intersects = raycaster.intersectObjects(interactable);
+        const interactables = [];
+        if (hostPlanet) {
+            interactables.push(hostPlanet.shellMesh, hostPlanet.avatarDisc);
+        }
+        Object.values(peerMeshes).forEach(p => {
+            if (p.node) interactables.push(p.node.shellMesh, p.node.avatarDisc);
+        });
+
+        const intersects = raycaster.intersectObjects(interactables);
         
         if (intersects.length > 0) {
-            const data = intersects[0].object.userData;
-            if (data.id !== 'host' && typeof openRadarGuestModal === 'function' && typeof isHost !== 'undefined' && isHost) {
-                openRadarGuestModal(data.id, data.name, data.color);
-            } else if (data.id === 'host' && typeof openRadarGuestModal === 'function' && typeof isHost !== 'undefined' && !isHost) {
-                alert("This is the Host.");
+            const hitObj = intersects[0].object;
+            const data = hitObj.userData || (hitObj.parent && hitObj.parent.userData);
+            if (data && data.id && data.id !== 'host') {
+                if (typeof openRadarGuestModal === 'function') {
+                    const pAvatar = getPeerAvatar(data.id);
+                    openRadarGuestModal(data.id, data.name || data.alias, data.color, pAvatar);
+                }
+            } else if (data && data.id === 'host') {
+                showToast("System Root: Host Prime Station", "info");
             }
         }
     });
@@ -487,7 +718,6 @@ function initCyberspace() {
         
         if (!isCyberspacePaused) {
             angle += 0.003;
-            hostMesh.rotation.y += 0.01;
             starsMesh.rotation.y += 0.0005;
         }
 
@@ -495,68 +725,131 @@ function initCyberspace() {
         camera.position.z = 50 * Math.sin(angle);
         camera.lookAt(0, 5, 0);
 
-        // Render HTML Label for Host
-        updateLabel(hostMesh, "root // HOST", "#39ff14");
-
-        if (typeof connections !== 'undefined') {
-            const currentPeerIds = connections.map(c => c.peer);
-            Object.keys(peerMeshes).forEach(peerId => {
-                if (!currentPeerIds.includes(peerId)) {
-                    scene.remove(peerMeshes[peerId].mesh);
-                    if (peerMeshes[peerId].label) peerMeshes[peerId].label.remove();
-                    delete peerMeshes[peerId];
-                }
-            });
-
-            connections.forEach((conn, index) => {
-                const alias = getGuestAlias(conn.peer);
-                const colorHex = getGuestColor(conn.peer);
-                
-                if (!peerMeshes[conn.peer]) {
-                    const guestGeo = new THREE.SphereGeometry(2, 16, 16);
-                    const guestMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(colorHex), wireframe: true });
-                    const guestMesh = new THREE.Mesh(guestGeo, guestMat);
-                    guestMesh.userData = { id: conn.peer, name: alias, color: colorHex };
-                    scene.add(guestMesh);
-                    
-                    const label = document.createElement('div');
-                    label.style.position = 'absolute';
-                    label.style.color = colorHex;
-                    label.style.fontFamily = 'monospace';
-                    label.style.fontSize = '12px';
-                    label.style.textShadow = '0 0 5px ' + colorHex;
-                    label.style.background = 'rgba(0,0,0,0.5)';
-                    label.style.padding = '2px 5px';
-                    label.style.border = '1px solid ' + colorHex;
-                    label.style.borderRadius = '3px';
-                    label.style.cursor = 'pointer';
-                    label.innerText = alias;
-                    cyberspaceLabelsContainer.appendChild(label);
-                    
-                    peerMeshes[conn.peer] = { mesh: guestMesh, label: label, color: colorHex };
-                }
-                
-                const p = peerMeshes[conn.peer];
-                if (p.label.innerText !== alias) {
-                    p.label.innerText = alias;
-                    p.label.style.color = colorHex;
-                    p.label.style.borderColor = colorHex;
-                    p.mesh.material.color.set(colorHex);
-                    p.mesh.userData.name = alias;
-                    p.mesh.userData.color = colorHex;
-                }
-
-                const gAngle = angle * 2 + (index * (Math.PI * 2 / connections.length));
-                p.mesh.position.set(20 * Math.cos(gAngle), 5 + Math.sin(gAngle*3)*3, 20 * Math.sin(gAngle));
-                
-                if (!isCyberspacePaused) {
-                    p.mesh.rotation.y += 0.02;
-                    p.mesh.rotation.x += 0.01;
-                }
-                
-                updateLabel(p.mesh, alias, colorHex, p.label);
-            });
+        // Animate Host Planet
+        if (hostPlanet) {
+            if (!isCyberspacePaused) {
+                hostPlanet.shellMesh.rotation.y += 0.008;
+                hostPlanet.shellMesh.rotation.x += 0.004;
+            }
+            hostPlanet.avatarDisc.quaternion.copy(camera.quaternion);
+            updateLabel(hostMesh, hAlias, hColor);
         }
+
+        // Resolve current peers
+        let peerList = [];
+        if (typeof isHost !== 'undefined' && isHost) {
+            if (typeof connections !== 'undefined' && Array.isArray(connections)) {
+                peerList = connections.filter(c => c.open && c.isAuthenticated).map(c => ({
+                    id: c.peer,
+                    alias: (c.profile && c.profile.name) || (activePeers[c.peer] && activePeers[c.peer].alias) || ('Guest ' + c.peer.substring(0, 5)),
+                    color: (c.profile && c.profile.color) || (activePeers[c.peer] && activePeers[c.peer].color) || '#00ffff',
+                    avatar: (c.profile && c.profile.avatar) || (activePeers[c.peer] && activePeers[c.peer].avatar) || null
+                }));
+            }
+        } else {
+            const myId = (typeof peer !== 'undefined' && peer) ? peer.id : null;
+            peerList = Object.values(activePeers || {}).filter(p => p.id !== myId).map(p => ({
+                id: p.id,
+                alias: p.alias || ('Peer ' + p.id.substring(0, 5)),
+                color: p.color || '#00ffff',
+                avatar: p.avatar || null
+            }));
+        }
+
+        // Clean up disconnected peers
+        const currentPeerIds = peerList.map(p => p.id);
+        Object.keys(peerMeshes).forEach(peerId => {
+            if (!currentPeerIds.includes(peerId)) {
+                scene.remove(peerMeshes[peerId].mesh);
+                if (peerMeshes[peerId].node) peerMeshes[peerId].node.dispose();
+                if (peerMeshes[peerId].label) peerMeshes[peerId].label.remove();
+                delete peerMeshes[peerId];
+            }
+        });
+
+        // Update and animate each peer planet
+        peerList.forEach((peerData, index) => {
+            const peerId = peerData.id;
+            const alias = peerData.alias;
+            const colorHex = peerData.color;
+            const avatarSrc = peerData.avatar || getPeerAvatar(peerId);
+
+            if (!peerMeshes[peerId]) {
+                const pNode = createPlanetNode(peerId, alias, colorHex, avatarSrc, false);
+                scene.add(pNode.group);
+
+                const label = document.createElement('div');
+                label.style.position = 'absolute';
+                label.style.color = colorHex;
+                label.style.fontFamily = 'monospace';
+                label.style.fontSize = '12px';
+                label.style.fontWeight = 'bold';
+                label.style.letterSpacing = '1px';
+                label.style.textShadow = '0 0 8px ' + colorHex;
+                label.style.background = 'rgba(5, 8, 20, 0.75)';
+                label.style.padding = '3px 8px';
+                label.style.border = '1px solid ' + colorHex;
+                label.style.borderRadius = '4px';
+                label.style.backdropFilter = 'blur(4px)';
+                label.style.cursor = 'pointer';
+                label.style.pointerEvents = 'auto';
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.gap = '5px';
+                const safeColor = (typeof sanitizeCssColor === 'function') ? sanitizeCssColor(colorHex) : colorHex;
+                const safeAlias = (typeof escapeHtml === 'function') ? escapeHtml(alias) : String(alias).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                label.innerHTML = `<span style="width:6px; height:6px; border-radius:50%; background:${safeColor}; box-shadow:0 0 6px ${safeColor};"></span><span>${safeAlias}</span>`;
+                
+                label.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (typeof openRadarGuestModal === 'function') {
+                        const curAvatar = getPeerAvatar(peerId);
+                        openRadarGuestModal(peerId, alias, colorHex, curAvatar);
+                    }
+                });
+
+                cyberspaceLabelsContainer.appendChild(label);
+
+                peerMeshes[peerId] = {
+                    mesh: pNode.group,
+                    node: pNode,
+                    label: label,
+                    color: colorHex,
+                    alias: alias,
+                    avatar: avatarSrc
+                };
+            }
+
+            const p = peerMeshes[peerId];
+            
+            // Check if profile details changed
+            if (p.alias !== alias || p.color !== colorHex || p.avatar !== avatarSrc) {
+                p.node.applyTexture(avatarSrc, alias, colorHex);
+                p.node.shellMesh.material.color.set(colorHex);
+                p.color = colorHex;
+                p.alias = alias;
+                p.avatar = avatarSrc;
+                const safeColor = (typeof sanitizeCssColor === 'function') ? sanitizeCssColor(colorHex) : colorHex;
+                const safeAlias = (typeof escapeHtml === 'function') ? escapeHtml(alias) : String(alias).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                p.label.style.color = safeColor;
+                p.label.style.borderColor = safeColor;
+                p.label.innerHTML = `<span style="width:6px; height:6px; border-radius:50%; background:${safeColor}; box-shadow:0 0 6px ${safeColor};"></span><span>${safeAlias}</span>`;
+            }
+
+            // Orbital movement
+            const gAngle = angle * 2 + (index * (Math.PI * 2 / Math.max(1, peerList.length)));
+            p.mesh.position.set(22 * Math.cos(gAngle), 5 + Math.sin(gAngle * 3) * 3, 22 * Math.sin(gAngle));
+
+            if (!isCyberspacePaused) {
+                p.node.shellMesh.rotation.y += 0.012;
+                p.node.shellMesh.rotation.x += 0.006;
+            }
+
+            // Billboard avatar disc to face camera perfectly
+            p.node.avatarDisc.quaternion.copy(camera.quaternion);
+
+            updateLabel(p.mesh, alias, colorHex, p.label);
+        });
 
         if (window.cyberspaceBeams) {
             for (let i = window.cyberspaceBeams.length - 1; i >= 0; i--) {
@@ -579,16 +872,28 @@ function initCyberspace() {
     function updateLabel(mesh, text, color, existingLabel) {
         let label = existingLabel;
         if (!label) {
-            // Only host uses this dynamic recreation if not stored, but host is static
             if (!mesh.userData.labelEl) {
                 mesh.userData.labelEl = document.createElement('div');
                 mesh.userData.labelEl.style.position = 'absolute';
                 mesh.userData.labelEl.style.color = color;
                 mesh.userData.labelEl.style.fontFamily = 'monospace';
-                mesh.userData.labelEl.style.fontSize = '14px';
+                mesh.userData.labelEl.style.fontSize = '12px';
                 mesh.userData.labelEl.style.fontWeight = 'bold';
+                mesh.userData.labelEl.style.letterSpacing = '1px';
                 mesh.userData.labelEl.style.textShadow = '0 0 8px ' + color;
-                mesh.userData.labelEl.innerText = text;
+                mesh.userData.labelEl.style.background = 'rgba(5, 8, 20, 0.75)';
+                mesh.userData.labelEl.style.padding = '3px 8px';
+                mesh.userData.labelEl.style.border = '1px solid ' + color;
+                mesh.userData.labelEl.style.borderRadius = '4px';
+                mesh.userData.labelEl.style.backdropFilter = 'blur(4px)';
+                mesh.userData.labelEl.style.cursor = 'pointer';
+                mesh.userData.labelEl.style.pointerEvents = 'auto';
+                mesh.userData.labelEl.style.display = 'flex';
+                mesh.userData.labelEl.style.alignItems = 'center';
+                mesh.userData.labelEl.style.gap = '5px';
+                const safeColor = (typeof sanitizeCssColor === 'function') ? sanitizeCssColor(color) : color;
+                const safeText = (typeof escapeHtml === 'function') ? escapeHtml(text) : String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                mesh.userData.labelEl.innerHTML = `<span style="width:6px; height:6px; border-radius:50%; background:${safeColor}; box-shadow:0 0 6px ${safeColor};"></span><span>${safeText}</span>`;
                 cyberspaceLabelsContainer.appendChild(mesh.userData.labelEl);
             }
             label = mesh.userData.labelEl;
@@ -602,11 +907,11 @@ function initCyberspace() {
             label.style.display = 'none';
             return;
         }
-        label.style.display = 'block';
+        label.style.display = 'flex';
         
         const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
         const y = (vector.y * -0.5 + 0.5) * window.innerHeight;
-        label.style.transform = `translate(-50%, -100%) translate(${x}px, ${y - 30}px)`;
+        label.style.transform = `translate(-50%, -100%) translate(${x}px, ${y - 42}px)`;
     }
 
     animate();

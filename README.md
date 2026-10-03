@@ -3,12 +3,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![WebRTC](https://img.shields.io/badge/WebRTC-Peer--to--Peer-00f0ff.svg)](https://webrtc.org/)
 [![Cryptography](https://img.shields.io/badge/Crypto-AES--GCM--256%20%7C%20ECDH%20P--256-39ff14.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
-[![PWA](https://img.shields.io/badge/PWA-Installable%20%26%20Share%20Target-ff007f.svg)](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)
-[![WebGL](https://img.shields.io/badge/3D%20Engine-Three.js-b026ff.svg)](https://threejs.org/)
+[![Biometrics](https://img.shields.io/badge/Biometrics-WebAuthn%20%7C%20FIDO2-ff007f.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Authentication_API)
+[![Screen Share](https://img.shields.io/badge/Screen%20Share-P2P%2060%20FPS-b026ff.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Capture_API)
+[![PWA](https://img.shields.io/badge/PWA-Installable%20%26%20Share%20Target-yellow.svg)](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)
+[![WebGL](https://img.shields.io/badge/3D%20Engine-Three.js-00f0ff.svg)](https://threejs.org/)
 
-**Local-Cast** is a serverless, zero-knowledge, browser-native operating system engineered for decentralized file sharing, swarm torrent distribution, multi-sig secure vaults, real-time gaming, and 3D spatial cyberspace telemetry. 
+**Local-Cast** is a serverless, zero-knowledge, browser-native operating system engineered for decentralized file sharing, swarm torrent distribution, multi-sig secure vaults, real-time gaming, low-latency screen sharing, and 3D spatial cyberspace telemetry. 
 
-Built entirely with standard web primitives (WebRTC DataChannels, Web Crypto API, IndexedDB, Three.js, and PWA Service Workers), Local-Cast requires **no accounts**, **no central servers**, **no cloud databases**, and **no third-party telemetry**. Your data lives solely in your browser's RAM and local storage, moving peer-to-peer over direct, hardware-accelerated encrypted tunnels.
+Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaStreams, Web Crypto API, WebAuthn, IndexedDB, Three.js, and PWA Service Workers), Local-Cast requires **no accounts**, **no central servers**, **no cloud databases**, and **no third-party telemetry**. Your data lives solely in your browser's RAM and local storage, moving peer-to-peer over direct, hardware-accelerated encrypted tunnels.
 
 ---
 
@@ -26,6 +28,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, Web Crypto API
 * **Consensus Voting Protocol:** Mark confidential folders as "Nuclear Vaults". Unlocking requires dynamic cryptographic authorization and a synchronized quorum vote from connected peers.
 * **Dynamic Quorum Threshold:** Automatically configures a 1-approval quorum for 2-peer rooms (Host + Guest), or allows the Host to select a custom $M$-of-$N$ threshold for larger mesh swarms.
 * **Dynamic PIN & Enter-Key Authorization:** Quick PIN-protected access with synchronized voting prompts across the mesh and Enter-key submission.
+* **Biometric Hardware Authentication (WebAuthn / Passkeys):** Unlock password-secured folders and vaults with Touch ID, Face ID, Windows Hello, or FIDO2 hardware keys via the Web Authentication API (`navigator.credentials`), bypassing repetitive password entry while preserving zero-knowledge security.
 * **60-Second Security Countdown:** Authorization requests feature a synchronized 60-second countdown timer. If quorum is not met, the request automatically expires.
 * **Session Cache Re-Arming:** Toggling or re-locking vaults triggers a synchronized `NUCLEAR_VAULT_RESET` broadcast, invalidating cached authorization tokens across all peers so vaults re-lock securely.
 * **AES-GCM-256 + ECDH P-256:** Cryptographic keys are derived in volatile browser RAM using PBKDF2-SHA256 (100,000 iterations). Files are encrypted locally *before* transmission or storage.
@@ -44,19 +47,35 @@ Built entirely with standard web primitives (WebRTC DataChannels, Web Crypto API
 ### 🕹️ 5. P2P Swarm Arcade & Collaboration
 * **Real-Time Multiplayer Gaming:** 60 FPS low-latency <strong style="color: #39ff14;">Cyber-Pong</strong> (synchronized paddle physics), <strong style="color: #00f0ff;">Holo-Chess</strong> (powered by chess.js with full FEN network synchronization), and classic <strong style="color: #ff007f;">Neon-Tac-Toe</strong>.
 * **Retro NES 8-bit Emulator:** Play classic ROMs in-browser with delta-time canvas streaming broadcasted to all connected guests at 60 FPS over WebRTC.
-* **Collaborative P2P Whiteboard:** Real-time synchronized canvas with multi-user vector drawing, touch/stylus support, color palette selection, and granular Host Access Control (individual guest permission switches, one-click "Allow All", interactive admission dialogs, and real-time canvas synchronization upon admission).
-* **Live Ephemeral Scratchpad:** Collaborative multi-user text workspace with instantaneous keystroke sync across the entire room, backed by granular Host Access Control (individual peer switches, one-click "Allow All", interactive admission invites, and real-time state sync upon admission).
+* **Collaborative P2P Whiteboard (Infinite Canvas):** 
+  * Real-time synchronized canvas with multi-user vector drawing, touch/stylus support, and color palette selection.
+  * **Zoom & Pan Navigation:** Smooth cursor-centered mouse wheel zoom, Spacebar hold-to-pan, on-canvas Quick Zoom HUD, and pinch-to-zoom multi-touch gestures (`25%` to `500%` zoom range).
+  * **Drag-and-Drop Image Stamping:** Drop or paste images directly onto the canvas with real-time peer distribution and coordinate lock.
+  * **Persistent Laser Beacons & Text Annotations:** Real-time pointer trails with solid peer nameplate badges and inline vector text placement.
+  * **Host Access Control:** Granular individual guest switches, one-click "Allow All", admission dialogs, and instant canvas state synchronization.
+* **Low-Latency P2P Screen Sharing:** Broadcast your desktop, application window, or browser tab directly to connected peers over hardware-accelerated WebRTC media streams at up to 60 FPS. Supports Picture-in-Picture (PiP), full-screen viewer, and optional system audio with zero intermediary servers.
+* **Live Ephemeral Scratchpad:** Collaborative multi-user text workspace with instantaneous keystroke sync across the entire room, backed by granular Host Access Control.
 * **Swarm Jukebox:** Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.
 
-### 📡 6. Proximity Radar, Comm-Links & Serverless Audio
+### 🗂️ 6. Multi-File Selection & Batch Operations
+* **Flexible Selection Controls:** Select multiple files and folders at once using desktop modifiers (<kbd>Ctrl+Click</kbd> / <kbd>Cmd+Click</kbd>, <kbd>Shift+Click</kbd> range selection) or mobile on-screen checkmark badges and a dedicated Multi-Select mode toggle.
+* **Cyber Floating Batch Actions Bar:** Slides up dynamically when items are selected with live counters:
+  * **`SELECT ALL`** — Instantly select all files and folders in the current directory.
+  * **`MOVE TO...`** — Interactive modal directory picker to batch relocate selected items into any destination folder.
+  * **`DOWNLOAD`** — Automatically bundles selected files into a single `.zip` archive on Host or triggers batch downloads on Guest.
+  * **`DELETE`** — Safely batch deletes selected items across Host VFS and authorized Guest connections with a single confirmation modal.
+* **Batch Drag & Drop:** Dragging any selected file carries all selected items together and moves them into any folder.
+* **Context Menu Batch Sync:** Right-clicking any selected file dynamically updates the context menu to show `Delete (N items)`.
+
+### 📡 7. Proximity Radar, Comm-Links & Serverless Audio
 * **2D Proximity Radar:** Visualizes connected peers with real-time signal strength, round-trip ping, and role indicators.
 * **Encrypted Whisper Channels:** 1-on-1 private messaging channels with zero-knowledge encryption.
 * **Serverless WebRTC Audio Calls:** Initiate direct encrypted P2P voice calls directly inside Whisper sessions with zero audio passing through intermediate servers.
 
-### 📶 7. Air-Gap LAN Mode (100% Offline)
+### 📶 8. Air-Gap LAN Mode (100% Offline)
 * **Zero Internet Operation:** Local-Cast can operate completely disconnected from the public internet. Connect devices directly over local Wi-Fi, Ethernet, or ad-hoc mobile hotspots using a cryptographic QR-code handshake.
 
-### 📱 8. Mobile PWA & Native OS Share Target
+### 📱 9. Mobile PWA & Native OS Share Target
 * **Progressive Web App (PWA):** Installable directly to iOS, Android, macOS, Windows, and Linux home screens.
 * **OS-Level Share Integration:** Select photos, videos, or documents directly from your mobile camera roll or file manager, tap "Share", and beam them straight into the Local-Cast network.
 * **Zero-Delay Touch Optimization:** Integrated `touch-action: manipulation` eliminating 300ms tap delays, fluid 3-column mobile file grids, iOS momentum scrolling, and viewport-safe dialogs.
@@ -67,13 +86,17 @@ Built entirely with standard web primitives (WebRTC DataChannels, Web Crypto API
 
 | Component | Implementation Details |
 | :--- | :--- |
-| **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) |
+| **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
 | **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing |
 | **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |
 | **Parallel Concurrency** | Up to 8 concurrent chunk request streams per download |
 | **Symmetric Encryption** | AES-GCM-256 (hardware-accelerated Web Crypto API) |
 | **Key Derivation** | PBKDF2-SHA256 (100,000 iterations, unique salt per vault) |
 | **Asymmetric Key Exchange** | ECDH P-256 for ephemeral volatile session key agreements |
+| **Biometric Security** | WebAuthn / FIDO2 (`navigator.credentials`) with Touch ID, Face ID, Windows Hello |
+| **Screen Sharing** | WebRTC MediaStream (`getDisplayMedia`) 60 FPS video, optional system audio, Picture-in-Picture |
+| **Whiteboard Engine** | Dual-canvas HTML5 Canvas 2D with hardware-accelerated CSS stage transforms (25%-500% zoom, 30 FPS laser throttle) |
+| **Batch File Engine** | Multi-node VFS transaction engine with JSZip batch archive packaging |
 | **Local Storage Engine** | IndexedDB (`localcast_db` for files/folders, `swarmChunks` for torrent pieces) |
 | **3D Cyberspace Engine** | Three.js WebGL with dynamic hardware-tier DPR scaling |
 | **Multiplayer Sync** | FEN notation (Chess), 60 FPS delta-time state packets (Pong), canvas streaming (NES) |
@@ -107,14 +130,14 @@ Because Local-Cast is 100% client-side, you can host it on any static hosting pl
 * **Vercel**
 * **Netlify**
 
-*(Note: WebRTC voice calls and PWA Share Target require HTTPS when deployed to a public domain.)*
+*(Note: WebRTC voice calls, screen sharing, and PWA Share Target require HTTPS when deployed to a public domain.)*
 
 ---
 
 ## 🔒 Security & Privacy Transparency
 
 ### Content Privacy vs. Network Anonymity
-* **Content is 100% Zero-Knowledge:** All files, whispers, and audio calls are encrypted client-side in browser RAM before transmission. Intermediate signaling brokers, ISPs, and eavesdroppers cannot inspect or decrypt your data.
+* **Content is 100% Zero-Knowledge:** All files, whispers, screen streams, and audio calls are encrypted client-side in browser RAM before transmission. Intermediate signaling brokers, ISPs, and eavesdroppers cannot inspect or decrypt your data.
 * **Network Layer is Direct Peer-to-Peer:** Because WebRTC establishes direct device-to-device socket connections (eliminating centralized proxy bottlenecks), connected peers exchange network packets directly. Any peer you directly connect with can view your public IP address using standard networking inspection tools (identical to BitTorrent or direct VoIP calls). 
 * **Recommendation:** If you require IP address masking when connecting with untrusted strangers, use a trusted **VPN** before establishing a session.
 
@@ -124,10 +147,14 @@ Because Local-Cast is 100% client-side, you can host it on any static hosting pl
 
 * **`/deaddrop`** — Type into the host search bar to reveal all concealed Dead Drop folders.
 * **`Enter` Key** — Quickly submits passwords in Vault prompts, Nuclear PIN dialogs, and voting authorization screens.
-* **Right-Click Context Menu** — Right-click any file or folder to access quick actions: *Make Nuclear Vault*, *Toggle Dead Drop*, *Set Honey-Pot*, *Burn on Download*, or *Download*.
+* **Right-Click Context Menu** — Right-click any file or folder to access quick actions: *Make Nuclear Vault*, *Toggle Dead Drop*, *Set Honey-Pot*, *Burn on Download*, *Move*, or *Delete*.
+* **Multi-File Selection** — Hold <kbd>Ctrl</kbd> / <kbd>Cmd</kbd> and click to toggle multiple files; hold <kbd>Shift</kbd> to select a range of files. Use the floating bottom bar to batch move, delete, or zip.
+* **Whiteboard Navigation** — Hold <kbd>Spacebar</kbd> to pan the canvas; scroll mouse wheel to zoom in/out; press <kbd>+</kbd>/<kbd>=</kbd> to zoom in, <kbd>-</kbd>/<kbd>_</kbd> to zoom out, and <kbd>0</kbd> to reset zoom to 100%.
+* **Whiteboard History** — <kbd>Ctrl+Z</kbd> / <kbd>Cmd+Z</kbd> to undo, <kbd>Ctrl+Y</kbd> / <kbd>Cmd+Shift+Z</kbd> to redo.
 * **Destroy Network** — Click the red skull button in the header for instantaneous zero-trace cryptographic purging of all keys, channels, and IndexedDB caches.
 
 ---
 
 ## 📄 License
 This project is open-source and released under the **MIT License**.
+

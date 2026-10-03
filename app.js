@@ -332,6 +332,11 @@ try {
 const CHUNK_SIZE = 32 * 1024; // 32 KB for high-throughput WebRTC data delivery
 const incomingTransfers = {};
 let selectedNodes = new Set();
+let clientSelectedNodes = new Set();
+let isSelectModeHost = false;
+let isSelectModeClient = false;
+let lastSelectedHostIndex = -1;
+let lastSelectedClientIndex = -1;
 
 const hostView = document.getElementById('host-view');
 const clientView = document.getElementById('client-view');
@@ -404,10 +409,342 @@ const vaultPasswordModal = document.getElementById('vault-password-modal');
 const btnCloseVaultModal = document.getElementById('btn-close-vault-modal');
 const btnConfirmVaultPassword = document.getElementById('btn-confirm-vault-password');
 const vaultPasswordInput = document.getElementById('vault-password-input');
+const btnVaultBiometric = document.getElementById('btn-vault-biometric');
+const vaultBiometricLabel = document.getElementById('vault-biometric-label');
 
 let unlockedVaults = {}; // mapping: folderId -> password
 let activeNuclearVotes = {}; // mapping: folderId -> Set of peerIds
 let nuclearVoteTimers = {}; // mapping: folderId_peerId -> timeoutId
+
+// --- BIOMETRIC / WEBAUTHN UNLOCK & FOLDER SECURITY LOGIC ---
+const vaultPasswordModalTitle = document.getElementById('vault-password-modal-title');
+const btnFolderBiometric = document.getElementById('btn-folder-biometric');
+const folderBiometricLabel = document.getElementById('folder-biometric-label');
+const btnCloseFolderPasswordTop = document.getElementById('btn-close-folder-password-top');
+
+const setFolderPasswordModal = document.getElementById('set-folder-password-modal');
+const setFolderPasswordTitle = document.getElementById('set-folder-password-title');
+const setFolderPasswordDesc = document.getElementById('set-folder-password-desc');
+const setFolderPasswordInput = document.getElementById('set-folder-password-input');
+const btnConfirmSetFolderPassword = document.getElementById('btn-confirm-set-folder-password');
+const btnSetFolderBiometric = document.getElementById('btn-set-folder-biometric');
+const setFolderBiometricLabel = document.getElementById('set-folder-biometric-label');
+const setFolderRemoveContainer = document.getElementById('set-folder-remove-container');
+const btnRemoveFolderPassword = document.getElementById('btn-remove-folder-password');
+const btnCloseSetFolderPassword = document.getElementById('btn-close-set-folder-password');
+let targetLockFolderNode = null;
+
+function isWebAuthnSupported() {
+    return !!(window.isSecureContext && window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+}
+
+function updateVaultBiometricUI(isSetupMode = false) {
+    if (!btnVaultBiometric || !vaultBiometricLabel) return;
+    btnVaultBiometric.style.display = 'flex';
+    const hasEnrollment = !!localStorage.getItem('localcast_vault_biometric');
+    if (!isWebAuthnSupported()) {
+        vaultBiometricLabel.textContent = "TOUCH ID / FACE ID (SECURE CONTEXT ONLY)";
+        btnVaultBiometric.style.borderColor = "var(--border-color)";
+        btnVaultBiometric.style.color = "var(--text-muted)";
+    } else if (hasEnrollment) {
+        vaultBiometricLabel.textContent = isSetupMode ? "USE SAVED BIOMETRICS" : "TOUCH ID / FACE ID UNLOCK";
+        btnVaultBiometric.style.borderColor = "var(--neon-green)";
+        btnVaultBiometric.style.color = "var(--neon-green)";
+    } else {
+        vaultBiometricLabel.textContent = "LINK TOUCH ID / FACE ID";
+        btnVaultBiometric.style.borderColor = "var(--neon-blue)";
+        btnVaultBiometric.style.color = "var(--neon-blue)";
+    }
+}
+
+function updateFolderBiometricUI() {
+    if (!btnFolderBiometric || !folderBiometricLabel) return;
+    btnFolderBiometric.style.display = 'flex';
+    const hasEnrollment = !!localStorage.getItem('localcast_vault_biometric');
+    if (!isWebAuthnSupported()) {
+        folderBiometricLabel.textContent = "TOUCH ID / FACE ID (SECURE CONTEXT ONLY)";
+        btnFolderBiometric.style.borderColor = "var(--border-color)";
+        btnFolderBiometric.style.color = "var(--text-muted)";
+    } else if (hasEnrollment) {
+        folderBiometricLabel.textContent = "TOUCH ID / FACE ID UNLOCK";
+        btnFolderBiometric.style.borderColor = "var(--neon-green)";
+        btnFolderBiometric.style.color = "var(--neon-green)";
+    } else {
+        folderBiometricLabel.textContent = "LINK TOUCH ID / FACE ID";
+        btnFolderBiometric.style.borderColor = "var(--neon-blue)";
+        btnFolderBiometric.style.color = "var(--neon-blue)";
+    }
+}
+
+function updateSetFolderBiometricUI() {
+    if (!btnSetFolderBiometric || !setFolderBiometricLabel) return;
+    btnSetFolderBiometric.style.display = 'flex';
+    const hasEnrollment = !!localStorage.getItem('localcast_vault_biometric');
+    if (!isWebAuthnSupported()) {
+        setFolderBiometricLabel.textContent = "TOUCH ID / FACE ID (SECURE CONTEXT ONLY)";
+        btnSetFolderBiometric.style.borderColor = "var(--border-color)";
+        btnSetFolderBiometric.style.color = "var(--text-muted)";
+    } else if (hasEnrollment) {
+        setFolderBiometricLabel.textContent = "USE SAVED BIOMETRICS";
+        btnSetFolderBiometric.style.borderColor = "var(--neon-green)";
+        btnSetFolderBiometric.style.color = "var(--neon-green)";
+    } else {
+        setFolderBiometricLabel.textContent = "LINK TOUCH ID / FACE ID";
+        btnSetFolderBiometric.style.borderColor = "var(--neon-blue)";
+        btnSetFolderBiometric.style.color = "var(--neon-blue)";
+    }
+}
+
+async function enrollVaultBiometric(password) {
+    if (!isWebAuthnSupported()) {
+        await cyberAlert("Biometric registration (Touch ID / Face ID) requires accessing LocalCast via localhost or HTTPS. In plain HTTP, browsers restrict biometric APIs.", "SECURITY REQUIREMENT");
+        return false;
+    }
+    try {
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        const userId = crypto.getRandomValues(new Uint8Array(16));
+        const credential = await navigator.credentials.create({
+            publicKey: {
+                challenge,
+                rp: { name: "LocalCast Mesh Security", id: window.location.hostname || "localhost" },
+                user: { id: userId, name: "localcast_user", displayName: "LocalCast Master" },
+                pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+                authenticatorSelection: {
+                    authenticatorAttachment: "platform",
+                    userVerification: "preferred"
+                },
+                timeout: 60000
+            }
+        });
+        if (credential) {
+            const enc = new TextEncoder();
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const rawKey = await crypto.subtle.digest('SHA-256', enc.encode(credential.id));
+            const cryptoKey = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt']);
+            const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, enc.encode(password));
+            
+            const record = {
+                credId: credential.id,
+                iv: Array.from(iv),
+                salt: Array.from(salt),
+                cipher: Array.from(new Uint8Array(encrypted))
+            };
+            localStorage.setItem('localcast_vault_biometric', JSON.stringify(record));
+            updateVaultBiometricUI();
+            updateFolderBiometricUI();
+            updateSetFolderBiometricUI();
+            return true;
+        }
+    } catch(err) {
+        console.warn("Biometric enrollment error:", err);
+    }
+    return false;
+}
+
+async function authenticateVaultBiometric() {
+    if (!isWebAuthnSupported()) {
+        await cyberAlert("Biometric unlock requires accessing LocalCast securely via localhost or HTTPS.", "SECURITY REQUIREMENT");
+        return null;
+    }
+    const raw = localStorage.getItem('localcast_vault_biometric');
+    if (!raw) return null;
+    let record;
+    try {
+        record = JSON.parse(raw);
+    } catch(e) {
+        return null;
+    }
+    try {
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        const assertion = await navigator.credentials.get({
+            publicKey: {
+                challenge,
+                userVerification: "preferred",
+                timeout: 60000
+            }
+        });
+        if (assertion) {
+            const enc = new TextEncoder();
+            const rawKey = await crypto.subtle.digest('SHA-256', enc.encode(record.credId));
+            const cryptoKey = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt']);
+            const decrypted = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: new Uint8Array(record.iv) },
+                cryptoKey,
+                new Uint8Array(record.cipher)
+            );
+            return new TextDecoder().decode(decrypted);
+        }
+    } catch(err) {
+        console.warn("Biometric authentication error:", err);
+        showToast("Biometric verification cancelled or not recognized.", "warning");
+    }
+    return null;
+}
+
+if (btnVaultBiometric) {
+    btnVaultBiometric.addEventListener('click', async () => {
+        if (!isWebAuthnSupported()) {
+            await cyberAlert("Biometric authentication (Touch ID / Face ID) is supported when LocalCast is accessed via localhost or HTTPS. On plain HTTP over LAN, please enter the password directly.", "BIOMETRIC NOT AVAILABLE ON HTTP");
+            return;
+        }
+        const hasEnrollment = !!localStorage.getItem('localcast_vault_biometric');
+        if (hasEnrollment) {
+            showToast("Verifying Touch ID / Face ID...", "info");
+            const pass = await authenticateVaultBiometric();
+            if (pass) {
+                vaultPasswordInput.value = pass;
+                btnConfirmVaultPassword.click();
+                showToast("🔓 Vault unlocked via Biometrics!", "success");
+            }
+        } else {
+            const pass = vaultPasswordInput.value.trim();
+            if (!pass) {
+                await cyberAlert("Enter your vault password once in the field above, then tap this button to link Touch ID / Face ID for 1-tap unlocking in the future!", "BIOMETRIC ENROLLMENT");
+                return;
+            }
+            showToast("Linking Touch ID / Face ID...", "info");
+            const ok = await enrollVaultBiometric(pass);
+            if (ok) {
+                showToast("🔐 Touch ID / Face ID linked! Unlocking vault...", "success");
+                btnConfirmVaultPassword.click();
+            } else {
+                showToast("Biometric enrollment cancelled.", "warning");
+            }
+        }
+    });
+}
+
+if (btnFolderBiometric) {
+    btnFolderBiometric.addEventListener('click', async () => {
+        if (!isWebAuthnSupported()) {
+            await cyberAlert("Biometric authentication requires localhost or HTTPS. On plain HTTP over LAN, please enter the folder password directly.", "BIOMETRIC NOT AVAILABLE ON HTTP");
+            return;
+        }
+        const hasEnrollment = !!localStorage.getItem('localcast_vault_biometric');
+        if (hasEnrollment) {
+            showToast("Verifying Touch ID / Face ID...", "info");
+            const pass = await authenticateVaultBiometric();
+            if (pass) {
+                folderPasswordInput.value = pass;
+                btnSubmitFolderPassword.click();
+                showToast("🔓 Folder unlocked via Biometrics!", "success");
+            }
+        } else {
+            const pass = folderPasswordInput.value.trim();
+            if (!pass) {
+                await cyberAlert("Enter the folder password once in the field above, then tap this button to link Touch ID / Face ID for 1-tap unlocking in the future!", "BIOMETRIC ENROLLMENT");
+                return;
+            }
+            showToast("Linking Touch ID / Face ID...", "info");
+            const ok = await enrollVaultBiometric(pass);
+            if (ok) {
+                showToast("🔐 Touch ID / Face ID linked! Unlocking folder...", "success");
+                btnSubmitFolderPassword.click();
+            } else {
+                showToast("Biometric enrollment cancelled.", "warning");
+            }
+        }
+    });
+}
+
+if (btnCloseFolderPasswordTop) {
+    btnCloseFolderPasswordTop.addEventListener('click', () => {
+        if (folderPasswordModal) folderPasswordModal.classList.add('hidden');
+    });
+}
+
+if (btnSetFolderBiometric) {
+    btnSetFolderBiometric.addEventListener('click', async () => {
+        if (!isWebAuthnSupported()) {
+            await cyberAlert("Biometric authentication requires localhost or HTTPS. On plain HTTP over LAN, please type the password directly.", "BIOMETRIC NOT AVAILABLE ON HTTP");
+            return;
+        }
+        const hasEnrollment = !!localStorage.getItem('localcast_vault_biometric');
+        if (hasEnrollment) {
+            showToast("Verifying Touch ID / Face ID...", "info");
+            const pass = await authenticateVaultBiometric();
+            if (pass) {
+                setFolderPasswordInput.value = pass;
+                showToast("🔑 Password filled from Biometrics!", "success");
+            }
+        } else {
+            const pass = setFolderPasswordInput.value.trim();
+            if (!pass) {
+                await cyberAlert("Enter a password for this folder in the field above, then tap this button to link Touch ID / Face ID!", "BIOMETRIC ENROLLMENT");
+                return;
+            }
+            showToast("Linking Touch ID / Face ID...", "info");
+            const ok = await enrollVaultBiometric(pass);
+            if (ok) {
+                showToast("🔐 Touch ID / Face ID linked for folder protection!", "success");
+            } else {
+                showToast("Biometric enrollment cancelled.", "warning");
+            }
+        }
+    });
+}
+
+if (btnConfirmSetFolderPassword) {
+    btnConfirmSetFolderPassword.addEventListener('click', () => {
+        if (!targetLockFolderNode) return;
+        const pass = setFolderPasswordInput.value.trim();
+        if (!pass && !targetLockFolderNode.password) {
+            cyberAlert("Please enter a password to lock this folder.", "PASSWORD REQUIRED", true);
+            return;
+        }
+        if (pass) {
+            targetLockFolderNode.password = pass;
+            showToast(`🔒 Folder "${targetLockFolderNode.name}" locked with password`, "success");
+        }
+        if (setFolderPasswordModal) setFolderPasswordModal.classList.add('hidden');
+        saveVFSToDB();
+        renderHostExplorer();
+        broadcastTree();
+    });
+}
+
+if (btnRemoveFolderPassword) {
+    btnRemoveFolderPassword.addEventListener('click', async () => {
+        if (!targetLockFolderNode) return;
+        if (await cyberConfirm(`Remove password protection from "${targetLockFolderNode.name}"?`, "UNLOCK FOLDER")) {
+            delete targetLockFolderNode.password;
+            delete unlockedVaults[targetLockFolderNode.id];
+            connections.forEach(c => {
+                if (c.unlockedFolders) c.unlockedFolders.delete(targetLockFolderNode.id);
+            });
+            if (setFolderPasswordModal) setFolderPasswordModal.classList.add('hidden');
+            showToast("Folder password removed", "info");
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
+        }
+    });
+}
+
+if (btnCloseSetFolderPassword) {
+    btnCloseSetFolderPassword.addEventListener('click', () => {
+        if (setFolderPasswordModal) setFolderPasswordModal.classList.add('hidden');
+    });
+}
+
+if (vaultPasswordModal) {
+    const obs = new MutationObserver(() => {
+        if (!vaultPasswordModal.classList.contains('hidden')) {
+            updateVaultBiometricUI();
+        }
+    });
+    obs.observe(vaultPasswordModal, { attributes: true, attributeFilter: ['class'] });
+}
+
+if (folderPasswordModal) {
+    const fObs = new MutationObserver(() => {
+        if (!folderPasswordModal.classList.contains('hidden')) {
+            updateFolderBiometricUI();
+        }
+    });
+    fObs.observe(folderPasswordModal, { attributes: true, attributeFilter: ['class'] });
+}
 // Crypto Engine
 async function deriveKey(password, salt) {
     const enc = new TextEncoder();
@@ -1331,6 +1668,40 @@ function endCommLink() {
 }
 
 async function handleIncomingCall(call) {
+    if (call.metadata && call.metadata.type === 'SCREEN_SHARE') {
+        call.answer();
+
+        const attachStream = (remoteStream) => {
+            if (!remoteStream) return;
+            if (typeof openScreenShareViewer === 'function') {
+                openScreenShareViewer(remoteStream, call.metadata.sharerName || 'Peer', call.peer, false);
+            }
+        };
+
+        if (call.remoteStream) {
+            attachStream(call.remoteStream);
+        }
+
+        call.on('stream', (remoteStream) => {
+            attachStream(remoteStream);
+            if (typeof isHost !== 'undefined' && isHost) {
+                connections.filter(c => c.open && c.isAuthenticated && c.peer !== call.peer).forEach(c => {
+                    peer.call(c.peer, remoteStream, {
+                        metadata: { type: 'SCREEN_SHARE', sharerName: call.metadata.sharerName, sharerId: call.metadata.sharerId }
+                    });
+                });
+            }
+        });
+        call.on('close', () => {
+            if (typeof closeScreenShareViewer === 'function') closeScreenShareViewer();
+            showToast("Screen stream ended by presenter.", "info");
+        });
+        call.on('error', (err) => {
+            console.warn("Screen share call error:", err);
+        });
+        return;
+    }
+
     if (call.metadata && call.metadata.type === 'EMULATOR') {
         call.answer();
         call.on('stream', (remoteStream) => {
@@ -1779,12 +2150,20 @@ async function initHost() {
                 } else {
                     conn.send({ type: 'SCRATCHPAD_DENIED', message: 'Scratchpad permission required.' });
                 }
+            } else if (data.type === 'SCREEN_SHARE_STOPPED') {
+                if (typeof closeScreenShareViewer === 'function') closeScreenShareViewer();
+                showToast("Screen stream ended by presenter.", "info");
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open) {
+                        try { c.send(data); } catch(e) {}
+                    }
+                });
             } else if (data.type === 'WHITEBOARD_DRAW' && conn.isAuthenticated) {
                 if (!conn.permissions || !conn.permissions.whiteboard) return;
-                if (wbCtx && wbCanvas) {
+                if (typeof drawLine === 'function' && wbCanvas) {
                     const w = wbCanvas.width; const h = wbCanvas.height;
                     if (w > 0 && h > 0) {
-                        drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, false);
+                        drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, data.size, data.tool, false);
                     }
                 }
                 connections.forEach(c => {
@@ -1792,9 +2171,82 @@ async function initHost() {
                         c.send(data);
                     }
                 });
+            } else if (data.type === 'WHITEBOARD_SHAPE' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (typeof commitShape === 'function' && wbCanvas) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    if (w > 0 && h > 0) {
+                        commitShape(data.shape, data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, data.size, data.tool, false);
+                    }
+                }
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send(data);
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_TEXT' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (typeof commitText === 'function' && wbCanvas) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    if (w > 0 && h > 0) {
+                        commitText(data.x * w, data.y * h, data.text, data.color, data.size, false);
+                    }
+                }
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send(data);
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_STAMP' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (typeof stampImageOnWhiteboard === 'function' && wbCanvas) {
+                    stampImageOnWhiteboard(data.image, data.x, data.y, data.w, data.h, false);
+                }
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send(data);
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_LASER' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (typeof handleLaserPoint === 'function' && wbCanvas) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    if (w > 0 && h > 0) {
+                        handleLaserPoint(data.x * w, data.y * h, data.color, data.peerName || 'Peer');
+                    }
+                }
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send(data);
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_THEME' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (typeof setWbTheme === 'function') {
+                    setWbTheme(data.theme, false);
+                }
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send(data);
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_UNDO' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (typeof undoWb === 'function') {
+                    undoWb(true);
+                }
+            } else if (data.type === 'WHITEBOARD_REDO' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (typeof redoWb === 'function') {
+                    redoWb(true);
+                }
             } else if (data.type === 'WHITEBOARD_CLEAR' && conn.isAuthenticated) {
                 if (!conn.permissions || !conn.permissions.whiteboard) return;
-                if (wbCtx && wbCanvas) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                if (typeof clearWhiteboard === 'function') {
+                    clearWhiteboard(false);
+                } else if (wbCtx && wbCanvas) {
+                    wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         c.send(data);
@@ -1803,7 +2255,11 @@ async function initHost() {
             } else if (data.type === 'REQUEST_WHITEBOARD' && conn.isAuthenticated) {
                 if (conn.permissions && conn.permissions.whiteboard) {
                     if (wbCanvas && wbCanvas.width > 0 && wbCanvas.height > 0) {
-                        conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                        conn.send({ 
+                            type: 'WHITEBOARD_SYNC', 
+                            image: wbCanvas.toDataURL(),
+                            theme: typeof currentWbTheme !== 'undefined' ? currentWbTheme : 'cyber'
+                        });
                     }
                 } else {
                     conn.send({ type: 'WHITEBOARD_DENIED', message: 'Whiteboard permission required.' });
@@ -2214,8 +2670,14 @@ function handleNuclearVote(folderId, peerId, pin) {
 function broadcastPeers() {
     if (!isHost) return;
     const peers = connections.filter(c => c.open && c.profile && c.isAuthenticated).map(c => ({ id: c.peer, alias: c.profile.name, color: c.profile.color, avatar: c.profile.avatar }));
+    const hostInfo = {
+        id: (peer ? peer.id : 'host'),
+        alias: (typeof getMyAlias === 'function' ? getMyAlias() : 'HOST'),
+        color: '#39ff14',
+        avatar: localStorage.getItem('localcast_avatar') || 'hat-logo.png'
+    };
     connections.forEach(c => {
-        if (c.open && c.isAuthenticated) c.send({ type: 'PEER_LIST', peers });
+        if (c.open && c.isAuthenticated) c.send({ type: 'PEER_LIST', peers, host: hostInfo });
     });
     // Update host's own list
     activePeers = {};
@@ -2313,8 +2775,12 @@ function setupHostActions() {
         
         if (isVault) {
             createFolderModal.classList.add('hidden');
+            if (vaultPasswordModalTitle) vaultPasswordModalTitle.textContent = "Create Secure Vault: " + name;
+            if (vaultPasswordDesc) vaultPasswordDesc.textContent = "Set a strong master password to encrypt this vault. You can link Touch ID / Face ID below for 1-tap unlocking.";
+            if (btnConfirmVaultPassword) btnConfirmVaultPassword.textContent = "CONFIRM & CREATE";
             vaultPasswordModal.classList.remove('hidden');
             vaultPasswordInput.value = '';
+            updateVaultBiometricUI(true);
             
             const handleVaultSubmit = async () => {
                 const pass = vaultPasswordInput.value;
@@ -2323,6 +2789,8 @@ function setupHostActions() {
                 // Remove listener so it doesn't fire multiple times
                 btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
                 vaultPasswordModal.classList.add('hidden');
+                if (btnConfirmVaultPassword) btnConfirmVaultPassword.textContent = "UNLOCK";
+                if (vaultPasswordModalTitle) vaultPasswordModalTitle.textContent = "Vault Password";
                 
                 // Create a dummy salt for the folder (files will have their own)
                 const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -2332,11 +2800,14 @@ function setupHostActions() {
                 saveVFSToDB();
                 renderHostExplorer();
                 broadcastTree();
+                showToast(`🔐 Secure Vault "${name}" created!`, "success");
             };
             
             btnConfirmVaultPassword.addEventListener('click', handleVaultSubmit);
             btnCloseVaultModal.addEventListener('click', () => {
                 btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
+                if (btnConfirmVaultPassword) btnConfirmVaultPassword.textContent = "UNLOCK";
+                if (vaultPasswordModalTitle) vaultPasswordModalTitle.textContent = "Vault Password";
                 vaultPasswordModal.classList.add('hidden');
             }, { once: true });
         } else {
@@ -2688,7 +3159,8 @@ function renderHostExplorer() {
             
         const burnIcon = child.isBurn ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
-        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>`;
+        const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
+        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>`;
         item.draggable = true;
         
         if (child.isHoneyPot) {
@@ -2701,9 +3173,11 @@ function renderHostExplorer() {
         }
         
         if (selectedNodes.has(child.id)) item.classList.add('selected');
-        
-        item.addEventListener('click', (e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey) {
+
+        const chk = item.querySelector('.item-select-checkbox');
+        if (chk) {
+            chk.addEventListener('click', (e) => {
+                e.stopPropagation();
                 if (selectedNodes.has(child.id)) {
                     selectedNodes.delete(child.id);
                     item.classList.remove('selected');
@@ -2711,20 +3185,64 @@ function renderHostExplorer() {
                     selectedNodes.add(child.id);
                     item.classList.add('selected');
                 }
+                lastSelectedHostIndex = itemsToRender.indexOf(child);
+                updateBatchBar();
+            });
+        }
+        
+        item.addEventListener('click', (e) => {
+            const curIdx = itemsToRender.indexOf(child);
+            if (isSelectModeHost) {
+                if (selectedNodes.has(child.id)) {
+                    selectedNodes.delete(child.id);
+                    item.classList.remove('selected');
+                } else {
+                    selectedNodes.add(child.id);
+                    item.classList.add('selected');
+                }
+                lastSelectedHostIndex = curIdx;
+                updateBatchBar();
+                return;
+            }
+
+            if (e.shiftKey && lastSelectedHostIndex !== -1) {
+                const start = Math.min(lastSelectedHostIndex, curIdx);
+                const end = Math.max(lastSelectedHostIndex, curIdx);
+                for (let i = start; i <= end; i++) {
+                    selectedNodes.add(itemsToRender[i].id);
+                }
+                const domItems = hostExplorerGrid.querySelectorAll('.file-item');
+                domItems.forEach((el, idx) => {
+                    if (idx >= start && idx <= end) el.classList.add('selected');
+                });
+                updateBatchBar();
+            } else if (e.metaKey || e.ctrlKey) {
+                if (selectedNodes.has(child.id)) {
+                    selectedNodes.delete(child.id);
+                    item.classList.remove('selected');
+                } else {
+                    selectedNodes.add(child.id);
+                    item.classList.add('selected');
+                }
+                lastSelectedHostIndex = curIdx;
+                updateBatchBar();
             } else {
                 selectedNodes.clear();
-                document.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
+                document.querySelectorAll('#host-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
                 selectedNodes.add(child.id);
                 item.classList.add('selected');
+                lastSelectedHostIndex = curIdx;
+                updateBatchBar();
             }
         });
         
         item.addEventListener('dragstart', (e) => {
             if (!selectedNodes.has(child.id)) {
                 selectedNodes.clear();
-                document.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
+                document.querySelectorAll('#host-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
                 selectedNodes.add(child.id);
                 item.classList.add('selected');
+                updateBatchBar();
             }
             e.dataTransfer.setData('application/json', JSON.stringify(Array.from(selectedNodes)));
             e.dataTransfer.effectAllowed = 'move';
@@ -2793,6 +3311,17 @@ function renderHostExplorer() {
         item.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             contextTargetId = child.id;
+            if (!selectedNodes.has(child.id)) {
+                selectedNodes.clear();
+                document.querySelectorAll('#host-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+                selectedNodes.add(child.id);
+                item.classList.add('selected');
+                updateBatchBar();
+            }
+            const delLabel = document.getElementById('ctx-delete-label');
+            if (delLabel) {
+                delLabel.textContent = selectedNodes.size > 1 ? `Delete (${selectedNodes.size} items)` : 'Delete';
+            }
             contextMenu.style.left = `${e.clientX}px`;
             contextMenu.style.top = `${e.clientY}px`;
             contextMenu.classList.remove('hidden');
@@ -3321,12 +3850,52 @@ async function initClient() {
             } else if (data.type === 'UPLOAD_COMPLETE') {
                 // Let the processClientFiles loop handle the UI and final alert
             } else if (data.type === 'WHITEBOARD_DRAW') {
-                if (wbCtx) {
+                if (typeof drawLine === 'function' && wbCanvas) {
                     const w = wbCanvas.width; const h = wbCanvas.height;
-                    drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, false);
+                    if (w > 0 && h > 0) {
+                        drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, data.size, data.tool, false);
+                    }
+                }
+            } else if (data.type === 'WHITEBOARD_SHAPE') {
+                if (typeof commitShape === 'function' && wbCanvas) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    if (w > 0 && h > 0) {
+                        commitShape(data.shape, data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, data.size, data.tool, false);
+                    }
+                }
+            } else if (data.type === 'WHITEBOARD_TEXT') {
+                if (typeof commitText === 'function' && wbCanvas) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    if (w > 0 && h > 0) {
+                        commitText(data.x * w, data.y * h, data.text, data.color, data.size, false);
+                    }
+                }
+            } else if (data.type === 'WHITEBOARD_STAMP') {
+                if (typeof stampImageOnWhiteboard === 'function' && wbCanvas) {
+                    stampImageOnWhiteboard(data.image, data.x, data.y, data.w, data.h, false);
+                }
+            } else if (data.type === 'WHITEBOARD_LASER') {
+                if (typeof handleLaserPoint === 'function' && wbCanvas) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    if (w > 0 && h > 0) {
+                        handleLaserPoint(data.x * w, data.y * h, data.color, data.peerName || 'Host');
+                    }
+                }
+            } else if (data.type === 'WHITEBOARD_THEME') {
+                if (typeof setWbTheme === 'function') {
+                    setWbTheme(data.theme, false);
                 }
             } else if (data.type === 'WHITEBOARD_CLEAR') {
-                if (wbCtx) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                if (typeof clearWhiteboard === 'function') {
+                    clearWhiteboard(false);
+                } else if (wbCtx && wbCanvas) {
+                    wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                }
+            } else if (data.type === 'SCREEN_SHARE_STARTED') {
+                showToast(`🖥️ ${data.sharerName || 'Peer'} started screen sharing`, 'info');
+            } else if (data.type === 'SCREEN_SHARE_STOPPED') {
+                if (typeof closeScreenShareViewer === 'function') closeScreenShareViewer();
+                showToast("Screen stream ended by presenter.", "info");
             } else if (data.type === 'TEXT_EDIT_SYNC') {
                 if (currentEditorFileId === data.fileId && !editorModal.classList.contains('hidden')) {
                     const selStart = editorTextarea.selectionStart;
@@ -3345,11 +3914,15 @@ async function initClient() {
                     }
                 });
             } else if (data.type === 'WHITEBOARD_SYNC') {
+                if (data.theme && typeof setWbTheme === 'function') {
+                    setWbTheme(data.theme, false);
+                }
                 if (wbCtx && data.image) {
                     const img = new Image();
                     img.onload = () => {
                         wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
                         wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
+                        if (typeof saveWbState === 'function') saveWbState(false);
                     };
                     img.src = data.image;
                 }
@@ -3392,6 +3965,7 @@ async function initClient() {
             } else if (data.type === 'PEER_LIST') {
                 activePeers = {};
                 data.peers.forEach(p => activePeers[p.id] = p);
+                if (data.host) window.hostPeerInfo = data.host;
             } else if (data.type === 'WHISPER') {
                 handleWhisper(data);
 } else if (data.type === 'CHAT_MSG') {
@@ -3591,11 +4165,38 @@ function renderClientExplorer() {
         const sizeText = (typeof child.size === 'number' && child.size > 0) ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
         const burnIcon = child.isBurn ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
-        item.innerHTML = `${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}`;
+        const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
+        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}`;
         item.draggable = true;
+
+        if (clientSelectedNodes.has(child.id)) item.classList.add('selected');
+
+        const chk = item.querySelector('.item-select-checkbox');
+        if (chk) {
+            chk.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (clientSelectedNodes.has(child.id)) {
+                    clientSelectedNodes.delete(child.id);
+                    item.classList.remove('selected');
+                } else {
+                    clientSelectedNodes.add(child.id);
+                    item.classList.add('selected');
+                }
+                lastSelectedClientIndex = itemsToRender.indexOf(child);
+                updateBatchBar();
+            });
+        }
         
         item.addEventListener('dragstart', (e) => {
             if (!myPermissions || !myPermissions.delete) { e.preventDefault(); return; }
+            if (!clientSelectedNodes.has(child.id)) {
+                clientSelectedNodes.clear();
+                document.querySelectorAll('#client-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+                clientSelectedNodes.add(child.id);
+                item.classList.add('selected');
+                updateBatchBar();
+            }
+            e.dataTransfer.setData('application/json', JSON.stringify(Array.from(clientSelectedNodes)));
             e.dataTransfer.setData('text/plain', child.id);
             e.dataTransfer.effectAllowed = 'move';
         });
@@ -3606,16 +4207,74 @@ function renderClientExplorer() {
             item.addEventListener('drop', (e) => {
                 e.preventDefault();
                 item.style.background = 'transparent';
-                const nodeId = e.dataTransfer.getData('text/plain');
-                if (nodeId && nodeId !== child.id) {
-                    if (hostConnection && hostConnection.open) {
-                        hostConnection.send({ type: 'CLIENT_MOVE_NODE', id: nodeId, targetFolderId: child.id });
+                if (!myPermissions || !myPermissions.delete) return;
+                try {
+                    const ids = JSON.parse(e.dataTransfer.getData('application/json'));
+                    if (Array.isArray(ids) && hostConnection && hostConnection.open) {
+                        ids.forEach(id => {
+                            if (id !== child.id) {
+                                hostConnection.send({ type: 'CLIENT_MOVE_NODE', id, targetFolderId: child.id });
+                            }
+                        });
+                        clientSelectedNodes.clear();
+                        updateBatchBar();
+                        return;
                     }
+                } catch(err) {}
+                const nodeId = e.dataTransfer.getData('text/plain');
+                if (nodeId && nodeId !== child.id && hostConnection && hostConnection.open) {
+                    hostConnection.send({ type: 'CLIENT_MOVE_NODE', id: nodeId, targetFolderId: child.id });
                 }
             });
         }
         
-        item.addEventListener('click', () => {
+        item.addEventListener('click', (e) => {
+            const curIdx = itemsToRender.indexOf(child);
+            if (isSelectModeClient) {
+                if (clientSelectedNodes.has(child.id)) {
+                    clientSelectedNodes.delete(child.id);
+                    item.classList.remove('selected');
+                } else {
+                    clientSelectedNodes.add(child.id);
+                    item.classList.add('selected');
+                }
+                lastSelectedClientIndex = curIdx;
+                updateBatchBar();
+                return;
+            }
+
+            if (e.shiftKey && lastSelectedClientIndex !== -1) {
+                const start = Math.min(lastSelectedClientIndex, curIdx);
+                const end = Math.max(lastSelectedClientIndex, curIdx);
+                for (let i = start; i <= end; i++) {
+                    clientSelectedNodes.add(itemsToRender[i].id);
+                }
+                const domItems = clientExplorerGrid.querySelectorAll('.file-item');
+                domItems.forEach((el, idx) => {
+                    if (idx >= start && idx <= end) el.classList.add('selected');
+                });
+                updateBatchBar();
+                return;
+            }
+
+            if (e.metaKey || e.ctrlKey) {
+                if (clientSelectedNodes.has(child.id)) {
+                    clientSelectedNodes.delete(child.id);
+                    item.classList.remove('selected');
+                } else {
+                    clientSelectedNodes.add(child.id);
+                    item.classList.add('selected');
+                }
+                lastSelectedClientIndex = curIdx;
+                updateBatchBar();
+                return;
+            }
+
+            if (clientSelectedNodes.size > 0) {
+                clientSelectedNodes.clear();
+                document.querySelectorAll('#client-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+                updateBatchBar();
+            }
             if (child.type === 'folder') {
                 if (child.isNuclear && !clientUnlockedVaults[child.id]) {
                     openNuclearModal(child);
@@ -3723,6 +4382,17 @@ function renderClientExplorer() {
         item.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             contextTargetId = child.id;
+            if (!clientSelectedNodes.has(child.id)) {
+                clientSelectedNodes.clear();
+                document.querySelectorAll('#client-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+                clientSelectedNodes.add(child.id);
+                item.classList.add('selected');
+                updateBatchBar();
+            }
+            const delLabel = document.getElementById('ctx-delete-label');
+            if (delLabel) {
+                delLabel.textContent = clientSelectedNodes.size > 1 ? `Delete (${clientSelectedNodes.size} items)` : 'Delete';
+            }
             contextMenu.style.left = `${e.clientX}px`;
             contextMenu.style.top = `${e.clientY}px`;
             contextMenu.classList.remove('hidden');
@@ -4297,31 +4967,37 @@ if (ctxDownload) {
 ctxLock.addEventListener('click', async () => {
     if (!contextTargetId) return;
     const node = vfs.findNode(contextTargetId);
+    contextTargetId = null;
+    contextMenu.classList.add('hidden');
+
     if (node && node.type === 'folder') {
-        if (node.password) {
-            if (await cyberConfirm("Remove password from this folder?", "SECURITY PROTOCOL")) {
-                delete node.password;
-                delete unlockedVaults[node.id];
-                connections.forEach(c => {
-                    if (c.unlockedFolders) c.unlockedFolders.delete(node.id);
-                });
-                showToast("Folder unlocked");
+        targetLockFolderNode = node;
+        if (setFolderPasswordModal) {
+            if (node.password) {
+                if (setFolderPasswordTitle) setFolderPasswordTitle.textContent = "Folder Security: " + node.name;
+                if (setFolderPasswordDesc) setFolderPasswordDesc.textContent = "This folder is currently password-protected. You can update its password, link Touch ID / Face ID, or remove the lock entirely.";
+                if (setFolderPasswordInput) {
+                    setFolderPasswordInput.value = '';
+                    setFolderPasswordInput.placeholder = "Enter new password (or leave blank)";
+                }
+                if (btnConfirmSetFolderPassword) btnConfirmSetFolderPassword.textContent = "UPDATE PASSWORD";
+                if (setFolderRemoveContainer) setFolderRemoveContainer.classList.remove('hidden');
+            } else {
+                if (setFolderPasswordTitle) setFolderPasswordTitle.textContent = "Lock Folder: " + node.name;
+                if (setFolderPasswordDesc) setFolderPasswordDesc.textContent = "Set a password to lock this folder. Guests will need this password or linked Biometrics to access its contents.";
+                if (setFolderPasswordInput) {
+                    setFolderPasswordInput.value = '';
+                    setFolderPasswordInput.placeholder = "Enter Folder Password";
+                }
+                if (btnConfirmSetFolderPassword) btnConfirmSetFolderPassword.textContent = "LOCK FOLDER";
+                if (setFolderRemoveContainer) setFolderRemoveContainer.classList.add('hidden');
             }
-        } else {
-            const pwd = await cyberPrompt("Enter a password to lock this folder:", "", "LOCK FOLDER");
-            if (pwd) {
-                node.password = pwd;
-                showToast("Folder locked with password");
-            }
+            updateSetFolderBiometricUI();
+            setFolderPasswordModal.classList.remove('hidden');
+            if (setFolderPasswordInput) setTimeout(() => setFolderPasswordInput.focus(), 60);
         }
-        contextTargetId = null;
-        contextMenu.classList.add('hidden');
-        saveVFSToDB();
-        renderHostExplorer();
-        broadcastTree();
     } else {
         await cyberAlert("You can only lock folders.", "NOTICE");
-        contextMenu.classList.add('hidden');
     }
 });
 
@@ -4440,25 +5116,43 @@ if (ctxBurn) {
 ctxDelete.addEventListener('click', async () => {
     if (!contextTargetId) return;
     
+    const isTargetSelected = isHost ? selectedNodes.has(contextTargetId) : clientSelectedNodes.has(contextTargetId);
+    const targetIds = (isTargetSelected && (isHost ? selectedNodes.size : clientSelectedNodes.size) > 1)
+        ? Array.from(isHost ? selectedNodes : clientSelectedNodes)
+        : [contextTargetId];
+    const count = targetIds.length;
+    
     if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
-        if (await cyberConfirm("Are you sure you want to delete this?", "CONFIRM DELETION", true)) {
-            hostConnection.send({ type: 'CLIENT_DELETE_NODE', id: contextTargetId });
+        if (!myPermissions || !myPermissions.delete) return showToast("Host delete permission required.", "warning");
+        const promptMsg = count > 1 ? `Permanently delete ${count} selected items?` : "Are you sure you want to delete this?";
+        if (await cyberConfirm(promptMsg, "CONFIRM DELETION", true)) {
+            targetIds.forEach(id => hostConnection.send({ type: 'CLIENT_DELETE_NODE', id }));
+            clientSelectedNodes.clear();
+            contextTargetId = null;
             contextMenu.classList.add('hidden');
+            updateBatchBar();
+            showToast(`Deletion request sent for ${count} item${count > 1 ? 's' : ''}`);
         }
         return;
     }
     
     const node = vfs.findNode(contextTargetId);
-    if (node && node.parent) {
-        if (await cyberConfirm(`Delete "${node.name}" permanently?`, "CONFIRM DELETION", true)) {
-            node.parent.children = node.parent.children.filter(c => c.id !== contextTargetId);
-            contextTargetId = null;
-            contextMenu.classList.add('hidden');
-            saveVFSToDB();
-            renderHostExplorer();
-            broadcastTree();
-            showToast("Item deleted");
-        }
+    const promptMsg = count > 1 ? `Permanently delete ${count} selected items?` : `Delete "${node ? node.name : 'item'}" permanently?`;
+    if (await cyberConfirm(promptMsg, "CONFIRM DELETION", true)) {
+        targetIds.forEach(id => {
+            const n = vfs.findNode(id);
+            if (n && n.parent) {
+                n.parent.children = n.parent.children.filter(c => c.id !== id);
+            }
+        });
+        selectedNodes.clear();
+        contextTargetId = null;
+        contextMenu.classList.add('hidden');
+        saveVFSToDB();
+        renderHostExplorer();
+        broadcastTree();
+        updateBatchBar();
+        showToast(`Deleted ${count} item${count > 1 ? 's' : ''}`);
     }
 });
 
@@ -4475,6 +5169,267 @@ if (ctxDeaddrop) {
             broadcastTree();
         }
         contextMenu.classList.add('hidden');
+    });
+}
+
+// --- MULTI-SELECTION & BATCH ACTIONS SYSTEM ---
+function updateBatchBar() {
+    const bar = document.getElementById('batch-actions-bar');
+    const countText = document.getElementById('batch-count-text');
+    if (!bar || !countText) return;
+    
+    const count = isHost ? selectedNodes.size : (typeof clientSelectedNodes !== 'undefined' ? clientSelectedNodes.size : 0);
+    if (count > 0) {
+        countText.textContent = `${count} SELECTED`;
+        bar.classList.remove('hidden');
+    } else {
+        bar.classList.add('hidden');
+    }
+}
+
+function clearAllSelection() {
+    selectedNodes.clear();
+    if (typeof clientSelectedNodes !== 'undefined') clientSelectedNodes.clear();
+    document.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
+    updateBatchBar();
+}
+
+function openBatchMoveModal() {
+    const list = document.getElementById('batch-move-folder-list');
+    const modal = document.getElementById('batch-move-modal');
+    const countText = document.getElementById('batch-move-count-text');
+    if (!list || !modal) return;
+    
+    const count = isHost ? selectedNodes.size : (typeof clientSelectedNodes !== 'undefined' ? clientSelectedNodes.size : 0);
+    if (count === 0) return;
+    if (countText) countText.textContent = `${count} item${count > 1 ? 's' : ''}`;
+    
+    list.innerHTML = '';
+    
+    const rootNode = isHost ? vfs.root : clientVFS;
+    const currentSelected = isHost ? selectedNodes : clientSelectedNodes;
+    const folders = [];
+    
+    function collectFolders(node, path = '') {
+        if (!node || node.type !== 'folder') return;
+        if (currentSelected.has(node.id)) return;
+        
+        folders.push({ node, path: path + (node.id === 'root' ? '/ Home' : node.name) });
+        if (node.children) {
+            node.children.forEach(c => {
+                if (c.type === 'folder') collectFolders(c, path + (node.id === 'root' ? '/' : node.name + '/'));
+            });
+        }
+    }
+    
+    collectFolders(rootNode);
+    
+    if (folders.length === 0) {
+        list.innerHTML = '<div style="color: var(--text-muted); padding: 12px; text-align: center;">No eligible destination folders found.</div>';
+    } else {
+        folders.forEach(f => {
+            const btn = document.createElement('button');
+            btn.className = 'custom-btn';
+            btn.style.cssText = 'text-align: left; padding: 8px 12px; font-size: 0.82rem; border-color: rgba(255,255,255,0.15); display: flex; align-items: center; gap: 8px; width: 100%; cursor: pointer;';
+            btn.innerHTML = `<span style="color: var(--neon-blue);">📁</span> <span style="font-family: var(--font-mono); color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(f.path)}</span>`;
+            
+            btn.addEventListener('click', () => {
+                modal.classList.add('hidden');
+                const targetFolderId = f.node.id;
+                
+                if (isHost) {
+                    let moved = 0;
+                    selectedNodes.forEach(id => {
+                        if (id !== targetFolderId && moveNode(id, targetFolderId, false)) moved++;
+                    });
+                    if (moved > 0) {
+                        selectedNodes.clear();
+                        saveVFSToDB();
+                        renderHostExplorer();
+                        broadcastTree();
+                        updateBatchBar();
+                        showToast(`Moved ${moved} item${moved > 1 ? 's' : ''} to ${f.node.name || 'folder'}`, "success");
+                    }
+                } else {
+                    if (!myPermissions || !myPermissions.delete) {
+                        return showToast("Host delete permission required to move files.", "warning");
+                    }
+                    let countSent = 0;
+                    clientSelectedNodes.forEach(id => {
+                        if (id !== targetFolderId && hostConnection && hostConnection.open) {
+                            hostConnection.send({ type: 'CLIENT_MOVE_NODE', id, targetFolderId });
+                            countSent++;
+                        }
+                    });
+                    clientSelectedNodes.clear();
+                    updateBatchBar();
+                    showToast(`Move request sent for ${countSent} item${countSent > 1 ? 's' : ''}`, "success");
+                }
+            });
+            
+            list.appendChild(btn);
+        });
+    }
+    
+    modal.classList.remove('hidden');
+}
+
+// Batch Actions Buttons wiring
+const btnBatchSelectAll = document.getElementById('btn-batch-select-all');
+const btnBatchClear = document.getElementById('btn-batch-clear');
+const btnBatchDelete = document.getElementById('btn-batch-delete');
+const btnBatchMove = document.getElementById('btn-batch-move');
+const btnBatchDownload = document.getElementById('btn-batch-download');
+const btnCloseBatchMove = document.getElementById('btn-close-batch-move');
+const btnCancelBatchMove = document.getElementById('btn-cancel-batch-move');
+const batchMoveModal = document.getElementById('batch-move-modal');
+const btnSelectModeHost = document.getElementById('btn-select-mode-host');
+const btnSelectModeClient = document.getElementById('btn-select-mode-client');
+
+if (btnBatchClear) btnBatchClear.addEventListener('click', clearAllSelection);
+if (btnBatchMove) btnBatchMove.addEventListener('click', openBatchMoveModal);
+if (btnCloseBatchMove && batchMoveModal) btnCloseBatchMove.addEventListener('click', () => batchMoveModal.classList.add('hidden'));
+if (btnCancelBatchMove && batchMoveModal) btnCancelBatchMove.addEventListener('click', () => batchMoveModal.classList.add('hidden'));
+
+if (btnBatchSelectAll) {
+    btnBatchSelectAll.addEventListener('click', () => {
+        if (isHost) {
+            if (vfs.currentDir && vfs.currentDir.children) {
+                vfs.currentDir.children.forEach(child => selectedNodes.add(child.id));
+                document.querySelectorAll('#host-file-grid .file-item').forEach(el => el.classList.add('selected'));
+                updateBatchBar();
+            }
+        } else {
+            if (clientCurrentDir && clientCurrentDir.children) {
+                clientCurrentDir.children.forEach(child => clientSelectedNodes.add(child.id));
+                document.querySelectorAll('#client-file-grid .file-item').forEach(el => el.classList.add('selected'));
+                updateBatchBar();
+            }
+        }
+    });
+}
+
+if (btnBatchDelete) {
+    btnBatchDelete.addEventListener('click', async () => {
+        const count = isHost ? selectedNodes.size : (typeof clientSelectedNodes !== 'undefined' ? clientSelectedNodes.size : 0);
+        if (count === 0) return;
+        
+        if (isHost) {
+            if (await cyberConfirm(`Permanently delete ${count} selected item${count > 1 ? 's' : ''}?`, "CONFIRM BATCH DELETE", true)) {
+                selectedNodes.forEach(id => {
+                    const node = vfs.findNode(id);
+                    if (node && node.parent) {
+                        node.parent.children = node.parent.children.filter(c => c.id !== id);
+                    }
+                });
+                selectedNodes.clear();
+                saveVFSToDB();
+                renderHostExplorer();
+                broadcastTree();
+                updateBatchBar();
+                showToast(`Deleted ${count} item${count > 1 ? 's' : ''}`, "info");
+            }
+        } else {
+            if (!myPermissions || !myPermissions.delete) {
+                return showToast("Host delete permission required.", "warning");
+            }
+            if (await cyberConfirm(`Request Host to permanently delete ${count} selected item${count > 1 ? 's' : ''}?`, "CONFIRM BATCH DELETE", true)) {
+                clientSelectedNodes.forEach(id => {
+                    if (hostConnection && hostConnection.open) {
+                        hostConnection.send({ type: 'CLIENT_DELETE_NODE', id });
+                    }
+                });
+                clientSelectedNodes.clear();
+                renderClientExplorer();
+                updateBatchBar();
+                showToast(`Deletion request sent for ${count} items`, "info");
+            }
+        }
+    });
+}
+
+if (btnBatchDownload) {
+    btnBatchDownload.addEventListener('click', async () => {
+        if (isHost) {
+            const filesToZip = [];
+            selectedNodes.forEach(id => {
+                const node = vfs.findNode(id);
+                if (node && node.type === 'file' && node.fileObj) {
+                    filesToZip.push(node);
+                }
+            });
+            if (filesToZip.length === 0) return showToast("No downloadable files selected.", "warning");
+            
+            showToast(`Preparing download for ${filesToZip.length} files...`, "info");
+            try {
+                const zip = new JSZip();
+                for (const f of filesToZip) {
+                    zip.file(f.name, f.fileObj);
+                }
+                const blob = await zip.generateAsync({ type: 'blob' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `localcast-selected-${Date.now()}.zip`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+                showToast("Download started!", "success");
+            } catch(e) {
+                console.error("Batch zip error:", e);
+                showToast("Download compression failed", "error");
+            }
+        } else {
+            const fileIds = Array.from(clientSelectedNodes).filter(id => {
+                const n = findClientNode(clientVFS, id);
+                return n && n.type === 'file';
+            });
+            if (fileIds.length === 0) return showToast("No downloadable files selected.", "warning");
+            showToast(`Requesting ${fileIds.length} file${fileIds.length > 1 ? 's' : ''}...`, "info");
+            fileIds.forEach((id, i) => {
+                setTimeout(() => {
+                    if (hostConnection && hostConnection.open) {
+                        hostConnection.send({ type: 'REQUEST_FILE', id });
+                    }
+                }, i * 350);
+            });
+        }
+    });
+}
+
+if (btnSelectModeHost) {
+    btnSelectModeHost.addEventListener('click', () => {
+        isSelectModeHost = !isSelectModeHost;
+        btnSelectModeHost.classList.toggle('active', isSelectModeHost);
+        if (hostExplorerGrid) hostExplorerGrid.classList.toggle('select-mode-active', isSelectModeHost);
+        if (!isSelectModeHost) {
+            selectedNodes.clear();
+            document.querySelectorAll('#host-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+            updateBatchBar();
+        } else {
+            showToast("Multi-Select Mode ON: Click items to select", "info");
+        }
+    });
+}
+
+if (btnSelectModeClient) {
+    btnSelectModeClient.addEventListener('click', () => {
+        isSelectModeClient = !isSelectModeClient;
+        btnSelectModeClient.classList.toggle('active', isSelectModeClient);
+        if (clientExplorerGrid) clientExplorerGrid.classList.toggle('select-mode-active', isSelectModeClient);
+        if (!isSelectModeClient) {
+            clientSelectedNodes.clear();
+            document.querySelectorAll('#client-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+            updateBatchBar();
+        } else {
+            showToast("Multi-Select Mode ON: Click items to select", "info");
+        }
+    });
+}
+
+if (clientExplorerGrid) {
+    clientExplorerGrid.addEventListener('click', (e) => {
+        if (e.target === clientExplorerGrid) {
+            clearAllSelection();
+        }
     });
 }
 
@@ -4896,15 +5851,16 @@ function renderSpGuestList() {
     spGuestList.innerHTML = '';
     activeConns.forEach(c => {
         const alias = (c.profile && c.profile.name) || c.guestAlias || ('Peer ' + c.peer.substring(0, 6));
-        const color = (c.profile && c.profile.color) || c.guestColor || 'var(--neon-purple)';
+        const safeAlias = escapeHtml(alias);
+        const safeColor = sanitizeCssColor((c.profile && c.profile.color) || c.guestColor || 'var(--neon-purple)');
         const isAllowed = !!(c.permissions && c.permissions.scratchpad);
         
         const row = document.createElement('div');
         row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: rgba(255,255,255,0.04); border-radius: 6px;';
         row.innerHTML = `
             <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; max-width: 170px;">
-                <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></span>
-                <span style="color: #fff; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 0.82rem;">${alias}</span>
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: ${safeColor}; flex-shrink: 0;"></span>
+                <span style="color: #fff; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 0.82rem;">${safeAlias}</span>
             </div>
             <label class="switch" style="transform: scale(0.85); margin-right: -4px;">
                 <input type="checkbox" class="sp-peer-toggle" data-peer="${c.peer}" ${isAllowed ? 'checked' : ''}>
@@ -5048,7 +6004,18 @@ const btnWhiteboard = document.getElementById('btn-whiteboard');
 const btnWhiteboardClient = document.getElementById('btn-whiteboard-client');
 const btnCloseWhiteboard = document.getElementById('btn-close-whiteboard');
 const btnClearWhiteboard = document.getElementById('btn-clear-whiteboard');
+const btnWbUndo = document.getElementById('btn-wb-undo');
+const btnWbRedo = document.getElementById('btn-wb-redo');
+const btnWbExport = document.getElementById('btn-wb-export');
+
+const wbContainer = document.getElementById('whiteboard-container');
 const wbCanvas = document.getElementById('whiteboard-canvas');
+const wbOverlayCanvas = document.getElementById('whiteboard-overlay-canvas');
+const wbFloatingTextInput = document.getElementById('wb-floating-text-input');
+const wbThemeSelect = document.getElementById('wb-theme-select');
+const wbCustomColor = document.getElementById('wb-custom-color');
+const wbCustomColorPreview = document.getElementById('wb-custom-color-preview');
+
 const btnWbPermissions = document.getElementById('btn-wb-permissions');
 const wbPermissionsPopover = document.getElementById('wb-permissions-popover');
 const wbGuestList = document.getElementById('wb-guest-list');
@@ -5058,10 +6025,73 @@ const wbPermCount = document.getElementById('wb-perm-count');
 const wbHostControls = document.getElementById('wb-host-controls');
 
 let wbCtx = null;
-let wbDrawColor = '#000000';
+let wbOverlayCtx = null;
+let wbActiveTool = 'pen'; // 'pen', 'glow', 'highlighter', 'eraser', 'line', 'arrow', 'rect', 'circle', 'text', 'laser'
+let wbDrawColor = '#00f0ff';
+let wbBrushSize = 5;
+let currentWbTheme = 'cyber';
+
+let wbZoom = 1;
+let wbPanX = 0;
+let wbPanY = 0;
+let isWbPanning = false;
+let wbStartPanX = 0;
+let wbStartPanY = 0;
+let wbStartMouseX = 0;
+let wbStartMouseY = 0;
+let isWbSpacePressed = false;
+let wbInitialTouchDist = 0;
+let wbInitialZoom = 1;
+
+function applyWbTransform() {
+    const stage = document.getElementById('whiteboard-stage');
+    if (stage) {
+        stage.style.transform = `translate(${wbPanX}px, ${wbPanY}px) scale(${wbZoom})`;
+    }
+    const pct = `${Math.round(wbZoom * 100)}%`;
+    const zoomLevelEl = document.getElementById('wb-zoom-level');
+    if (zoomLevelEl) zoomLevelEl.textContent = pct;
+    const hudZoomLevel = document.getElementById('wb-hud-zoom-level');
+    if (hudZoomLevel) hudZoomLevel.textContent = pct;
+}
+
+function setWbZoom(newZoom, centerX = null, centerY = null) {
+    const container = document.getElementById('whiteboard-container');
+    if (!container) return;
+    const prevZoom = wbZoom;
+    const clampedZoom = Math.max(0.25, Math.min(5.0, newZoom));
+    if (Math.abs(clampedZoom - prevZoom) < 0.001) return;
+
+    if (centerX === null || centerY === null) {
+        centerX = container.clientWidth / 2;
+        centerY = container.clientHeight / 2;
+    }
+
+    wbPanX = centerX - (centerX - wbPanX) * (clampedZoom / prevZoom);
+    wbPanY = centerY - (centerY - wbPanY) * (clampedZoom / prevZoom);
+    wbZoom = clampedZoom;
+    applyWbTransform();
+}
+
+function resetWbZoom() {
+    wbZoom = 1;
+    wbPanX = 0;
+    wbPanY = 0;
+    applyWbTransform();
+}
+
 let isDrawing = false;
+let isDrawingShape = false;
+let shapeStartX = 0;
+let shapeStartY = 0;
 let lastX = 0;
 let lastY = 0;
+
+let wbUndoStack = [];
+let wbRedoStack = [];
+let laserBeacons = [];
+let laserAnimId = null;
+let lastLaserEmitTime = 0;
 
 function renderWbGuestList() {
     if (!isHost) {
@@ -5083,15 +6113,16 @@ function renderWbGuestList() {
     wbGuestList.innerHTML = '';
     activeConns.forEach(c => {
         const alias = (c.profile && c.profile.name) || c.guestAlias || ('Peer ' + c.peer.substring(0, 6));
-        const color = (c.profile && c.profile.color) || c.guestColor || 'var(--neon-blue)';
+        const safeAlias = escapeHtml(alias);
+        const safeColor = sanitizeCssColor((c.profile && c.profile.color) || c.guestColor || 'var(--neon-blue)');
         const isAllowed = !!(c.permissions && c.permissions.whiteboard);
         
         const row = document.createElement('div');
         row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: rgba(255,255,255,0.04); border-radius: 6px;';
         row.innerHTML = `
             <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; max-width: 170px;">
-                <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></span>
-                <span style="color: #fff; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 0.82rem;">${alias}</span>
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: ${safeColor}; flex-shrink: 0;"></span>
+                <span style="color: #fff; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 0.82rem;">${safeAlias}</span>
             </div>
             <label class="switch" style="transform: scale(0.85); margin-right: -4px;">
                 <input type="checkbox" class="wb-peer-toggle" data-peer="${c.peer}" ${isAllowed ? 'checked' : ''}>
@@ -5113,7 +6144,11 @@ function renderWbGuestList() {
                 if (checked) {
                     conn.send({ type: 'WHITEBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
                     if (wbCanvas && wbCanvas.width > 0) {
-                        conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                        conn.send({ 
+                            type: 'WHITEBOARD_SYNC', 
+                            image: wbCanvas.toDataURL(),
+                            theme: currentWbTheme 
+                        });
                     }
                 } else {
                     conn.send({ type: 'WHITEBOARD_REVOKED' });
@@ -5136,19 +6171,493 @@ function resizeWbCanvas() {
     if (cw === 0 || ch === 0) return;
     
     if (wbCanvas.width !== cw || wbCanvas.height !== ch) {
+        let savedData = null;
         if (wbCanvas.width > 0 && wbCanvas.height > 0) {
-            const data = wbCanvas.toDataURL();
-            wbCanvas.width = cw;
-            wbCanvas.height = ch;
+            savedData = wbCanvas.toDataURL();
+        }
+        wbCanvas.width = cw;
+        wbCanvas.height = ch;
+        if (wbOverlayCanvas) {
+            wbOverlayCanvas.width = cw;
+            wbOverlayCanvas.height = ch;
+        }
+        if (savedData && wbCtx) {
             const img = new Image();
             img.onload = () => {
-                if (wbCtx) wbCtx.drawImage(img, 0, 0, cw, ch);
+                wbCtx.drawImage(img, 0, 0, cw, ch);
             };
-            img.src = data;
-        } else {
-            wbCanvas.width = cw;
-            wbCanvas.height = ch;
+            img.src = savedData;
         }
+    }
+}
+
+function saveWbState(clearRedo = true) {
+    if (!wbCanvas || wbCanvas.width === 0) return;
+    wbUndoStack.push(wbCanvas.toDataURL());
+    if (wbUndoStack.length > 30) wbUndoStack.shift();
+    if (clearRedo) wbRedoStack = [];
+}
+
+function undoWb(syncPeers = true) {
+    if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
+        showToast("Whiteboard permission required.", "warning");
+        return;
+    }
+    if (wbUndoStack.length === 0) {
+        showToast("Nothing to undo", "info");
+        return;
+    }
+    wbRedoStack.push(wbCanvas.toDataURL());
+    const prev = wbUndoStack.pop();
+    const img = new Image();
+    img.onload = () => {
+        if (wbCtx) {
+            wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+            wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
+        }
+        if (syncPeers) broadcastWbSync();
+    };
+    img.src = prev;
+}
+
+function redoWb(syncPeers = true) {
+    if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
+        showToast("Whiteboard permission required.", "warning");
+        return;
+    }
+    if (wbRedoStack.length === 0) {
+        showToast("Nothing to redo", "info");
+        return;
+    }
+    wbUndoStack.push(wbCanvas.toDataURL());
+    const next = wbRedoStack.pop();
+    const img = new Image();
+    img.onload = () => {
+        if (wbCtx) {
+            wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+            wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
+        }
+        if (syncPeers) broadcastWbSync();
+    };
+    img.src = next;
+}
+
+function broadcastWbSync() {
+    if (!wbCanvas || wbCanvas.width === 0) return;
+    const payload = {
+        type: 'WHITEBOARD_SYNC',
+        image: wbCanvas.toDataURL(),
+        theme: currentWbTheme
+    };
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                c.send(payload);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send(payload);
+    }
+}
+
+function setWbTheme(theme, emit = true) {
+    currentWbTheme = theme || 'cyber';
+    if (wbContainer) {
+        wbContainer.className = 'wb-theme-' + currentWbTheme;
+    }
+    if (wbThemeSelect) {
+        wbThemeSelect.value = currentWbTheme;
+    }
+    if (!emit) return;
+    const payload = { type: 'WHITEBOARD_THEME', theme: currentWbTheme };
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                c.send(payload);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send(payload);
+    }
+}
+
+function exportWbPNG() {
+    if (!wbCanvas || wbCanvas.width === 0) return;
+    const cw = wbCanvas.width;
+    const ch = wbCanvas.height;
+    const expCanvas = document.createElement('canvas');
+    expCanvas.width = cw;
+    expCanvas.height = ch;
+    const expCtx = expCanvas.getContext('2d');
+
+    // Fill background according to current theme
+    if (currentWbTheme === 'cyber') {
+        expCtx.fillStyle = '#080a14';
+        expCtx.fillRect(0, 0, cw, ch);
+        expCtx.strokeStyle = 'rgba(0, 240, 255, 0.08)';
+        expCtx.lineWidth = 1;
+        for (let x = 0; x < cw; x += 30) {
+            expCtx.beginPath(); expCtx.moveTo(x, 0); expCtx.lineTo(x, ch); expCtx.stroke();
+        }
+        for (let y = 0; y < ch; y += 30) {
+            expCtx.beginPath(); expCtx.moveTo(0, y); expCtx.lineTo(cw, y); expCtx.stroke();
+        }
+    } else if (currentWbTheme === 'blueprint') {
+        expCtx.fillStyle = '#061329';
+        expCtx.fillRect(0, 0, cw, ch);
+        expCtx.strokeStyle = 'rgba(56, 189, 248, 0.12)';
+        expCtx.lineWidth = 1;
+        for (let x = 0; x < cw; x += 24) {
+            expCtx.beginPath(); expCtx.moveTo(x, 0); expCtx.lineTo(x, ch); expCtx.stroke();
+        }
+        for (let y = 0; y < ch; y += 24) {
+            expCtx.beginPath(); expCtx.moveTo(0, y); expCtx.lineTo(cw, y); expCtx.stroke();
+        }
+    } else if (currentWbTheme === 'black') {
+        expCtx.fillStyle = '#020307';
+        expCtx.fillRect(0, 0, cw, ch);
+    } else {
+        // Classic Whiteboard
+        expCtx.fillStyle = '#ffffff';
+        expCtx.fillRect(0, 0, cw, ch);
+        expCtx.fillStyle = 'rgba(100, 116, 139, 0.25)';
+        for (let x = 10; x < cw; x += 20) {
+            for (let y = 10; y < ch; y += 20) {
+                expCtx.beginPath(); expCtx.arc(x, y, 1, 0, Math.PI * 2); expCtx.fill();
+            }
+        }
+    }
+
+    // Draw artwork on top
+    expCtx.drawImage(wbCanvas, 0, 0);
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10) + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0');
+    const filename = `LocalCast_Whiteboard_${dateStr}.png`;
+
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = expCanvas.toDataURL('image/png');
+    link.click();
+    showToast("🎨 Whiteboard snapshot exported as PNG!", "success");
+}
+
+function clearWhiteboard(emit = true) {
+    if (!wbCtx || !wbCanvas) return;
+    saveWbState(true);
+    wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+    if (wbOverlayCtx) wbOverlayCtx.clearRect(0, 0, wbOverlayCanvas.width, wbOverlayCanvas.height);
+    
+    if (!emit) return;
+    const payload = { type: 'WHITEBOARD_CLEAR' };
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                c.send(payload);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send(payload);
+    }
+}
+
+function drawLine(x0, y0, x1, y1, color, size, tool, emit = false) {
+    if (!wbCtx) return;
+    const activeSize = size || wbBrushSize;
+    const activeColor = color || wbDrawColor;
+    const activeTool = tool || wbActiveTool;
+
+    wbCtx.save();
+    if (activeTool === 'eraser') {
+        wbCtx.globalCompositeOperation = 'destination-out';
+        wbCtx.lineWidth = activeSize * 3.5;
+        wbCtx.lineCap = 'round';
+        wbCtx.lineJoin = 'round';
+        wbCtx.beginPath();
+        wbCtx.moveTo(x0, y0);
+        wbCtx.lineTo(x1, y1);
+        wbCtx.stroke();
+    } else if (activeTool === 'glow') {
+        wbCtx.globalCompositeOperation = 'source-over';
+        wbCtx.strokeStyle = activeColor;
+        wbCtx.lineWidth = activeSize;
+        wbCtx.lineCap = 'round';
+        wbCtx.lineJoin = 'round';
+        wbCtx.shadowColor = activeColor;
+        wbCtx.shadowBlur = Math.max(10, activeSize * 2.5);
+        wbCtx.beginPath();
+        wbCtx.moveTo(x0, y0);
+        wbCtx.lineTo(x1, y1);
+        wbCtx.stroke();
+    } else if (activeTool === 'highlighter') {
+        wbCtx.globalCompositeOperation = 'source-over';
+        wbCtx.globalAlpha = 0.35;
+        wbCtx.strokeStyle = activeColor;
+        wbCtx.lineWidth = activeSize * 3;
+        wbCtx.lineCap = 'square';
+        wbCtx.lineJoin = 'miter';
+        wbCtx.beginPath();
+        wbCtx.moveTo(x0, y0);
+        wbCtx.lineTo(x1, y1);
+        wbCtx.stroke();
+    } else {
+        // Standard pen
+        wbCtx.globalCompositeOperation = 'source-over';
+        wbCtx.strokeStyle = activeColor;
+        wbCtx.lineWidth = activeSize;
+        wbCtx.lineCap = 'round';
+        wbCtx.lineJoin = 'round';
+        wbCtx.shadowBlur = 0;
+        wbCtx.beginPath();
+        wbCtx.moveTo(x0, y0);
+        wbCtx.lineTo(x1, y1);
+        wbCtx.stroke();
+    }
+    wbCtx.restore();
+
+    if (!emit) return;
+    const w = wbCanvas.width;
+    const h = wbCanvas.height;
+    if (!w || !h) return;
+
+    const payload = {
+        type: 'WHITEBOARD_DRAW',
+        tool: activeTool,
+        x0: x0 / w, y0: y0 / h,
+        x1: x1 / w, y1: y1 / h,
+        color: activeColor,
+        size: activeSize
+    };
+
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                c.send(payload);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send(payload);
+    }
+}
+
+function drawShapeOnCtx(ctx, shape, x0, y0, x1, y1, color, size, isPreview = false) {
+    if (!ctx) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (isPreview) {
+        ctx.setLineDash([5, 5]);
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 6;
+    }
+
+    if (shape === 'line') {
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+    } else if (shape === 'arrow') {
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+
+        const angle = Math.atan2(y1 - y0, x1 - x0);
+        const headLen = Math.max(14, size * 2.5);
+        ctx.fillStyle = color;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x1 - headLen * Math.cos(angle - Math.PI / 7), y1 - headLen * Math.sin(angle - Math.PI / 7));
+        ctx.lineTo(x1 - headLen * Math.cos(angle + Math.PI / 7), y1 - headLen * Math.sin(angle + Math.PI / 7));
+        ctx.closePath();
+        ctx.fill();
+    } else if (shape === 'rect') {
+        const rx = Math.min(x0, x1);
+        const ry = Math.min(y0, y1);
+        const rw = Math.abs(x1 - x0);
+        const rh = Math.abs(y1 - y0);
+        ctx.strokeRect(rx, ry, rw, rh);
+    } else if (shape === 'circle') {
+        const radiusX = Math.abs(x1 - x0) / 2;
+        const radiusY = Math.abs(y1 - y0) / 2;
+        const centerX = Math.min(x0, x1) + radiusX;
+        const centerY = Math.min(y0, y1) + radiusY;
+        ctx.beginPath();
+        ctx.ellipse(centerX, centerY, Math.max(1, radiusX), Math.max(1, radiusY), 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function commitShape(shape, x0, y0, x1, y1, color, size, tool, emit = true) {
+    if (!wbCtx || !wbCanvas) return;
+    const activeColor = color || wbDrawColor;
+    const activeSize = size || wbBrushSize;
+    drawShapeOnCtx(wbCtx, shape, x0, y0, x1, y1, activeColor, activeSize, false);
+
+    if (!emit) return;
+    const w = wbCanvas.width;
+    const h = wbCanvas.height;
+    if (!w || !h) return;
+
+    const payload = {
+        type: 'WHITEBOARD_SHAPE',
+        shape: shape,
+        x0: x0 / w, y0: y0 / h,
+        x1: x1 / w, y1: y1 / h,
+        color: activeColor,
+        size: activeSize,
+        tool: tool || wbActiveTool
+    };
+
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                c.send(payload);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send(payload);
+    }
+}
+
+function commitText(x, y, text, color, size, emit = true) {
+    if (!wbCtx || !wbCanvas || !text) return;
+    const activeColor = color || wbDrawColor;
+    const activeSize = size || wbBrushSize;
+    const fontSize = Math.max(18, activeSize * 4);
+
+    wbCtx.save();
+    wbCtx.font = `bold ${fontSize}px "Courier New", Courier, monospace`;
+    wbCtx.fillStyle = activeColor;
+    wbCtx.textBaseline = 'top';
+    wbCtx.shadowColor = activeColor;
+    wbCtx.shadowBlur = 8;
+    wbCtx.fillText(text, x, y);
+    wbCtx.restore();
+
+    if (!emit) return;
+    const w = wbCanvas.width;
+    const h = wbCanvas.height;
+    if (!w || !h) return;
+
+    const payload = {
+        type: 'WHITEBOARD_TEXT',
+        x: x / w, y: y / h,
+        text: text,
+        color: activeColor,
+        size: activeSize
+    };
+
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                c.send(payload);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send(payload);
+    }
+}
+
+function handleLaserPoint(x, y, color, peerName) {
+    laserBeacons.push({
+        x, y,
+        color: color || '#ff0055',
+        name: peerName || 'User',
+        expires: Date.now() + 1400
+    });
+    if (!laserAnimId) {
+        laserAnimId = requestAnimationFrame(renderLaserOverlay);
+    }
+}
+
+function renderLaserOverlay() {
+    if (!wbOverlayCtx || !wbOverlayCanvas) return;
+    const now = Date.now();
+    laserBeacons = laserBeacons.filter(b => b.expires > now);
+
+    wbOverlayCtx.clearRect(0, 0, wbOverlayCanvas.width, wbOverlayCanvas.height);
+
+    // Group the latest active beacon per peer so only ONE solid name badge is rendered
+    const latestByUser = new Map();
+    laserBeacons.forEach(b => {
+        const key = b.name || 'User';
+        const existing = latestByUser.get(key);
+        if (!existing || b.expires > existing.expires) {
+            latestByUser.set(key, b);
+        }
+    });
+
+    // 1. Draw glowing laser trails (without duplicate name badges)
+    laserBeacons.forEach(b => {
+        const timeLeft = b.expires - now;
+        const alpha = Math.min(1, timeLeft / 1100);
+        
+        wbOverlayCtx.save();
+        wbOverlayCtx.globalAlpha = alpha;
+
+        // Outer glow halo
+        const grad = wbOverlayCtx.createRadialGradient(b.x, b.y, 1, b.x, b.y, 16);
+        grad.addColorStop(0, b.color);
+        grad.addColorStop(0.5, b.color);
+        grad.addColorStop(1, 'transparent');
+        wbOverlayCtx.fillStyle = grad;
+        wbOverlayCtx.beginPath();
+        wbOverlayCtx.arc(b.x, b.y, 16, 0, Math.PI * 2);
+        wbOverlayCtx.fill();
+
+        // Core bright center
+        wbOverlayCtx.fillStyle = '#ffffff';
+        wbOverlayCtx.beginPath();
+        wbOverlayCtx.arc(b.x, b.y, 3.5, 0, Math.PI * 2);
+        wbOverlayCtx.fill();
+
+        wbOverlayCtx.restore();
+    });
+
+    // 2. Draw a SINGLE SOLID name badge at each peer's most recent pointer position
+    latestByUser.forEach((b) => {
+        const timeLeft = b.expires - now;
+        // Badge is solid the entire time laser is active; gentle fade only at very end
+        const badgeAlpha = timeLeft > 350 ? 1.0 : Math.max(0, timeLeft / 350);
+
+        wbOverlayCtx.save();
+        wbOverlayCtx.globalAlpha = badgeAlpha;
+        wbOverlayCtx.font = 'bold 11px "Courier New", Courier, monospace';
+        const tagText = `⚡ ${b.name}`;
+        const tagWidth = wbOverlayCtx.measureText(tagText).width;
+        const padX = 8;
+        const boxW = Math.max(tagWidth + (padX * 2), 48);
+        const boxH = 20;
+        const boxX = b.x - boxW / 2;
+        const boxY = b.y - 30;
+
+        // Solid dark background for nameplate badge
+        wbOverlayCtx.fillStyle = 'rgba(6, 9, 18, 0.96)';
+        wbOverlayCtx.strokeStyle = b.color;
+        wbOverlayCtx.lineWidth = 1.5;
+        wbOverlayCtx.beginPath();
+        wbOverlayCtx.roundRect(boxX, boxY, boxW, boxH, 4);
+        wbOverlayCtx.fill();
+        wbOverlayCtx.stroke();
+
+        // Solid neon text
+        wbOverlayCtx.fillStyle = b.color;
+        wbOverlayCtx.textAlign = 'center';
+        wbOverlayCtx.textBaseline = 'middle';
+        wbOverlayCtx.fillText(tagText, b.x, boxY + boxH / 2);
+
+        wbOverlayCtx.restore();
+    });
+
+    if (laserBeacons.length > 0) {
+        laserAnimId = requestAnimationFrame(renderLaserOverlay);
+    } else {
+        laserAnimId = null;
     }
 }
 
@@ -5159,6 +6668,7 @@ function openWhiteboardModal() {
     }
     if (whiteboardModal) {
         whiteboardModal.classList.remove('hidden');
+        resetWbZoom();
         if (wbHostControls) wbHostControls.style.display = isHost ? 'inline-block' : 'none';
         if (isHost) renderWbGuestList();
         setTimeout(resizeWbCanvas, 50);
@@ -5171,6 +6681,7 @@ function openWhiteboardModal() {
 
 if (wbCanvas) {
     wbCtx = wbCanvas.getContext('2d');
+    if (wbOverlayCanvas) wbOverlayCtx = wbOverlayCanvas.getContext('2d');
     
     window.addEventListener('resize', () => {
         if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) resizeWbCanvas();
@@ -5180,39 +6691,127 @@ if (wbCanvas) {
     if (btnWhiteboardClient) btnWhiteboardClient.addEventListener('click', openWhiteboardModal);
     const btnWhiteboardHeader = document.getElementById('btn-whiteboard-header');
     if (btnWhiteboardHeader) btnWhiteboardHeader.addEventListener('click', openWhiteboardModal);
-    
-    document.querySelectorAll('.wb-color').forEach(swatch => {
-        swatch.addEventListener('click', (e) => {
-            document.querySelectorAll('.wb-color').forEach(s => s.style.borderColor = 'transparent');
-            const target = e.currentTarget || e.target;
-            target.style.borderColor = target.dataset.color === '#000000' ? '#fff' : target.dataset.color;
-            wbDrawColor = target.dataset.color;
+
+    // Tool switching
+    document.querySelectorAll('.wb-tool-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const tool = btn.dataset.tool;
+            if (!tool) return;
+            document.querySelectorAll('.wb-tool-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            wbActiveTool = tool;
+
+            if (wbContainer) {
+                if (tool === 'laser') wbContainer.style.cursor = 'crosshair';
+                else if (tool === 'eraser') wbContainer.style.cursor = 'cell';
+                else if (tool === 'text') wbContainer.style.cursor = 'text';
+                else if (tool === 'pan') wbContainer.style.cursor = 'grab';
+                else wbContainer.style.cursor = 'crosshair';
+            }
         });
     });
 
-    if (btnCloseWhiteboard) {
-        btnCloseWhiteboard.addEventListener('click', () => {
-            if (whiteboardModal) whiteboardModal.classList.add('hidden');
-            if (wbPermissionsPopover) wbPermissionsPopover.classList.add('hidden');
+    // Brush size switching
+    document.querySelectorAll('.wb-size-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const size = parseInt(btn.dataset.size, 10);
+            if (!size) return;
+            document.querySelectorAll('.wb-size-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            wbBrushSize = size;
+        });
+    });
+
+    // Color Swatches
+    document.querySelectorAll('.wb-color-swatch').forEach(swatch => {
+        swatch.addEventListener('click', (e) => {
+            document.querySelectorAll('.wb-color-swatch').forEach(s => s.classList.remove('active'));
+            const target = e.currentTarget || e.target;
+            target.classList.add('active');
+            wbDrawColor = target.dataset.color;
+            if (wbCustomColor) wbCustomColor.value = wbDrawColor;
+            if (wbCustomColorPreview) wbCustomColorPreview.style.background = wbDrawColor;
+        });
+    });
+
+    // Custom Color input
+    if (wbCustomColor) {
+        wbCustomColor.addEventListener('input', (e) => {
+            document.querySelectorAll('.wb-color-swatch').forEach(s => s.classList.remove('active'));
+            wbDrawColor = e.target.value;
+            if (wbCustomColorPreview) wbCustomColorPreview.style.background = wbDrawColor;
         });
     }
-    
+
+    // Theme selector
+    if (wbThemeSelect) {
+        wbThemeSelect.addEventListener('change', (e) => {
+            setWbTheme(e.target.value, true);
+        });
+    }
+
+    // Undo / Redo
+    if (btnWbUndo) btnWbUndo.addEventListener('click', () => undoWb(true));
+    if (btnWbRedo) btnWbRedo.addEventListener('click', () => redoWb(true));
+
+    // Export PNG
+    if (btnWbExport) btnWbExport.addEventListener('click', exportWbPNG);
+
+    // Clear Whiteboard
     if (btnClearWhiteboard) {
         btnClearWhiteboard.addEventListener('click', () => {
             if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
                 showToast("Whiteboard permission required.", "warning");
                 return;
             }
-            if (wbCtx) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
-            if (isHost) {
-                connections.forEach(c => {
-                    if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send({ type: 'WHITEBOARD_CLEAR' });
-                    }
-                });
-            } else if (hostConnection && hostConnection.open) {
-                hostConnection.send({ type: 'WHITEBOARD_CLEAR' });
+            cyberConfirm("Are you sure you want to clear the entire whiteboard for all users?", "CLEAR WHITEBOARD").then(ok => {
+                if (ok) clearWhiteboard(true);
+            });
+        });
+    }
+
+    // Keyboard Shortcuts for Whiteboard
+    window.addEventListener('keydown', (e) => {
+        if (!whiteboardModal || whiteboardModal.classList.contains('hidden')) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        if (e.code === 'Space' && !e.repeat) {
+            e.preventDefault();
+            isWbSpacePressed = true;
+            if (wbContainer) wbContainer.classList.add('panning');
+        } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+            e.preventDefault();
+            if (e.shiftKey) redoWb(true);
+            else undoWb(true);
+        } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+            e.preventDefault();
+            redoWb(true);
+        } else if (e.key === '+' || e.key === '=') {
+            e.preventDefault();
+            setWbZoom(wbZoom * 1.25);
+        } else if (e.key === '-' || e.key === '_') {
+            e.preventDefault();
+            setWbZoom(wbZoom / 1.25);
+        } else if (e.key === '0') {
+            e.preventDefault();
+            resetWbZoom();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (e.code === 'Space') {
+            isWbSpacePressed = false;
+            if (wbContainer && wbActiveTool !== 'pan') {
+                wbContainer.classList.remove('panning', 'panning-active');
             }
+        }
+    });
+
+    if (btnCloseWhiteboard) {
+        btnCloseWhiteboard.addEventListener('click', () => {
+            if (whiteboardModal) whiteboardModal.classList.add('hidden');
+            if (wbPermissionsPopover) wbPermissionsPopover.classList.add('hidden');
+            if (wbFloatingTextInput) wbFloatingTextInput.classList.add('hidden');
         });
     }
 
@@ -5241,7 +6840,11 @@ if (wbCanvas) {
                 c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
                 c.send({ type: 'WHITEBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
                 if (wbCanvas && wbCanvas.width > 0) {
-                    c.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                    c.send({ 
+                        type: 'WHITEBOARD_SYNC', 
+                        image: wbCanvas.toDataURL(),
+                        theme: currentWbTheme 
+                    });
                 }
             });
             renderWbGuestList();
@@ -5271,28 +6874,148 @@ if (wbCanvas) {
         });
     }
 
-    function drawLine(x0, y0, x1, y1, color, emit) {
-        if (!wbCtx) return;
-        wbCtx.beginPath();
-        wbCtx.moveTo(x0, y0);
-        wbCtx.lineTo(x1, y1);
-        wbCtx.strokeStyle = color || '#000000';
-        wbCtx.lineWidth = 3;
-        wbCtx.lineCap = 'round';
-        wbCtx.stroke();
-        wbCtx.closePath();
-        
-        if (!emit) return;
-        
+    function getPos(e) {
+        const rect = wbCanvas.getBoundingClientRect();
+        const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+        const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+        const scaleX = rect.width ? (wbCanvas.width / rect.width) : 1;
+        const scaleY = rect.height ? (wbCanvas.height / rect.height) : 1;
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    }
+
+    let wbTextPendingX = 0;
+    let wbTextPendingY = 0;
+    let wbTextInputOpenedAt = 0;
+
+    // Pointer event handling
+    function onDown(e) {
+        if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
+            showToast("Whiteboard permission required.", "warning");
+            return;
+        }
+
+        if (e.touches && e.touches.length === 2) {
+            wbInitialTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            wbInitialZoom = wbZoom;
+            isWbPanning = false;
+            return;
+        }
+
+        if (wbActiveTool === 'pan' || isWbSpacePressed || e.button === 1) {
+            isWbPanning = true;
+            wbStartPanX = wbPanX;
+            wbStartPanY = wbPanY;
+            const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+            const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            wbStartMouseX = clientX;
+            wbStartMouseY = clientY;
+            if (wbContainer) wbContainer.classList.add('panning-active');
+            return;
+        }
+
+        const pos = getPos(e);
+
+        if (wbActiveTool === 'text') {
+            if (!wbFloatingTextInput) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            const stage = document.getElementById('whiteboard-stage');
+            const stageW = (stage && stage.clientWidth) ? stage.clientWidth : wbCanvas.width;
+            const stageH = (stage && stage.clientHeight) ? stage.clientHeight : wbCanvas.height;
+            const stageX = (pos.x / wbCanvas.width) * stageW;
+            const stageY = (pos.y / wbCanvas.height) * stageH;
+
+            // If input is already open with text, commit previous text first
+            if (!wbFloatingTextInput.classList.contains('hidden') && wbFloatingTextInput.value.trim()) {
+                const prevText = wbFloatingTextInput.value.trim();
+                saveWbState(true);
+                commitText(wbTextPendingX, wbTextPendingY, prevText, wbDrawColor, wbBrushSize, true);
+                wbFloatingTextInput.value = '';
+            }
+
+            wbTextPendingX = pos.x;
+            wbTextPendingY = pos.y;
+
+            wbFloatingTextInput.style.left = stageX + 'px';
+            wbFloatingTextInput.style.top = stageY + 'px';
+            wbFloatingTextInput.style.color = wbDrawColor;
+            wbFloatingTextInput.style.borderColor = wbDrawColor;
+            wbFloatingTextInput.style.caretColor = wbDrawColor;
+            wbFloatingTextInput.value = '';
+            wbFloatingTextInput.classList.remove('hidden');
+
+            wbTextInputOpenedAt = Date.now();
+            setTimeout(() => {
+                wbFloatingTextInput.focus();
+            }, 30);
+
+            const commitAndClose = () => {
+                const text = wbFloatingTextInput.value.trim();
+                wbFloatingTextInput.classList.add('hidden');
+                wbFloatingTextInput.onkeydown = null;
+                wbFloatingTextInput.onblur = null;
+                if (text) {
+                    saveWbState(true);
+                    commitText(wbTextPendingX, wbTextPendingY, text, wbDrawColor, wbBrushSize, true);
+                    wbFloatingTextInput.value = '';
+                }
+            };
+
+            wbFloatingTextInput.onkeydown = (ke) => {
+                if (ke.key === 'Enter') {
+                    ke.preventDefault();
+                    commitAndClose();
+                } else if (ke.key === 'Escape') {
+                    ke.preventDefault();
+                    wbFloatingTextInput.value = '';
+                    wbFloatingTextInput.classList.add('hidden');
+                }
+            };
+
+            wbFloatingTextInput.onblur = () => {
+                if (Date.now() - wbTextInputOpenedAt < 350) return; // Prevent premature hide on open
+                commitAndClose();
+            };
+            return;
+        }
+
+        if (wbActiveTool === 'laser') {
+            isDrawing = true;
+            handleLaserPoint(pos.x, pos.y, wbDrawColor, typeof getMyAlias === 'function' ? getMyAlias() : 'You');
+            emitLaserPoint(pos.x, pos.y);
+            return;
+        }
+
+        const isShape = ['line', 'arrow', 'rect', 'circle'].includes(wbActiveTool);
+        if (isShape) {
+            isDrawingShape = true;
+            shapeStartX = pos.x;
+            shapeStartY = pos.y;
+            return;
+        }
+
+        // Pen, glow, highlighter, eraser
+        saveWbState(true);
+        isDrawing = true;
+        lastX = pos.x;
+        lastY = pos.y;
+        drawLine(pos.x, pos.y, pos.x + 0.1, pos.y + 0.1, wbDrawColor, wbBrushSize, wbActiveTool, true);
+    }
+
+    function emitLaserPoint(x, y) {
+        const now = Date.now();
+        if (now - lastLaserEmitTime < 35) return; // 30fps throttle
+        lastLaserEmitTime = now;
         const w = wbCanvas.width;
         const h = wbCanvas.height;
         if (!w || !h) return;
-        
+
         const payload = {
-            type: 'WHITEBOARD_DRAW',
-            x0: x0 / w, y0: y0 / h,
-            x1: x1 / w, y1: y1 / h,
-            color: color || '#000000'
+            type: 'WHITEBOARD_LASER',
+            x: x / w, y: y / h,
+            color: wbDrawColor,
+            peerName: typeof getMyAlias === 'function' ? getMyAlias() : 'Peer'
         };
 
         if (isHost) {
@@ -5306,47 +7029,471 @@ if (wbCanvas) {
         }
     }
 
-    function getPos(e) {
-        const rect = wbCanvas.getBoundingClientRect();
-        const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-        const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
-        const scaleX = rect.width ? (wbCanvas.width / rect.width) : 1;
-        const scaleY = rect.height ? (wbCanvas.height / rect.height) : 1;
-        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
-    }
-
-    function onDown(e) {
-        if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
-            showToast("Whiteboard permission required.", "warning");
+    function onMove(e) {
+        if (e.touches && e.touches.length === 2 && wbInitialTouchDist > 0) {
+            const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            if (dist > 0 && wbContainer) {
+                const rect = wbContainer.getBoundingClientRect();
+                const midX = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left;
+                const midY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
+                setWbZoom(wbInitialZoom * (dist / wbInitialTouchDist), midX, midY);
+            }
             return;
         }
-        isDrawing = true;
-        const pos = getPos(e);
-        lastX = pos.x;
-        lastY = pos.y;
-    }
 
-    function onMove(e) {
-        if (!isDrawing) return;
+        if (isWbPanning) {
+            const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+            const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            wbPanX = wbStartPanX + (clientX - wbStartMouseX);
+            wbPanY = wbStartPanY + (clientY - wbStartMouseY);
+            applyWbTransform();
+            return;
+        }
+
         const pos = getPos(e);
-        drawLine(lastX, lastY, pos.x, pos.y, wbDrawColor, true);
+
+        if (wbActiveTool === 'laser' && isDrawing) {
+            handleLaserPoint(pos.x, pos.y, wbDrawColor, typeof getMyAlias === 'function' ? getMyAlias() : 'You');
+            emitLaserPoint(pos.x, pos.y);
+            return;
+        }
+
+        if (isDrawingShape && wbOverlayCtx) {
+            wbOverlayCtx.clearRect(0, 0, wbOverlayCanvas.width, wbOverlayCanvas.height);
+            drawShapeOnCtx(wbOverlayCtx, wbActiveTool, shapeStartX, shapeStartY, pos.x, pos.y, wbDrawColor, wbBrushSize, true);
+            return;
+        }
+
+        if (!isDrawing) return;
+        drawLine(lastX, lastY, pos.x, pos.y, wbDrawColor, wbBrushSize, wbActiveTool, true);
         lastX = pos.x;
         lastY = pos.y;
     }
 
     function onUp(e) {
+        if (isWbPanning) {
+            isWbPanning = false;
+            if (wbContainer) wbContainer.classList.remove('panning-active');
+            return;
+        }
+        if (e && e.touches && e.touches.length < 2) {
+            wbInitialTouchDist = 0;
+        }
+
+        if (isDrawingShape) {
+            isDrawingShape = false;
+            const pos = getPos(e);
+            if (wbOverlayCtx) wbOverlayCtx.clearRect(0, 0, wbOverlayCanvas.width, wbOverlayCanvas.height);
+            saveWbState(true);
+            commitShape(wbActiveTool, shapeStartX, shapeStartY, pos.x, pos.y, wbDrawColor, wbBrushSize, wbActiveTool, true);
+            return;
+        }
+
         if (!isDrawing) return;
         isDrawing = false;
     }
 
+    // Whiteboard Image Stamping System
+    const btnWbStamp = document.getElementById('btn-wb-stamp');
+    const wbStampFileInput = document.getElementById('wb-stamp-file-input');
+    const wbStampDropOverlay = document.getElementById('wb-stamp-drop-overlay');
+
+    window.stampImageOnWhiteboard = function(dataUrl, targetX, targetY, normW = null, normH = null, emit = true) {
+        if (!wbCtx || !wbCanvas) return;
+        const img = new Image();
+        img.onload = () => {
+            saveWbState(true);
+            let drawX, drawY, drawW, drawH;
+            if (normW !== null && normH !== null) {
+                drawX = targetX * wbCanvas.width;
+                drawY = targetY * wbCanvas.height;
+                drawW = normW * wbCanvas.width;
+                drawH = normH * wbCanvas.height;
+            } else {
+                const maxW = wbCanvas.width * 0.65;
+                const maxH = wbCanvas.height * 0.65;
+                let scale = Math.min(maxW / img.width, maxH / img.height);
+                if (scale > 1) scale = 1;
+                drawW = img.width * scale;
+                drawH = img.height * scale;
+                drawX = Math.max(10, Math.min(wbCanvas.width - drawW - 10, targetX - drawW / 2));
+                drawY = Math.max(10, Math.min(wbCanvas.height - drawH - 10, targetY - drawH / 2));
+            }
+
+            wbCtx.drawImage(img, drawX, drawY, drawW, drawH);
+
+            if (emit) {
+                const payload = {
+                    type: 'WHITEBOARD_STAMP',
+                    image: dataUrl,
+                    x: drawX / wbCanvas.width,
+                    y: drawY / wbCanvas.height,
+                    w: drawW / wbCanvas.width,
+                    h: drawH / wbCanvas.height
+                };
+                if (isHost) {
+                    connections.forEach(c => {
+                        if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                            c.send(payload);
+                        }
+                    });
+                } else if (hostConnection && hostConnection.open) {
+                    hostConnection.send(payload);
+                }
+            }
+        };
+        img.src = dataUrl;
+    };
+
+    if (btnWbStamp && wbStampFileInput) {
+        btnWbStamp.addEventListener('click', () => wbStampFileInput.click());
+        wbStampFileInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (re) => stampImageOnWhiteboard(re.target.result, wbCanvas.width / 2, wbCanvas.height / 2);
+                reader.readAsDataURL(file);
+                showToast("🖼️ Image stamped onto whiteboard!", "success");
+            }
+            wbStampFileInput.value = '';
+        });
+    }
+
+    if (wbContainer) {
+        let wbDragCounter = 0;
+        wbContainer.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            wbDragCounter++;
+            if (wbStampDropOverlay) wbStampDropOverlay.classList.remove('hidden');
+        });
+        wbContainer.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            wbDragCounter--;
+            if (wbDragCounter <= 0 && wbStampDropOverlay) {
+                wbStampDropOverlay.classList.add('hidden');
+                wbDragCounter = 0;
+            }
+        });
+        wbContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        });
+        wbContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            wbDragCounter = 0;
+            if (wbStampDropOverlay) wbStampDropOverlay.classList.add('hidden');
+            if (e.dataTransfer && e.dataTransfer.files) {
+                const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                if (files.length > 0) {
+                    const pos = getPos(e);
+                    const reader = new FileReader();
+                    reader.onload = (re) => stampImageOnWhiteboard(re.target.result, pos.x, pos.y);
+                    reader.readAsDataURL(files[0]);
+                    showToast("🖼️ Image dropped & stamped onto whiteboard!", "success");
+                }
+            }
+        });
+    }
+
+    window.addEventListener('paste', (e) => {
+        if (!whiteboardModal || whiteboardModal.classList.contains('hidden')) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if (e.clipboardData && e.clipboardData.items) {
+            for (const item of e.clipboardData.items) {
+                if (item.type.startsWith('image/')) {
+                    const blob = item.getAsFile();
+                    if (blob) {
+                        const reader = new FileReader();
+                        reader.onload = (re) => stampImageOnWhiteboard(re.target.result, wbCanvas.width / 2, wbCanvas.height / 2);
+                        reader.readAsDataURL(blob);
+                        showToast("🖼️ Clipboard image stamped!", "success");
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
     wbCanvas.addEventListener('mousedown', onDown);
     wbCanvas.addEventListener('mousemove', onMove);
-    wbCanvas.addEventListener('mouseup', onUp);
-    wbCanvas.addEventListener('mouseout', onUp);
+    window.addEventListener('mouseup', onUp);
     
     wbCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); onDown(e); }, { passive: false });
     wbCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, { passive: false });
-    wbCanvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
+    window.addEventListener('touchend', onUp);
+
+    if (wbFloatingTextInput) {
+        wbFloatingTextInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        wbFloatingTextInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+        wbFloatingTextInput.addEventListener('click', (e) => e.stopPropagation());
+        wbFloatingTextInput.addEventListener('touchstart', (e) => e.stopPropagation());
+    }
+
+    // Zoom & Pan Toolbar and HUD Controls
+    const btnWbZoomIn = document.getElementById('btn-wb-zoom-in');
+    const btnWbZoomOut = document.getElementById('btn-wb-zoom-out');
+    const btnWbZoomReset = document.getElementById('btn-wb-zoom-reset');
+    const btnWbHudZoomIn = document.getElementById('btn-wb-hud-zoom-in');
+    const btnWbHudZoomOut = document.getElementById('btn-wb-hud-zoom-out');
+    const wbHudZoomLevel = document.getElementById('wb-hud-zoom-level');
+
+    if (btnWbZoomIn) btnWbZoomIn.addEventListener('click', () => setWbZoom(wbZoom * 1.25));
+    if (btnWbZoomOut) btnWbZoomOut.addEventListener('click', () => setWbZoom(wbZoom / 1.25));
+    if (btnWbZoomReset) btnWbZoomReset.addEventListener('click', resetWbZoom);
+
+    if (btnWbHudZoomIn) btnWbHudZoomIn.addEventListener('click', () => setWbZoom(wbZoom * 1.25));
+    if (btnWbHudZoomOut) btnWbHudZoomOut.addEventListener('click', () => setWbZoom(wbZoom / 1.25));
+    if (wbHudZoomLevel) wbHudZoomLevel.addEventListener('click', resetWbZoom);
+
+    // Mouse wheel cursor-centered zoom
+    if (wbContainer) {
+        wbContainer.addEventListener('wheel', (e) => {
+            if (!whiteboardModal || whiteboardModal.classList.contains('hidden')) return;
+            e.preventDefault();
+            const rect = wbContainer.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const factor = e.deltaY < 0 ? 1.15 : 0.87;
+            setWbZoom(wbZoom * factor, mouseX, mouseY);
+        }, { passive: false });
+    }
+}
+
+// --- LOW-LATENCY P2P SCREEN SHARING LOGIC ---
+const screenshareModal = document.getElementById('screenshare-modal');
+const screenshareVideo = document.getElementById('screenshare-video');
+const screenshareSharerBadge = document.getElementById('screenshare-sharer-badge');
+const btnScreensharePip = document.getElementById('btn-screenshare-pip');
+const btnScreenshareFullscreen = document.getElementById('btn-screenshare-fullscreen');
+const btnScreenshareStop = document.getElementById('btn-screenshare-stop');
+const btnCloseScreenshare = document.getElementById('btn-close-screenshare');
+
+const btnScreenshareHeader = document.getElementById('btn-screenshare-header');
+const btnScreenshareHost = document.getElementById('btn-screenshare-host');
+const btnScreenshareClient = document.getElementById('btn-screenshare-client');
+
+let localScreenStream = null;
+let activeScreenCalls = {};
+let isScreenSharing = false;
+
+async function startScreenSharing() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        await cyberAlert("Screen sharing is not supported by your current browser.", "NOT SUPPORTED");
+        return;
+    }
+
+    try {
+        localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { cursor: "always", frameRate: { ideal: 30, max: 60 } },
+            audio: true
+        });
+    } catch (err) {
+        if (err.name !== 'NotAllowedError') {
+            try {
+                localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { cursor: "always", frameRate: { ideal: 30, max: 60 } },
+                    audio: false
+                });
+            } catch (err2) {
+                if (err2.name !== 'NotAllowedError') {
+                    showToast("Screen share error: " + err2.message, "warning");
+                }
+                return;
+            }
+        } else {
+            return;
+        }
+    }
+
+    if (!localScreenStream) return;
+
+    const vTrack = localScreenStream.getVideoTracks()[0];
+    if (vTrack && 'contentHint' in vTrack) {
+        vTrack.contentHint = 'detail';
+    }
+
+    isScreenSharing = true;
+    if (vTrack) {
+        vTrack.onended = () => stopScreenSharing();
+    }
+
+    openScreenShareViewer(localScreenStream, (typeof getMyAlias === 'function' ? getMyAlias() : 'You'), (typeof peer !== 'undefined' && peer) ? peer.id : 'self', true);
+
+    if (typeof isHost !== 'undefined' && isHost) {
+        connections.filter(c => c.open && c.isAuthenticated).forEach(c => {
+            const call = peer.call(c.peer, localScreenStream, {
+                metadata: { type: 'SCREEN_SHARE', sharerName: getMyAlias(), sharerId: peer.id }
+            });
+            if (call) activeScreenCalls[c.peer] = call;
+            try { c.send({ type: 'SCREEN_SHARE_STARTED', sharerName: getMyAlias(), sharerId: peer.id }); } catch(e) {}
+        });
+    } else if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+        const call = peer.call(hostConnection.peer, localScreenStream, {
+            metadata: { type: 'SCREEN_SHARE', sharerName: getMyAlias(), sharerId: peer.id }
+        });
+        if (call) activeScreenCalls[hostConnection.peer] = call;
+        try { hostConnection.send({ type: 'SCREEN_SHARE_STARTED', sharerName: getMyAlias(), sharerId: peer.id }); } catch(e) {}
+    }
+
+    showToast("🖥️ Screen sharing live across swarm!", "success");
+}
+
+function stopScreenSharing() {
+    if (localScreenStream) {
+        localScreenStream.getTracks().forEach(t => t.stop());
+        localScreenStream = null;
+    }
+    Object.values(activeScreenCalls).forEach(c => {
+        try { c.close(); } catch(e) {}
+    });
+    activeScreenCalls = {};
+    isScreenSharing = false;
+    closeScreenShareViewer();
+
+    if (typeof isHost !== 'undefined' && isHost) {
+        connections.forEach(c => {
+            if (c.open) {
+                try { c.send({ type: 'SCREEN_SHARE_STOPPED' }); } catch(e) {}
+            }
+        });
+    } else if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+        try { hostConnection.send({ type: 'SCREEN_SHARE_STOPPED' }); } catch(e) {}
+    }
+
+    showToast("Screen sharing stopped.", "info");
+}
+
+function openScreenShareViewer(stream, sharerName, sharerId, isSelf = false) {
+    if (!screenshareModal || !screenshareVideo) return;
+    screenshareModal.classList.remove('hidden');
+
+    // Force muted & playsinline: Essential for 100% reliable autoplay across browsers
+    screenshareVideo.muted = true;
+    screenshareVideo.defaultMuted = true;
+    screenshareVideo.playsInline = true;
+    screenshareVideo.setAttribute('playsinline', '');
+    screenshareVideo.setAttribute('webkit-playsinline', '');
+
+    if (screenshareVideo.srcObject !== stream) {
+        screenshareVideo.srcObject = stream;
+    }
+
+    const playOverlay = document.getElementById('screenshare-play-overlay');
+
+    const tryPlay = () => {
+        if (!screenshareVideo) return;
+        const p = screenshareVideo.play();
+        if (p !== undefined) {
+            p.then(() => {
+                if (playOverlay) playOverlay.classList.add('hidden');
+            }).catch(err => {
+                console.warn("Screen share autoplay deferred:", err);
+                if (playOverlay) playOverlay.classList.remove('hidden');
+            });
+        }
+    };
+
+    tryPlay();
+    screenshareVideo.onloadedmetadata = () => tryPlay();
+    screenshareVideo.oncanplay = () => tryPlay();
+
+    if (stream) {
+        stream.getTracks().forEach(t => {
+            t.enabled = true;
+            t.onunmute = () => tryPlay();
+        });
+        stream.onaddtrack = () => tryPlay();
+    }
+
+    if (screenshareSharerBadge) {
+        screenshareSharerBadge.textContent = isSelf ? "PRESENTING (YOU)" : `LIVE // ${sharerName}`;
+    }
+    if (btnScreenshareStop) {
+        if (isSelf) btnScreenshareStop.classList.remove('hidden');
+        else btnScreenshareStop.classList.add('hidden');
+    }
+    const audioBtn = document.getElementById('btn-screenshare-audio-toggle');
+    if (audioBtn) {
+        audioBtn.textContent = '🔇 UNMUTE';
+        audioBtn.style.color = '';
+    }
+}
+
+function closeScreenShareViewer() {
+    if (screenshareModal) screenshareModal.classList.add('hidden');
+    if (screenshareVideo) {
+        screenshareVideo.pause();
+        screenshareVideo.srcObject = null;
+    }
+    const playOverlay = document.getElementById('screenshare-play-overlay');
+    if (playOverlay) playOverlay.classList.add('hidden');
+}
+
+const btnScreenshareAudioToggle = document.getElementById('btn-screenshare-audio-toggle');
+if (btnScreenshareAudioToggle) {
+    btnScreenshareAudioToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!screenshareVideo) return;
+        screenshareVideo.muted = !screenshareVideo.muted;
+        if (screenshareVideo.muted) {
+            btnScreenshareAudioToggle.textContent = '🔇 UNMUTE';
+            btnScreenshareAudioToggle.style.color = '';
+        } else {
+            btnScreenshareAudioToggle.textContent = '🔊 AUDIO ON';
+            btnScreenshareAudioToggle.style.color = 'var(--neon-green)';
+            screenshareVideo.play().catch(() => {});
+        }
+    });
+}
+
+const screenshareVideoWrapper = document.getElementById('screenshare-video-wrapper');
+if (screenshareVideoWrapper) {
+    screenshareVideoWrapper.addEventListener('click', () => {
+        if (screenshareVideo) {
+            screenshareVideo.play().then(() => {
+                const playOverlay = document.getElementById('screenshare-play-overlay');
+                if (playOverlay) playOverlay.classList.add('hidden');
+            }).catch(() => {});
+        }
+    });
+}
+
+if (btnScreenshareHeader) btnScreenshareHeader.addEventListener('click', () => {
+    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", peer.id, true);
+    else startScreenSharing();
+});
+if (btnScreenshareHost) btnScreenshareHost.addEventListener('click', () => {
+    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", peer.id, true);
+    else startScreenSharing();
+});
+if (btnScreenshareClient) btnScreenshareClient.addEventListener('click', () => {
+    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", peer.id, true);
+    else startScreenSharing();
+});
+if (btnScreenshareStop) btnScreenshareStop.addEventListener('click', stopScreenSharing);
+if (btnCloseScreenshare) btnCloseScreenshare.addEventListener('click', closeScreenShareViewer);
+
+if (btnScreenshareFullscreen) {
+    btnScreenshareFullscreen.addEventListener('click', () => {
+        if (!screenshareVideo) return;
+        if (screenshareVideo.requestFullscreen) screenshareVideo.requestFullscreen();
+        else if (screenshareVideo.webkitRequestFullscreen) screenshareVideo.webkitRequestFullscreen();
+    });
+}
+if (btnScreensharePip) {
+    btnScreensharePip.addEventListener('click', async () => {
+        if (!screenshareVideo) return;
+        try {
+            if (document.pictureInPictureElement) await document.exitPictureInPicture();
+            else if (screenshareVideo.requestPictureInPicture) await screenshareVideo.requestPictureInPicture();
+        } catch(e) {
+            console.log("PIP error:", e);
+        }
+    });
 }
 
 

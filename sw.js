@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v111';
+const CACHE_NAME = 'localcast-v119';
 const ASSETS = [
     './',
     './index.html',
@@ -6,11 +6,17 @@ const ASSETS = [
     './app.js',
     './plugins.js',
     './manifest.json',
+    './hat-logo.png',
+    './icon-192.png',
+    './icon-512.png',
     'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+    'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'https://unpkg.com/html5-qrcode',
+    'https://unpkg.com/jsnes/dist/jsnes.min.js'
 ];
 
 self.addEventListener('install', (e) => {

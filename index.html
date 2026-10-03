@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=65">
+    <link rel="stylesheet" href="style.css?v=70">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#07090e">
     
@@ -80,6 +80,9 @@
                     <span>SYS_SPECS</span>
                 </button>
 
+                <button id="btn-screenshare-header" class="btn-icon header-btn" title="Live P2P Screen Share" style="border-color: var(--neon-purple); color: var(--neon-purple);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                </button>
                 <button id="btn-scratchpad-header" class="btn-icon header-btn hidden" title="Live Scratchpad" style="border-color: var(--neon-purple); color: var(--neon-purple);">
                     <svg viewBox="0 0 24 24" fill="none" stroke="var(--neon-purple)" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                 </button>
@@ -139,11 +142,7 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                             <span>Upload Folder</span>
                         </button>
-                        
-                        <button id="btn-mount-native" class="custom-btn action-btn" style="border-color: #00f0ff; color: #00f0ff;">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>
-                            <span>Mount Vault</span>
-                        </button>
+
                         
                         <button id="btn-live-scratchpad" class="custom-btn action-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
@@ -152,6 +151,10 @@
                         <button id="btn-whiteboard" class="custom-btn action-btn" style="border-color: #fcee0a; color: #fcee0a;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
                             <span>Whiteboard</span>
+                        </button>
+                        <button id="btn-screenshare-host" class="custom-btn action-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                            <span>Screen Share</span>
                         </button>
                         <button id="btn-download-all-host" class="custom-btn action-btn" style="border-color: var(--neon-blue);">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -206,6 +209,9 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; position: absolute; left: 10px; top: 10px; color: var(--text-muted);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                                 <input type="text" id="host-search" placeholder="Search..." class="custom-input search-input" style="padding-left: 32px; width: 150px; font-size: 0.8rem;">
                             </div>
+                            <button id="btn-select-mode-host" class="btn-icon header-btn" title="Toggle Multi-Select Mode">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><polyline points="9 11 12 14 22 4"></polyline></svg>
+                            </button>
                             <button id="btn-view-toggle-host" class="btn-icon header-btn" title="Toggle List View">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
                             </button>
@@ -244,6 +250,9 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; position: absolute; left: 10px; top: 10px; color: var(--text-muted);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                                 <input type="text" id="client-search" placeholder="Search..." class="custom-input search-input" style="padding-left: 32px; width: 120px; font-size: 0.8rem;">
                             </div>
+                            <button id="btn-select-mode-client" class="btn-icon header-btn" title="Toggle Multi-Select Mode">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><polyline points="9 11 12 14 22 4"></polyline></svg>
+                            </button>
                             <button id="btn-view-toggle-client" class="btn-icon header-btn" title="Toggle List View">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
                             </button>
@@ -269,6 +278,10 @@
                             <button id="btn-whiteboard-client" class="custom-btn hidden" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid #fcee0a; color: #fcee0a;" title="Collaborative Whiteboard">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
                                 Whiteboard
+                            </button>
+                            <button id="btn-screenshare-client" class="custom-btn" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-purple); color: var(--neon-purple);" title="Share Screen with Swarm">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                                Screen Share
                             </button>
                             <button id="btn-download-all-client" class="custom-btn" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-blue); color: var(--neon-blue);">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -421,21 +434,54 @@
         </div>
         <div class="context-item" id="ctx-delete" style="color: var(--neon-red);">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-            Delete
+            <span id="ctx-delete-label">Delete</span>
         </div>
     </div>
 
     <!-- FOLDER PASSWORD MODAL (Client) -->
-    <div id="folder-password-modal" class="modal hidden">
-        <div class="modal-content card">
-            <h2 style="color: var(--neon-blue);">LOCKED FOLDER</h2>
-            <p>This folder is protected. Enter password to view contents.</p>
-            <input type="password" id="folder-password-input" placeholder="Password" class="custom-input" />
+    <div id="folder-password-modal" class="modal hidden" style="z-index: 10001;">
+        <div class="modal-content card" style="max-width: 400px; text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="color: var(--neon-blue); margin: 0; font-size: 1.2rem;">LOCKED FOLDER</h3>
+                <button id="btn-close-folder-password-top" class="btn-icon btn-close-modal" title="Close">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">This folder is protected. Enter password or use biometric authentication to view contents.</p>
+            <input type="password" id="folder-password-input" placeholder="Enter Folder Password" class="custom-input" style="margin-bottom: 1rem;" autocomplete="off" />
             <div style="display: flex; gap: 0.5rem; width: 100%;">
                 <button id="btn-submit-folder-password" class="custom-btn" style="flex: 1;">UNLOCK</button>
                 <button id="btn-cancel-folder-password" class="custom-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); flex: 1;">CANCEL</button>
             </div>
-            <p id="folder-password-error" class="error-text hidden">Access Denied</p>
+            <button id="btn-folder-biometric" class="custom-btn" style="width: 100%; margin-top: 0.65rem; border-color: var(--neon-green); color: var(--neon-green); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85rem;" title="Unlock with Touch ID / Face ID / Windows Hello">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3z"></path><path d="M19.07 4.93A10 10 0 0 0 4.93 19.07"></path><path d="M16.24 7.76a6 6 0 0 0-8.48 8.48"></path></svg>
+                <span id="folder-biometric-label">TOUCH ID / FACE ID UNLOCK</span>
+            </button>
+            <p id="folder-password-error" class="error-text hidden" style="margin-top: 0.75rem; text-align: center;">Access Denied: Invalid Password</p>
+        </div>
+    </div>
+
+    <!-- SET FOLDER PASSWORD MODAL (Host / Lock Setup) -->
+    <div id="set-folder-password-modal" class="modal hidden" style="z-index: 10001;">
+        <div class="modal-content card" style="max-width: 420px; text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 id="set-folder-password-title" style="color: var(--neon-blue); margin: 0; font-size: 1.2rem;">Protect Folder</h3>
+                <button id="btn-close-set-folder-password" class="btn-icon btn-close-modal" title="Close">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <p id="set-folder-password-desc" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.2rem;">
+                Set a password to lock this folder. You can also link Touch ID / Face ID for 1-tap unlocking.
+            </p>
+            <input type="password" id="set-folder-password-input" class="custom-input" placeholder="Enter Folder Password" style="margin-bottom: 1rem;" autocomplete="off">
+            <button id="btn-confirm-set-folder-password" class="custom-btn" style="width: 100%; border-color: var(--neon-blue); color: var(--neon-blue);">LOCK FOLDER</button>
+            <button id="btn-set-folder-biometric" class="custom-btn" style="width: 100%; margin-top: 0.6rem; border-color: var(--neon-green); color: var(--neon-green); display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.8rem;" title="Link or Use Touch ID / Face ID">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3z"></path><path d="M19.07 4.93A10 10 0 0 0 4.93 19.07"></path><path d="M16.24 7.76a6 6 0 0 0-8.48 8.48"></path></svg>
+                <span id="set-folder-biometric-label">LINK TOUCH ID / FACE ID</span>
+            </button>
+            <div id="set-folder-remove-container" class="hidden" style="margin-top: 0.8rem; text-align: center;">
+                <button id="btn-remove-folder-password" class="custom-btn" style="width: 100%; border-color: var(--neon-red); color: var(--neon-red); background: transparent; font-size: 0.8rem;">REMOVE PASSWORD / UNLOCK</button>
+            </div>
         </div>
     </div>
     
@@ -477,8 +523,53 @@
 
     <!-- TOAST CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
-    
 
+    <!-- BATCH ACTIONS FLOATING BAR -->
+    <div id="batch-actions-bar" class="batch-actions-bar hidden">
+        <div class="batch-count-badge">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span id="batch-count-text">0 SELECTED</span>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <button id="btn-batch-select-all" class="batch-btn" title="Select all items in current folder">SELECT ALL</button>
+            <button id="btn-batch-move" class="batch-btn" title="Move selected items to another folder">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><polyline points="14 11 17 14 14 17"></polyline><line x1="7" y1="14" x2="17" y2="14"></line></svg>
+                <span>MOVE TO...</span>
+            </button>
+            <button id="btn-batch-download" class="batch-btn" title="Download selected files">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>DOWNLOAD</span>
+            </button>
+            <button id="btn-batch-delete" class="batch-btn batch-btn-danger" title="Permanently delete selected items">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>DELETE</span>
+            </button>
+            <button id="btn-batch-clear" class="batch-btn" style="border-color: rgba(255,255,255,0.2); color: var(--text-muted); padding: 4px 8px;" title="Deselect all">
+                ✕
+            </button>
+        </div>
+    </div>
+
+    <!-- BATCH MOVE FOLDER PICKER MODAL -->
+    <div id="batch-move-modal" class="modal hidden">
+        <div class="modal-content card" style="max-width: 440px; width: 92%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; color: var(--neon-blue); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    <span>MOVE ITEMS TO FOLDER</span>
+                </h3>
+                <button id="btn-close-batch-move" class="btn-icon btn-close-modal">✕</button>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">Choose a destination folder for <span id="batch-move-count-text" style="color: #fff; font-weight: bold;">0 items</span>:</p>
+            <div id="batch-move-folder-list" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 1.2rem;">
+                <!-- Injected via JS -->
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button id="btn-cancel-batch-move" class="custom-btn" style="border-color: var(--border-color); color: var(--text-muted);">CANCEL</button>
+            </div>
+        </div>
+    </div>
+    
 
         <!-- INFO MODAL -->
     <div id="info-modal" class="modal hidden" style="z-index: 9999;">
@@ -494,10 +585,18 @@
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-purple">Resumable IndexedDB Cache:</strong> Chunks are saved locally to browser storage. If a connection drops, downloads resume from the last received chunk without restarting.</li>
                 </ul>
 
-                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🔐 Multi-Sig "Nuclear" Vaults</h3>
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🔐 Multi-Sig "Nuclear" Vaults & Hardware Security</h3>
                 <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-red">Consensus Voting Protocol:</strong> Classified folders can be armed as Nuclear Vaults. Unlocking requires dynamic cryptographic authorization and a live peer quorum (1 vote for 2-peer rooms; host-configured threshold for larger swarms).</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-yellow">60-Second Security Countdown:</strong> Authorization requests broadcast an alert with an auto-expiring 60s timer and automatic session re-arming when unlocked folders are closed or modified.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">Biometric Hardware Unlock (WebAuthn):</strong> Authenticate password-protected folders and vaults using Touch ID, Face ID, Windows Hello, or FIDO2 hardware passkeys via the Web Authentication API, eliminating repetitive password entry while maintaining zero-knowledge security.</li>
+                </ul>
+
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🗂️ Multi-File Selection & Batch Operations</h3>
+                <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Multi-Select Modifiers & Checkboxes:</strong> Select multiple files and folders using desktop Ctrl/Cmd+Click and Shift range selection, or mobile on-screen checkmark badges and a dedicated Multi-Select mode toggle.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">Cyber Floating Batch HUD:</strong> A glowing bottom action bar provides instant one-click <em>Select All</em>, <em>Move To...</em> (interactive modal folder directory picker), <em>Download</em> (bundles selected files into a .zip archive), and <em>Delete</em> (batch removal across Host VFS and authorized Guest connections).</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-purple">Batch Drag & Drop:</strong> Drag any selected file to move all selected files and directories simultaneously into any target folder.</li>
                 </ul>
 
                 <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🌐 Cyberspace Network Operations Center (NOC)</h3>
@@ -520,9 +619,10 @@
                     <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">P2P Multiplayer Arcade:</strong> Real-time 60 FPS <strong style="color: #39ff14;">Cyber-Pong</strong>, <strong style="color: var(--neon-blue);">Holo-Chess</strong> (chess.js with FEN network synchronization), and classic <strong style="color: var(--neon-pink);">Neon-Tac-Toe</strong>.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-yellow">NES Retro Gaming:</strong> 8-bit ROM emulator with delta-time canvas streaming to all guests at 60 FPS over WebRTC.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Radar, Whisper & Voice Calls:</strong> 2D proximity radar with latency tracking, 1-on-1 encrypted Whisper channels, and serverless P2P audio voice calls.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">Low-Latency P2P Screen Sharing:</strong> Stream desktop, application window, or browser tab at 60 FPS over direct WebRTC media channels with optional system audio, Picture-in-Picture (PiP), and full-screen viewer with zero intermediate servers.</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-purple);">Live Scratchpad:</strong> Collaborative multi-user text workspace with instantaneous keystroke sync, backed by granular Host Access Control (guest permission switches, "Allow All", admission invites, and auto-sync).</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: #00f0ff;">Swarm Jukebox:</strong> Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.</li>
-                    <li style="margin-bottom: 0.8rem;"><strong style="color: #fcee0a;">Collaborative Whiteboard:</strong> Real-time shared canvas with multi-user vector drawing, color selection, and granular Host Access Control (individual guest switches, "Allow All", interactive admission dialogs, and instant canvas sync).</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: #fcee0a;">Collaborative Whiteboard (Infinite Canvas):</strong> Real-time shared canvas with multi-user vector drawing, smooth Zoom (25% to 500%) & Pan navigation (mouse wheel zoom, Spacebar hold-to-pan, on-canvas Quick Zoom HUD, and mobile pinch-to-zoom), drag-and-drop & clipboard image stamping, real-time laser pointer with solid peer nameplates, inline text typing, undo/redo history, and granular Host Access Control.</li>
                 </ul>
 
                 <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">📱 Mobile PWA & Air-Gap LAN</h3>
@@ -741,15 +841,53 @@
         </div>
     </div>
 
+    <!-- SCREEN SHARE MODAL -->
+    <div id="screenshare-modal" class="modal hidden" style="z-index: 10002;">
+        <div class="modal-content card" style="max-width: 1100px; width: 95%; height: 88vh; display: flex; flex-direction: column; padding: 1rem; background: #05070e; border: 1px solid var(--neon-purple); box-shadow: 0 0 30px rgba(176, 38, 255, 0.25);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.8rem;">
+                    <h3 style="margin: 0; color: var(--neon-purple); font-size: 1.1rem; display: flex; align-items: center; gap: 6px;">
+                        <span>🖥️ LIVE SCREEN STREAM</span>
+                    </h3>
+                    <span id="screenshare-sharer-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(176, 38, 255, 0.15); color: var(--neon-purple); border: 1px solid rgba(176, 38, 255, 0.3);">P2P DIRECT</span>
+                </div>
+                <div style="display: flex; gap: 0.6rem; align-items: center;">
+                    <button id="btn-screenshare-audio-toggle" class="wb-btn" title="Toggle Audio" style="padding: 4px 8px;">🔇 UNMUTE</button>
+                    <button id="btn-screenshare-pip" class="wb-btn" title="Picture-in-Picture" style="padding: 4px 8px;">PIP</button>
+                    <button id="btn-screenshare-fullscreen" class="wb-btn" title="Fullscreen" style="padding: 4px 8px;">FULLSCREEN</button>
+                    <button id="btn-screenshare-stop" class="custom-btn hidden" style="border-color: var(--neon-red); color: var(--neon-red); padding: 4px 10px; font-size: 0.75rem;">STOP SHARING</button>
+                    <button id="btn-close-screenshare" class="btn-icon btn-close-modal" title="Close Viewer">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+            </div>
+            <div id="screenshare-video-wrapper" style="flex: 1; position: relative; display: flex; align-items: center; justify-content: center; background: #000; border-radius: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">
+                <video id="screenshare-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>
+                <div id="screenshare-play-overlay" class="hidden" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.75); z-index: 10; cursor: pointer;">
+                    <div style="background: rgba(176,38,255,0.25); border: 2px solid var(--neon-purple); border-radius: 50%; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; box-shadow: 0 0 20px var(--neon-purple);">
+                        <svg viewBox="0 0 24 24" width="32" height="32" fill="var(--neon-purple)"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    </div>
+                    <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem; letter-spacing: 1px; font-weight: bold;">CLICK TO WATCH LIVE SCREEN STREAM</span>
+                </div>
+                <div id="screenshare-watermark" style="position: absolute; bottom: 12px; left: 16px; font-family: var(--font-mono); font-size: 0.75rem; color: rgba(255,255,255,0.6); pointer-events: none; background: rgba(0,0,0,0.5); padding: 3px 8px; border-radius: 4px;">
+                    ⚡ LOCALCAST P2P SCREEN LINK • 0-CLOUD
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- WHITEBOARD MODAL -->
     <div id="whiteboard-modal" class="modal hidden">
-        <div class="modal-content card" style="max-width: 1000px; width: 95%; height: 90vh; display: flex; flex-direction: column; padding: 1rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.6rem;">
+        <div class="modal-content card" style="max-width: 1200px; width: 96%; height: 92vh; display: flex; flex-direction: column; padding: 0.8rem 1rem;">
+            <!-- Modal Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.6rem;">
                 <div style="display: flex; align-items: center; gap: 0.8rem;">
-                    <h2 style="margin: 0; color: #fcee0a; font-size: 1.2rem; letter-spacing: 1px;">COLLABORATIVE WHITEBOARD</h2>
-                    <span id="wb-status-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(252, 238, 10, 0.15); color: #fcee0a; border: 1px solid rgba(252, 238, 10, 0.3);">P2P LIVE</span>
+                    <h2 style="margin: 0; color: #fcee0a; font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 6px;">
+                        <span>🎨 COLLABORATIVE WHITEBOARD</span>
+                    </h2>
+                    <span id="wb-status-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(252, 238, 10, 0.15); color: #fcee0a; border: 1px solid rgba(252, 238, 10, 0.3);">P2P LIVE</span>
                 </div>
-                <div style="display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap;">
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                     <!-- Host Guest Access Control -->
                     <div id="wb-host-controls" style="position: relative; display: inline-block;">
                         <button id="btn-wb-permissions" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.25rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Manage Guest Permissions">
@@ -771,21 +909,148 @@
                         </div>
                     </div>
 
-                    <div id="wb-colors" style="display: flex; gap: 0.4rem; align-items: center;">
-                        <div class="wb-color" data-color="#000000" style="background: #000000; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid #fff;"></div>
-                        <div class="wb-color" data-color="#00f0ff" style="background: #00f0ff; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
-                        <div class="wb-color" data-color="#ff003c" style="background: #ff003c; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
-                        <div class="wb-color" data-color="#39ff14" style="background: #39ff14; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
-                        <div class="wb-color" data-color="#b026ff" style="background: #b026ff; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
-                    </div>
-                    <button id="btn-clear-whiteboard" class="custom-btn" style="border-color: var(--neon-red); background: transparent; color: var(--neon-red); padding: 0.2rem 0.5rem; font-size: 0.8rem;">CLEAR</button>
+                    <!-- Action Controls: Undo, Redo, Export PNG, Clear -->
+                    <button id="btn-wb-undo" class="wb-btn" title="Undo (Ctrl+Z)" style="padding: 4px 8px;">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+                    </button>
+                    <button id="btn-wb-redo" class="wb-btn" title="Redo (Ctrl+Y)" style="padding: 4px 8px;">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path></svg>
+                    </button>
+                    <button id="btn-wb-export" class="wb-btn" title="Export as PNG snapshot" style="border-color: var(--neon-green); color: var(--neon-green); padding: 4px 10px; gap: 4px;">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span>SAVE PNG</span>
+                    </button>
+                    <button id="btn-clear-whiteboard" class="custom-btn" style="border-color: var(--neon-red); background: transparent; color: var(--neon-red); padding: 0.25rem 0.65rem; font-size: 0.75rem;">CLEAR</button>
                     <button id="btn-close-whiteboard" class="btn-icon btn-close-modal" title="Close">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
                 </div>
             </div>
-            <div id="whiteboard-container" style="flex: 1; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; position: relative; background: #fff; cursor: crosshair;">
-                <canvas id="whiteboard-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #ffffff; touch-action: none;"></canvas>
+
+            <!-- Upgraded Cyber Toolbar -->
+            <div class="wb-toolbar-container">
+                <!-- Tool Selector -->
+                <div class="wb-tool-group">
+                    <button class="wb-btn wb-tool-btn active" data-tool="pen" title="Cyber Pen">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
+                        <span style="margin-left: 4px;">PEN</span>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="glow" title="Neon Glow Brush">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path></svg>
+                        <span style="margin-left: 4px;">NEON</span>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="highlighter" title="Highlighter">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"></path><path d="m22 2-7.5 7.5-3.5-3.5L18.5 2Z"></path></svg>
+                        <span style="margin-left: 4px;">H-LITE</span>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="eraser" title="Eraser">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path><path d="M22 21H7"></path><path d="m5 11 9 9"></path></svg>
+                        <span style="margin-left: 4px;">ERASER</span>
+                    </button>
+                </div>
+
+                <div class="wb-tool-divider"></div>
+
+                <!-- Shapes Selector -->
+                <div class="wb-tool-group">
+                    <button class="wb-btn wb-tool-btn" data-tool="line" title="Straight Line">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="arrow" title="Arrow">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"></line><polyline points="10 5 19 5 19 14"></polyline></svg>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="rect" title="Rectangle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="circle" title="Circle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle></svg>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="text" title="Text Label">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                    </button>
+                    <button class="wb-btn wb-tool-btn" data-tool="laser" title="Live Laser Pointer (broadcasts to all guests)" style="border-color: rgba(255, 0, 85, 0.4); color: #ff0055;">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" fill="#ff0055"></circle><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
+                        <span style="margin-left: 3px;">LASER</span>
+                    </button>
+                    <button class="wb-btn" id="btn-wb-stamp" title="Stamp Image from Device (or Drag & Drop / Paste)" style="border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                        <span style="margin-left: 3px;">STAMP IMG</span>
+                    </button>
+                    <input type="file" id="wb-stamp-file-input" accept="image/*" class="hidden">
+                </div>
+
+                <div class="wb-tool-divider"></div>
+
+                <!-- Stroke Width -->
+                <div class="wb-tool-group">
+                    <button class="wb-btn wb-size-btn" data-size="2" title="Fine (2px)"><span class="wb-size-dot" style="width: 3px; height: 3px;"></span></button>
+                    <button class="wb-btn wb-size-btn active" data-size="5" title="Medium (5px)"><span class="wb-size-dot" style="width: 6px; height: 6px;"></span></button>
+                    <button class="wb-btn wb-size-btn" data-size="12" title="Bold (12px)"><span class="wb-size-dot" style="width: 10px; height: 10px;"></span></button>
+                    <button class="wb-btn wb-size-btn" data-size="24" title="Heavy (24px)"><span class="wb-size-dot" style="width: 15px; height: 15px;"></span></button>
+                </div>
+
+                <div class="wb-tool-divider"></div>
+
+                <!-- Color Palette -->
+                <div class="wb-tool-group" id="wb-color-palette" style="gap: 5px;">
+                    <div class="wb-color-swatch active" data-color="#00f0ff" style="background: #00f0ff;" title="Neon Cyan"></div>
+                    <div class="wb-color-swatch" data-color="#39ff14" style="background: #39ff14;" title="Cyber Green"></div>
+                    <div class="wb-color-swatch" data-color="#fcee0a" style="background: #fcee0a;" title="Electric Yellow"></div>
+                    <div class="wb-color-swatch" data-color="#ff007f" style="background: #ff007f;" title="Neon Pink"></div>
+                    <div class="wb-color-swatch" data-color="#ff7700" style="background: #ff7700;" title="Cyber Orange"></div>
+                    <div class="wb-color-swatch" data-color="#b026ff" style="background: #b026ff;" title="Neon Purple"></div>
+                    <div class="wb-color-swatch" data-color="#ffffff" style="background: #ffffff;" title="Pure White"></div>
+                    <div class="wb-color-swatch" data-color="#000000" style="background: #000000; border: 1px solid rgba(255,255,255,0.4);" title="Black"></div>
+                    <div class="wb-color-input-wrapper" title="Custom Color Picker">
+                        <input type="color" id="wb-custom-color" value="#00f0ff">
+                        <span id="wb-custom-color-preview" style="width: 100%; height: 100%; border-radius: 50%; background: #00f0ff;"></span>
+                    </div>
+                </div>
+
+                <div class="wb-tool-divider"></div>
+
+                <!-- Theme / Grid Mode Selector -->
+                <div class="wb-tool-group">
+                    <select id="wb-theme-select" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(5,8,18,0.8); border: 1px solid var(--neon-blue); color: var(--neon-blue); border-radius: 6px; font-family: var(--font-mono); outline: none; cursor: pointer;">
+                        <option value="cyber">🌌 CYBER GRID</option>
+                        <option value="blueprint">📐 BLUEPRINT</option>
+                        <option value="white">⚪ WHITEBOARD</option>
+                        <option value="black">⬛ OLED BLACK</option>
+                    </select>
+                </div>
+
+                <div class="wb-tool-divider"></div>
+
+                <!-- Zoom & Pan Controls -->
+                <div class="wb-tool-group" style="align-items: center; gap: 4px;">
+                    <button class="wb-btn" id="btn-wb-zoom-out" title="Zoom Out (-)" style="padding: 4px 8px; font-weight: bold; font-size: 0.9rem;">−</button>
+                    <button class="wb-btn" id="btn-wb-zoom-reset" title="Reset Zoom (1:1)" style="padding: 4px 6px; font-size: 0.72rem; min-width: 44px; text-align: center; color: var(--neon-blue); border-color: rgba(0, 240, 255, 0.4);">
+                        <span id="wb-zoom-level">100%</span>
+                    </button>
+                    <button class="wb-btn" id="btn-wb-zoom-in" title="Zoom In (+)" style="padding: 4px 8px; font-weight: bold; font-size: 0.9rem;">+</button>
+                    <button class="wb-btn wb-tool-btn" data-tool="pan" id="btn-wb-tool-pan" title="Pan / Move Canvas (or hold Spacebar)" style="border-color: rgba(255, 255, 255, 0.2);">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v6"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15"></path></svg>
+                        <span style="margin-left: 3px;">PAN</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Canvas Container with Stage, Base Canvas, Overlay Canvas & Text Input -->
+            <div id="whiteboard-container" class="wb-theme-cyber" style="flex: 1; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; position: relative; cursor: crosshair;">
+                <div id="whiteboard-stage" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; will-change: transform;">
+                    <canvas id="whiteboard-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; touch-action: none; z-index: 10;"></canvas>
+                    <canvas id="whiteboard-overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; touch-action: none; pointer-events: none; z-index: 20;"></canvas>
+                    <input type="text" id="wb-floating-text-input" class="hidden" placeholder="Type text & hit Enter">
+                </div>
+                <!-- Floating Quick Zoom HUD at bottom right -->
+                <div id="wb-zoom-floating-hud" style="position: absolute; bottom: 12px; right: 12px; z-index: 45; display: flex; align-items: center; gap: 4px; background: rgba(5, 8, 20, 0.85); border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 20px; padding: 3px 8px; backdrop-filter: blur(8px); box-shadow: 0 4px 15px rgba(0,0,0,0.6);">
+                    <button id="btn-wb-hud-zoom-out" style="background: none; border: none; color: #fff; cursor: pointer; padding: 2px 6px; font-weight: bold; font-size: 0.85rem;" title="Zoom Out">−</button>
+                    <span id="wb-hud-zoom-level" style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--neon-blue); min-width: 36px; text-align: center; cursor: pointer;" title="Reset Zoom">100%</span>
+                    <button id="btn-wb-hud-zoom-in" style="background: none; border: none; color: #fff; cursor: pointer; padding: 2px 6px; font-weight: bold; font-size: 0.85rem;" title="Zoom In">+</button>
+                </div>
+                <div id="wb-stamp-drop-overlay" class="hidden" style="position: absolute; inset: 0; background: rgba(0, 240, 255, 0.15); border: 2px dashed var(--neon-blue); z-index: 50; display: flex; align-items: center; justify-content: center; pointer-events: none; backdrop-filter: blur(2px);">
+                    <span style="color: var(--neon-blue); font-family: var(--font-mono); font-size: 1rem; font-weight: bold; text-shadow: 0 0 8px var(--neon-blue);">⚡ DROP IMAGE TO STAMP ON WHITEBOARD</span>
+                </div>
             </div>
         </div>
     </div>
@@ -975,7 +1240,7 @@
     <div id="vault-password-modal" class="modal hidden" style="z-index: 10001;">
         <div class="modal-content card" style="max-width: 350px; text-align: center;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                <h3 style="color: var(--neon-green); margin: 0; font-size: 1.2rem;">Vault Password</h3>
+                <h3 id="vault-password-modal-title" style="color: var(--neon-green); margin: 0; font-size: 1.2rem;">Vault Password</h3>
                 <button id="btn-close-vault-modal" class="btn-icon btn-close-modal" title="Close">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
@@ -988,6 +1253,10 @@
             <input type="password" id="vault-password-input" class="custom-input" placeholder="Password" style="margin-bottom: 1.5rem;" autocomplete="off">
             
             <button id="btn-confirm-vault-password" class="custom-btn" style="width: 100%; border-color: var(--neon-green); color: var(--neon-green);">UNLOCK</button>
+            <button id="btn-vault-biometric" class="custom-btn" style="width: 100%; margin-top: 0.6rem; border-color: var(--neon-blue); color: var(--neon-blue); display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.8rem;" title="Unlock with Touch ID / Face ID / Windows Hello">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3z"></path><path d="M19.07 4.93A10 10 0 0 0 4.93 19.07"></path><path d="M16.24 7.76a6 6 0 0 0-8.48 8.48"></path></svg>
+                <span id="vault-biometric-label">TOUCH ID / FACE ID</span>
+            </button>
         </div>
     </div>
 
@@ -1196,12 +1465,12 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=69"></script>
-    <script src="plugins.js?v=2"></script>
+    <script src="app.js?v=75"></script>
+    <script src="plugins.js?v=5"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=111').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=119').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
