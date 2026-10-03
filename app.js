@@ -3989,9 +3989,12 @@ async function initClient() {
                     setWbTheme(data.theme, false);
                 }
                 if (wbCtx && data.image) {
+                    if (typeof initWbCanvasResolution === 'function') initWbCanvasResolution();
                     const img = new Image();
                     img.onload = () => {
                         wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                        wbCtx.imageSmoothingEnabled = true;
+                        wbCtx.imageSmoothingQuality = 'high';
                         wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
                         if (typeof saveWbState === 'function') saveWbState(false);
                     };
@@ -6143,6 +6146,9 @@ let wbDrawColor = '#00f0ff';
 let wbBrushSize = 5;
 let currentWbTheme = 'cyber';
 
+const WB_VIRTUAL_WIDTH = 2560;
+const WB_VIRTUAL_HEIGHT = 1600;
+
 let wbZoom = 1;
 let wbPanX = 0;
 let wbPanY = 0;
@@ -6154,6 +6160,28 @@ let wbStartMouseY = 0;
 let isWbSpacePressed = false;
 let wbInitialTouchDist = 0;
 let wbInitialZoom = 1;
+
+function initWbCanvasResolution() {
+    if (!wbCanvas) return;
+    if (wbCanvas.width !== WB_VIRTUAL_WIDTH || wbCanvas.height !== WB_VIRTUAL_HEIGHT) {
+        wbCanvas.width = WB_VIRTUAL_WIDTH;
+        wbCanvas.height = WB_VIRTUAL_HEIGHT;
+    }
+    if (wbOverlayCanvas) {
+        if (wbOverlayCanvas.width !== WB_VIRTUAL_WIDTH || wbOverlayCanvas.height !== WB_VIRTUAL_HEIGHT) {
+            wbOverlayCanvas.width = WB_VIRTUAL_WIDTH;
+            wbOverlayCanvas.height = WB_VIRTUAL_HEIGHT;
+        }
+    }
+    if (wbCtx) {
+        wbCtx.imageSmoothingEnabled = true;
+        wbCtx.imageSmoothingQuality = 'high';
+    }
+    if (wbOverlayCtx) {
+        wbOverlayCtx.imageSmoothingEnabled = true;
+        wbOverlayCtx.imageSmoothingQuality = 'high';
+    }
+}
 
 function applyWbTransform() {
     const stage = document.getElementById('whiteboard-stage');
@@ -6167,11 +6195,34 @@ function applyWbTransform() {
     if (hudZoomLevel) hudZoomLevel.textContent = pct;
 }
 
+function fitWbToContainer() {
+    const container = document.getElementById('whiteboard-container');
+    if (!container) return;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    if (cw <= 0 || ch <= 0) return;
+
+    initWbCanvasResolution();
+
+    const paddingX = cw < 600 ? 16 : 48;
+    const paddingY = ch < 500 ? 16 : 48;
+    const availW = Math.max(100, cw - paddingX);
+    const availH = Math.max(100, ch - paddingY);
+
+    const fitScale = Math.min(availW / WB_VIRTUAL_WIDTH, availH / WB_VIRTUAL_HEIGHT);
+    wbZoom = Math.max(0.08, Math.min(1.0, fitScale));
+
+    wbPanX = Math.round((cw - (WB_VIRTUAL_WIDTH * wbZoom)) / 2);
+    wbPanY = Math.round((ch - (WB_VIRTUAL_HEIGHT * wbZoom)) / 2);
+
+    applyWbTransform();
+}
+
 function setWbZoom(newZoom, centerX = null, centerY = null) {
     const container = document.getElementById('whiteboard-container');
     if (!container) return;
     const prevZoom = wbZoom;
-    const clampedZoom = Math.max(0.25, Math.min(5.0, newZoom));
+    const clampedZoom = Math.max(0.08, Math.min(5.0, newZoom));
     if (Math.abs(clampedZoom - prevZoom) < 0.001) return;
 
     if (centerX === null || centerY === null) {
@@ -6186,10 +6237,23 @@ function setWbZoom(newZoom, centerX = null, centerY = null) {
 }
 
 function resetWbZoom() {
-    wbZoom = 1;
-    wbPanX = 0;
-    wbPanY = 0;
-    applyWbTransform();
+    const container = document.getElementById('whiteboard-container');
+    if (!container) return;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const paddingX = cw < 600 ? 16 : 48;
+    const paddingY = ch < 500 ? 16 : 48;
+    const fitScale = Math.min((cw - paddingX) / WB_VIRTUAL_WIDTH, (ch - paddingY) / WB_VIRTUAL_HEIGHT);
+    const targetFit = Math.max(0.08, Math.min(1.0, fitScale));
+
+    if (Math.abs(wbZoom - targetFit) < 0.05 && targetFit < 0.95) {
+        wbZoom = 1.0;
+        wbPanX = Math.round((cw - WB_VIRTUAL_WIDTH) / 2);
+        wbPanY = Math.round((ch - WB_VIRTUAL_HEIGHT) / 2);
+        applyWbTransform();
+    } else {
+        fitWbToContainer();
+    }
 }
 
 let isDrawing = false;
@@ -6276,31 +6340,8 @@ function renderWbGuestList() {
 }
 
 function resizeWbCanvas() {
-    const container = document.getElementById('whiteboard-container');
-    if (!container || !wbCanvas) return;
-    const cw = container.clientWidth;
-    const ch = container.clientHeight;
-    if (cw === 0 || ch === 0) return;
-    
-    if (wbCanvas.width !== cw || wbCanvas.height !== ch) {
-        let savedData = null;
-        if (wbCanvas.width > 0 && wbCanvas.height > 0) {
-            savedData = wbCanvas.toDataURL();
-        }
-        wbCanvas.width = cw;
-        wbCanvas.height = ch;
-        if (wbOverlayCanvas) {
-            wbOverlayCanvas.width = cw;
-            wbOverlayCanvas.height = ch;
-        }
-        if (savedData && wbCtx) {
-            const img = new Image();
-            img.onload = () => {
-                wbCtx.drawImage(img, 0, 0, cw, ch);
-            };
-            img.src = savedData;
-        }
-    }
+    initWbCanvasResolution();
+    fitWbToContainer();
 }
 
 function saveWbState(clearRedo = true) {
@@ -6780,12 +6821,13 @@ function openWhiteboardModal() {
     }
     if (whiteboardModal) {
         whiteboardModal.classList.remove('hidden');
-        resetWbZoom();
+        initWbCanvasResolution();
+        fitWbToContainer();
         if (wbHostControls) wbHostControls.style.display = isHost ? 'inline-block' : 'none';
         if (isHost) renderWbGuestList();
-        setTimeout(resizeWbCanvas, 30);
-        setTimeout(resizeWbCanvas, 150);
-        setTimeout(resizeWbCanvas, 350);
+        setTimeout(fitWbToContainer, 30);
+        setTimeout(fitWbToContainer, 150);
+        setTimeout(fitWbToContainer, 350);
         if (!isHost && hostConnection && hostConnection.open) {
             hostConnection.send({ type: 'REQUEST_WHITEBOARD' });
         }
@@ -6795,9 +6837,14 @@ function openWhiteboardModal() {
 if (wbCanvas) {
     wbCtx = wbCanvas.getContext('2d');
     if (wbOverlayCanvas) wbOverlayCtx = wbOverlayCanvas.getContext('2d');
+    initWbCanvasResolution();
     
     window.addEventListener('resize', () => {
-        if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) resizeWbCanvas();
+        if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) {
+            if (wbZoom <= 1.05) {
+                fitWbToContainer();
+            }
+        }
     });
 
     if (btnWhiteboard) btnWhiteboard.addEventListener('click', openWhiteboardModal);
@@ -7216,6 +7263,7 @@ if (wbCanvas) {
 
     window.stampImageOnWhiteboard = function(dataUrl, targetX, targetY, normW = null, normH = null, emit = true) {
         if (!wbCtx || !wbCanvas) return;
+        initWbCanvasResolution();
         const img = new Image();
         img.onload = () => {
             saveWbState(true);
@@ -7226,8 +7274,8 @@ if (wbCanvas) {
                 drawW = normW * wbCanvas.width;
                 drawH = normH * wbCanvas.height;
             } else {
-                const maxW = wbCanvas.width * 0.65;
-                const maxH = wbCanvas.height * 0.65;
+                const maxW = wbCanvas.width * 0.70;
+                const maxH = wbCanvas.height * 0.70;
                 let scale = Math.min(maxW / img.width, maxH / img.height);
                 if (scale > 1) scale = 1;
                 drawW = img.width * scale;
@@ -7236,6 +7284,8 @@ if (wbCanvas) {
                 drawY = Math.max(10, Math.min(wbCanvas.height - drawH - 10, targetY - drawH / 2));
             }
 
+            wbCtx.imageSmoothingEnabled = true;
+            wbCtx.imageSmoothingQuality = 'high';
             wbCtx.drawImage(img, drawX, drawY, drawW, drawH);
 
             if (emit) {
@@ -7267,7 +7317,7 @@ if (wbCanvas) {
             const file = e.target.files && e.target.files[0];
             if (file && file.type.startsWith('image/')) {
                 const reader = new FileReader();
-                reader.onload = (re) => stampImageOnWhiteboard(re.target.result, wbCanvas.width / 2, wbCanvas.height / 2);
+                reader.onload = (re) => stampImageOnWhiteboard(re.target.result, WB_VIRTUAL_WIDTH / 2, WB_VIRTUAL_HEIGHT / 2);
                 reader.readAsDataURL(file);
                 showToast("🖼️ Image stamped onto whiteboard!", "success");
             }
@@ -7324,7 +7374,7 @@ if (wbCanvas) {
                     const blob = item.getAsFile();
                     if (blob) {
                         const reader = new FileReader();
-                        reader.onload = (re) => stampImageOnWhiteboard(re.target.result, wbCanvas.width / 2, wbCanvas.height / 2);
+                        reader.onload = (re) => stampImageOnWhiteboard(re.target.result, WB_VIRTUAL_WIDTH / 2, WB_VIRTUAL_HEIGHT / 2);
                         reader.readAsDataURL(blob);
                         showToast("🖼️ Clipboard image stamped!", "success");
                         break;

@@ -442,8 +442,8 @@ header {
 /* --- ACTION BUTTONS & TOOLBAR --- */
 .action-buttons {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.55rem;
     width: 100%;
     box-sizing: border-box;
 }
@@ -452,16 +452,16 @@ header {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 0.55rem;
+    gap: 0.45rem;
     background: rgba(255, 255, 255, 0.03);
     color: var(--text-main);
     border: 1px solid var(--border-color);
-    padding: 0.65rem 0.75rem;
-    font-size: 0.73rem;
+    padding: 0.55rem 0.6rem;
+    font-size: 0.72rem;
     font-weight: 600;
     border-radius: var(--radius-md);
     cursor: pointer;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     text-align: left;
     min-width: 0;
@@ -476,12 +476,15 @@ header {
     min-width: 0;
     flex: 1;
     white-space: normal;
+    word-break: normal;
+    overflow-wrap: break-word;
+    line-height: 1.25;
     text-align: left;
 }
 
 .action-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
 }
 
@@ -1537,15 +1540,22 @@ input:checked + .slider:before {
     }
     .cards-container { 
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
         overflow-y: visible;
         max-height: none;
         flex-shrink: 0;
+        gap: 1rem;
     }
     .explorer-section {
         height: auto;
         min-height: 500px;
         flex-shrink: 0;
+    }
+}
+
+@media (max-width: 900px) {
+    .cards-container {
+        grid-template-columns: 1fr;
     }
 }
 @media (max-width: 768px) {
@@ -2060,7 +2070,9 @@ button, .file-item, .custom-btn, .header-btn {
 }
 
 /* Themes */
-.wb-theme-cyber {
+.wb-theme-cyber,
+#whiteboard-stage.wb-theme-cyber,
+.wb-theme-cyber #whiteboard-stage {
     background-color: #080a14 !important;
     background-image: 
         linear-gradient(rgba(0, 240, 255, 0.08) 1px, transparent 1px),
@@ -2068,7 +2080,9 @@ button, .file-item, .custom-btn, .header-btn {
     background-size: 30px 30px !important;
 }
 
-.wb-theme-blueprint {
+.wb-theme-blueprint,
+#whiteboard-stage.wb-theme-blueprint,
+.wb-theme-blueprint #whiteboard-stage {
     background-color: #061329 !important;
     background-image: 
         linear-gradient(rgba(56, 189, 248, 0.12) 1px, transparent 1px),
@@ -2076,13 +2090,17 @@ button, .file-item, .custom-btn, .header-btn {
     background-size: 24px 24px !important;
 }
 
-.wb-theme-white {
+.wb-theme-white,
+#whiteboard-stage.wb-theme-white,
+.wb-theme-white #whiteboard-stage {
     background-color: #ffffff !important;
     background-image: radial-gradient(rgba(100, 116, 139, 0.25) 1.2px, transparent 1.2px) !important;
     background-size: 20px 20px !important;
 }
 
-.wb-theme-black {
+.wb-theme-black,
+#whiteboard-stage.wb-theme-black,
+.wb-theme-black #whiteboard-stage {
     background-color: #020307 !important;
     background-image: none !important;
 }
@@ -2253,18 +2271,35 @@ button, .file-item, .custom-btn, .header-btn {
    WHITEBOARD ZOOM & PAN STYLES
    ========================================================================== */
 #whiteboard-container {
+    background: #030408 !important;
     user-select: none;
     -webkit-user-select: none;
+    position: relative;
+    overflow: hidden;
 }
 
 #whiteboard-stage {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    width: 2560px;
+    height: 1600px;
     transform-origin: 0 0;
     will-change: transform;
+    border-radius: 6px;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 240, 255, 0.2);
+}
+
+#whiteboard-canvas,
+#whiteboard-overlay-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 2560px;
+    height: 1600px;
+    background: transparent;
+    touch-action: none;
+    image-rendering: auto;
 }
 
 #whiteboard-container.panning {
