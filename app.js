@@ -1068,6 +1068,7 @@ let vfs = new VirtualFileSystem();
 let clientVFS = null; // Client's copy of the tree
 let clientCurrentDir = null;
 let clientUnlockedVaults = {}; // track guest vault passwords
+let myPermissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
 
 function isNodeAuthorizedForConnection(node, conn) {
     if (!node) return false;
@@ -1630,7 +1631,7 @@ async function initHost() {
             conn.isAuthenticated = !hostPassword;
             connections.push(conn);
             conn.unlockedFolders = new Set();
-            conn.permissions = { upload: false, chat: true, delete: false, edit: false };
+            conn.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
 
             const handleOpen = () => {
                 sendEcdhHandshake(conn);
@@ -1759,6 +1760,7 @@ async function initHost() {
                     }
                 });
             } else if (data.type === 'SCRATCHPAD_UPDATE' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.scratchpad) return;
                 globalScratchpadContent = data.text;
                 if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && scratchpadTextarea.value !== data.text) {
                     const start = scratchpadTextarea.selectionStart;
@@ -1766,36 +1768,52 @@ async function initHost() {
                     scratchpadTextarea.value = data.text;
                     scratchpadTextarea.setSelectionRange(start, end);
                 }
-                Object.values(connections).forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated) {
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
                         c.send({ type: 'SCRATCHPAD_UPDATE', text: data.text });
                     }
                 });
-            } else if (data.type === 'WHITEBOARD_DRAW' && conn.isAuthenticated) {
-                if (wbCtx) {
-                    const w = wbCanvas.width; const h = wbCanvas.height;
-                    drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, false);
+            } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
+                if (conn.permissions && conn.permissions.scratchpad) {
+                    conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+                } else {
+                    conn.send({ type: 'SCRATCHPAD_DENIED', message: 'Scratchpad permission required.' });
                 }
-                Object.values(connections).forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated) c.send(data);
+            } else if (data.type === 'WHITEBOARD_DRAW' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (wbCtx && wbCanvas) {
+                    const w = wbCanvas.width; const h = wbCanvas.height;
+                    if (w > 0 && h > 0) {
+                        drawLine(data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, false);
+                    }
+                }
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send(data);
+                    }
                 });
             } else if (data.type === 'WHITEBOARD_CLEAR' && conn.isAuthenticated) {
-                if (wbCtx) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
-                Object.values(connections).forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated) c.send(data);
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (wbCtx && wbCanvas) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send(data);
+                    }
                 });
             } else if (data.type === 'REQUEST_WHITEBOARD' && conn.isAuthenticated) {
-                if (canvas) conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                if (conn.permissions && conn.permissions.whiteboard) {
+                    if (wbCanvas && wbCanvas.width > 0 && wbCanvas.height > 0) {
+                        conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                    }
+                } else {
+                    conn.send({ type: 'WHITEBOARD_DENIED', message: 'Whiteboard permission required.' });
+                }
             } else if (data.type === 'INTERCOM_JOIN' && conn.isAuthenticated) {
                 intercomUsers.add(data.peerId);
                 const others = Array.from(intercomUsers).filter(id => id !== data.peerId);
                 conn.send({ type: 'INTERCOM_LIST', users: others });
             } else if (data.type === 'INTERCOM_LEAVE' && conn.isAuthenticated) {
                 intercomUsers.delete(data.peerId);
-            } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
-                if (canvas) conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
-            } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
-                conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
             } else if (data.type === 'PROFILE_UPDATE' && conn.isAuthenticated) {
                 conn.profile = { name: data.name, color: data.color, avatar: data.avatar };
                 broadcastPeers();
@@ -2205,6 +2223,8 @@ function broadcastPeers() {
 
     const countEl = document.getElementById('telemetry-peer-count');
     if (countEl) countEl.textContent = `${peers.length} ${peers.length === 1 ? 'PEER' : 'PEERS'}`;
+    if (typeof renderWbGuestList === 'function') renderWbGuestList();
+    if (typeof renderSpGuestList === 'function') renderSpGuestList();
 }
 
 function broadcastTree() {
@@ -3187,7 +3207,9 @@ async function initClient() {
             } else if (data.type === 'ALERT') {
                 cyberAlert(data.message, "HOST BROADCAST");
             } else if (data.type === 'GUEST_PERMISSIONS') {
-                myPermissions = data.permissions;
+                const prevWb = (typeof myPermissions !== 'undefined' && myPermissions) ? !!myPermissions.whiteboard : false;
+                const prevSp = (typeof myPermissions !== 'undefined' && myPermissions) ? !!myPermissions.scratchpad : false;
+                myPermissions = data.permissions || {};
                 if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !myPermissions.upload);
                 if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !myPermissions.upload);
                 if (btnChatToggle) btnChatToggle.classList.toggle('hidden', myPermissions.chat === false);
@@ -3198,6 +3220,86 @@ async function initClient() {
                 const ctxDelete = document.getElementById('ctx-delete');
                 if (ctxRename) ctxRename.style.display = myPermissions.delete ? 'flex' : 'none';
                 if (ctxDelete) ctxDelete.style.display = myPermissions.delete ? 'flex' : 'none';
+
+                // Whiteboard Permission Handling
+                const btnWbClient = document.getElementById('btn-whiteboard-client');
+                if (btnWbClient) btnWbClient.classList.toggle('hidden', !myPermissions.whiteboard);
+                const btnWbHeader = document.getElementById('btn-whiteboard-header');
+                if (btnWbHeader) btnWbHeader.classList.toggle('hidden', !myPermissions.whiteboard);
+
+                if (myPermissions.whiteboard && !prevWb) {
+                    showToast("🎨 Whiteboard access granted by Host!", "success");
+                    cyberConfirm("The Host has granted you access to the Collaborative Whiteboard. Would you like to open it now?", "WHITEBOARD ACCESS").then(join => {
+                        if (join && typeof openWhiteboardModal === 'function') openWhiteboardModal();
+                    });
+                } else if (!myPermissions.whiteboard && prevWb) {
+                    if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) {
+                        whiteboardModal.classList.add('hidden');
+                    }
+                    showToast("Whiteboard access was revoked by Host.", "warning");
+                }
+
+                // Scratchpad Permission Handling
+                const btnSpClient = document.getElementById('btn-scratchpad-client');
+                if (btnSpClient) btnSpClient.classList.toggle('hidden', !myPermissions.scratchpad);
+                const btnSpHeader = document.getElementById('btn-scratchpad-header');
+                if (btnSpHeader) btnSpHeader.classList.toggle('hidden', !myPermissions.scratchpad);
+
+                if (myPermissions.scratchpad && !prevSp) {
+                    showToast("📝 Scratchpad access granted by Host!", "success");
+                    cyberConfirm("The Host has granted you access to the Live Scratchpad. Would you like to open it now?", "SCRATCHPAD ACCESS").then(join => {
+                        if (join && typeof openScratchpadModal === 'function') openScratchpadModal();
+                    });
+                } else if (!myPermissions.scratchpad && prevSp) {
+                    if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
+                        scratchpadModal.classList.add('hidden');
+                    }
+                    showToast("Scratchpad access was revoked by Host.", "warning");
+                }
+            } else if (data.type === 'WHITEBOARD_INVITE') {
+                if (typeof myPermissions !== 'undefined') myPermissions.whiteboard = true;
+                const btnWbClient = document.getElementById('btn-whiteboard-client');
+                if (btnWbClient) btnWbClient.classList.remove('hidden');
+                const btnWbHeader = document.getElementById('btn-whiteboard-header');
+                if (btnWbHeader) btnWbHeader.classList.remove('hidden');
+                showToast("🎨 Whiteboard access granted by Host!", "success");
+                cyberConfirm("The Host has invited you to the Collaborative Whiteboard. Would you like to open it now?", "WHITEBOARD INVITATION").then(join => {
+                    if (join && typeof openWhiteboardModal === 'function') openWhiteboardModal();
+                });
+            } else if (data.type === 'WHITEBOARD_REVOKED') {
+                if (typeof myPermissions !== 'undefined') myPermissions.whiteboard = false;
+                const btnWbClient = document.getElementById('btn-whiteboard-client');
+                if (btnWbClient) btnWbClient.classList.add('hidden');
+                const btnWbHeader = document.getElementById('btn-whiteboard-header');
+                if (btnWbHeader) btnWbHeader.classList.add('hidden');
+                if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) {
+                    whiteboardModal.classList.add('hidden');
+                }
+                showToast("Whiteboard access was revoked by Host.", "warning");
+            } else if (data.type === 'SCRATCHPAD_INVITE') {
+                if (typeof myPermissions !== 'undefined') myPermissions.scratchpad = true;
+                const btnSpClient = document.getElementById('btn-scratchpad-client');
+                if (btnSpClient) btnSpClient.classList.remove('hidden');
+                const btnSpHeader = document.getElementById('btn-scratchpad-header');
+                if (btnSpHeader) btnSpHeader.classList.remove('hidden');
+                if (typeof data.text === 'string') {
+                    globalScratchpadContent = data.text;
+                    if (scratchpadTextarea) scratchpadTextarea.value = data.text;
+                }
+                showToast("📝 Scratchpad access granted by Host!", "success");
+                cyberConfirm("The Host has invited you to the Live Scratchpad. Would you like to open it now?", "SCRATCHPAD INVITATION").then(join => {
+                    if (join && typeof openScratchpadModal === 'function') openScratchpadModal();
+                });
+            } else if (data.type === 'SCRATCHPAD_REVOKED') {
+                if (typeof myPermissions !== 'undefined') myPermissions.scratchpad = false;
+                const btnSpClient = document.getElementById('btn-scratchpad-client');
+                if (btnSpClient) btnSpClient.classList.add('hidden');
+                const btnSpHeader = document.getElementById('btn-scratchpad-header');
+                if (btnSpHeader) btnSpHeader.classList.add('hidden');
+                if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
+                    scratchpadModal.classList.add('hidden');
+                }
+                showToast("Scratchpad access was revoked by Host.", "warning");
             } else if (data.type === 'NUCLEAR_VOTE_UPDATE') {
                 if (typeof updateNuclearModalUI === 'function') {
                     updateNuclearModalUI(data.folderId, data.current, data.required);
@@ -3243,13 +3345,27 @@ async function initClient() {
                     }
                 });
             } else if (data.type === 'WHITEBOARD_SYNC') {
-                if (ctx && data.image) {
+                if (wbCtx && data.image) {
                     const img = new Image();
-                    img.onload = () => wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
+                    img.onload = () => {
+                        wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                        wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
+                    };
                     img.src = data.image;
                 }
+            } else if (data.type === 'WHITEBOARD_DENIED') {
+                if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) {
+                    whiteboardModal.classList.add('hidden');
+                }
+                showToast("Host has not granted whiteboard permission.", "warning");
+            } else if (data.type === 'SCRATCHPAD_DENIED') {
+                if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
+                    scratchpadModal.classList.add('hidden');
+                }
+                showToast("Host has not granted scratchpad permission.", "warning");
             } else if (data.type === 'SCRATCHPAD_UPDATE') {
-                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && scratchpadTextarea.value !== data.text) {
+                globalScratchpadContent = data.text;
+                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && scratchpadTextarea && scratchpadTextarea.value !== data.text) {
                     const start = scratchpadTextarea.selectionStart;
                     const end = scratchpadTextarea.selectionEnd;
                     scratchpadTextarea.value = data.text;
@@ -4748,29 +4864,123 @@ const scratchpadModal = document.getElementById('scratchpad-modal');
 const scratchpadTextarea = document.getElementById('scratchpad-textarea');
 const btnCloseScratchpad = document.getElementById('btn-close-scratchpad');
 const btnLiveScratchpad = document.getElementById('btn-live-scratchpad');
+const btnScratchpadClient = document.getElementById('btn-scratchpad-client');
+const btnScratchpadHeader = document.getElementById('btn-scratchpad-header');
+const btnSpPermissions = document.getElementById('btn-sp-permissions');
+const spPermissionsPopover = document.getElementById('sp-permissions-popover');
+const spGuestList = document.getElementById('sp-guest-list');
+const btnSpAllowAll = document.getElementById('btn-sp-allow-all');
+const btnSpRevokeAll = document.getElementById('btn-sp-revoke-all');
+const spPermCount = document.getElementById('sp-perm-count');
+const spHostControls = document.getElementById('sp-host-controls');
 
 let globalScratchpadContent = ''; // Used by Host
 
-if (btnLiveScratchpad) {
-    btnLiveScratchpad.addEventListener('click', () => {
+function renderSpGuestList() {
+    if (!isHost) {
+        if (spHostControls) spHostControls.style.display = 'none';
+        return;
+    }
+    if (spHostControls) spHostControls.style.display = 'inline-block';
+    if (!spGuestList) return;
+    
+    const activeConns = connections.filter(c => c.open && c.isAuthenticated);
+    const allowedConns = activeConns.filter(c => c.permissions && c.permissions.scratchpad);
+    if (spPermCount) spPermCount.textContent = `${allowedConns.length}/${activeConns.length}`;
+    
+    if (activeConns.length === 0) {
+        spGuestList.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 12px 0;">No guests currently connected</div>`;
+        return;
+    }
+    
+    spGuestList.innerHTML = '';
+    activeConns.forEach(c => {
+        const alias = (c.profile && c.profile.name) || c.guestAlias || ('Peer ' + c.peer.substring(0, 6));
+        const color = (c.profile && c.profile.color) || c.guestColor || 'var(--neon-purple)';
+        const isAllowed = !!(c.permissions && c.permissions.scratchpad);
+        
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: rgba(255,255,255,0.04); border-radius: 6px;';
+        row.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; max-width: 170px;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></span>
+                <span style="color: #fff; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 0.82rem;">${alias}</span>
+            </div>
+            <label class="switch" style="transform: scale(0.85); margin-right: -4px;">
+                <input type="checkbox" class="sp-peer-toggle" data-peer="${c.peer}" ${isAllowed ? 'checked' : ''}>
+                <span class="slider"></span>
+            </label>
+        `;
+        spGuestList.appendChild(row);
+    });
+    
+    spGuestList.querySelectorAll('.sp-peer-toggle').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const peerId = e.target.dataset.peer;
+            const checked = e.target.checked;
+            const conn = connections.find(c => c.peer === peerId);
+            if (conn) {
+                if (!conn.permissions) conn.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
+                conn.permissions.scratchpad = checked;
+                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                if (checked) {
+                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), text: globalScratchpadContent });
+                    conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+                } else {
+                    conn.send({ type: 'SCRATCHPAD_REVOKED' });
+                }
+                renderSpGuestList();
+                if (currentRadarGuestId === peerId) {
+                    const rSp = document.getElementById('radar-perm-scratchpad');
+                    if (rSp) rSp.checked = checked;
+                }
+            }
+        });
+    });
+}
+
+function openScratchpadModal() {
+    if (!isHost && (!myPermissions || !myPermissions.scratchpad)) {
+        cyberAlert("You do not have permission to access the scratchpad. Ask the host for access.", "PERMISSION DENIED");
+        return;
+    }
+    if (scratchpadModal) {
         scratchpadModal.classList.remove('hidden');
-        if (!isHost && hostConnection && hostConnection.open) {
-            hostConnection.send({ type: 'REQUEST_SCRATCHPAD' });
-        } else if (isHost) {
+        if (spHostControls) spHostControls.style.display = isHost ? 'inline-block' : 'none';
+        if (isHost) {
+            renderSpGuestList();
             scratchpadTextarea.value = globalScratchpadContent;
+        } else if (hostConnection && hostConnection.open) {
+            hostConnection.send({ type: 'REQUEST_SCRATCHPAD' });
         }
-    });
+    }
+}
 
+if (btnLiveScratchpad) btnLiveScratchpad.addEventListener('click', openScratchpadModal);
+if (btnScratchpadClient) btnScratchpadClient.addEventListener('click', openScratchpadModal);
+const btnScratchpadHeaderEl = document.getElementById('btn-scratchpad-header');
+if (btnScratchpadHeaderEl) btnScratchpadHeaderEl.addEventListener('click', openScratchpadModal);
+
+if (btnCloseScratchpad) {
     btnCloseScratchpad.addEventListener('click', () => {
-        scratchpadModal.classList.add('hidden');
+        if (scratchpadModal) scratchpadModal.classList.add('hidden');
+        if (spPermissionsPopover) spPermissionsPopover.classList.add('hidden');
     });
+}
 
+if (scratchpadTextarea) {
     scratchpadTextarea.addEventListener('input', () => {
+        if (!isHost && (!myPermissions || !myPermissions.scratchpad)) {
+            showToast("Scratchpad permission required.", "warning");
+            return;
+        }
         const text = scratchpadTextarea.value;
         if (isHost) {
             globalScratchpadContent = text;
-            Object.values(connections).forEach(c => {
-                if (c.open && c.isAuthenticated) c.send({ type: 'SCRATCHPAD_UPDATE', text });
+            connections.forEach(c => {
+                if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                    c.send({ type: 'SCRATCHPAD_UPDATE', text });
+                }
             });
         } else if (hostConnection && hostConnection.open) {
             hostConnection.send({ type: 'SCRATCHPAD_UPDATE', text });
@@ -4778,77 +4988,295 @@ if (btnLiveScratchpad) {
     });
 }
 
+if (btnSpPermissions && spPermissionsPopover) {
+    btnSpPermissions.addEventListener('click', (e) => {
+        e.stopPropagation();
+        spPermissionsPopover.classList.toggle('hidden');
+        if (!spPermissionsPopover.classList.contains('hidden')) {
+            renderSpGuestList();
+        }
+    });
+    spPermissionsPopover.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', (e) => {
+        if (spPermissionsPopover && !spPermissionsPopover.classList.contains('hidden') && spHostControls && !spHostControls.contains(e.target)) {
+            spPermissionsPopover.classList.add('hidden');
+        }
+    });
+}
+
+if (btnSpAllowAll) {
+    btnSpAllowAll.addEventListener('click', () => {
+        const activeConns = connections.filter(c => c.open && c.isAuthenticated);
+        activeConns.forEach(c => {
+            if (!c.permissions) c.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
+            c.permissions.scratchpad = true;
+            c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
+            c.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), text: globalScratchpadContent });
+            c.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+        });
+        renderSpGuestList();
+        if (currentRadarGuestId) {
+            const rSp = document.getElementById('radar-perm-scratchpad');
+            if (rSp) rSp.checked = true;
+        }
+        showToast("Scratchpad access granted to all guests", "success");
+    });
+}
+
+if (btnSpRevokeAll) {
+    btnSpRevokeAll.addEventListener('click', () => {
+        const activeConns = connections.filter(c => c.open && c.isAuthenticated);
+        activeConns.forEach(c => {
+            if (!c.permissions) c.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
+            c.permissions.scratchpad = false;
+            c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
+            c.send({ type: 'SCRATCHPAD_REVOKED' });
+        });
+        renderSpGuestList();
+        if (currentRadarGuestId) {
+            const rSp = document.getElementById('radar-perm-scratchpad');
+            if (rSp) rSp.checked = false;
+        }
+        showToast("Scratchpad access revoked for all guests", "info");
+    });
+}
+
 
 // --- WHITEBOARD LOGIC ---
 const whiteboardModal = document.getElementById('whiteboard-modal');
 const btnWhiteboard = document.getElementById('btn-whiteboard');
+const btnWhiteboardClient = document.getElementById('btn-whiteboard-client');
 const btnCloseWhiteboard = document.getElementById('btn-close-whiteboard');
 const btnClearWhiteboard = document.getElementById('btn-clear-whiteboard');
 const wbCanvas = document.getElementById('whiteboard-canvas');
-let wbCtx = null;
+const btnWbPermissions = document.getElementById('btn-wb-permissions');
+const wbPermissionsPopover = document.getElementById('wb-permissions-popover');
+const wbGuestList = document.getElementById('wb-guest-list');
+const btnWbAllowAll = document.getElementById('btn-wb-allow-all');
+const btnWbRevokeAll = document.getElementById('btn-wb-revoke-all');
+const wbPermCount = document.getElementById('wb-perm-count');
+const wbHostControls = document.getElementById('wb-host-controls');
 
+let wbCtx = null;
+let wbDrawColor = '#000000';
 let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
 
-if (btnWhiteboard && wbCanvas) {
-    wbCtx = wbCanvas.getContext('2d');
+function renderWbGuestList() {
+    if (!isHost) {
+        if (wbHostControls) wbHostControls.style.display = 'none';
+        return;
+    }
+    if (wbHostControls) wbHostControls.style.display = 'inline-block';
+    if (!wbGuestList) return;
     
-    function resizeCanvas() {
-        const container = document.getElementById('whiteboard-container');
-        if (wbCanvas.width !== container.clientWidth || wbCanvas.height !== container.clientHeight) {
-            const data = wbCanvas.toDataURL();
-            wbCanvas.width = container.clientWidth;
-            wbCanvas.height = container.clientHeight;
-            const img = new Image();
-            img.onload = () => wbCtx.drawImage(img, 0, 0);
-            img.src = data;
-        }
+    const activeConns = connections.filter(c => c.open && c.isAuthenticated);
+    const allowedConns = activeConns.filter(c => c.permissions && c.permissions.whiteboard);
+    if (wbPermCount) wbPermCount.textContent = `${allowedConns.length}/${activeConns.length}`;
+    
+    if (activeConns.length === 0) {
+        wbGuestList.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 12px 0;">No guests currently connected</div>`;
+        return;
     }
     
-    window.addEventListener('resize', () => {
-        if (!whiteboardModal.classList.contains('hidden')) resizeCanvas();
+    wbGuestList.innerHTML = '';
+    activeConns.forEach(c => {
+        const alias = (c.profile && c.profile.name) || c.guestAlias || ('Peer ' + c.peer.substring(0, 6));
+        const color = (c.profile && c.profile.color) || c.guestColor || 'var(--neon-blue)';
+        const isAllowed = !!(c.permissions && c.permissions.whiteboard);
+        
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: rgba(255,255,255,0.04); border-radius: 6px;';
+        row.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; max-width: 170px;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></span>
+                <span style="color: #fff; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 0.82rem;">${alias}</span>
+            </div>
+            <label class="switch" style="transform: scale(0.85); margin-right: -4px;">
+                <input type="checkbox" class="wb-peer-toggle" data-peer="${c.peer}" ${isAllowed ? 'checked' : ''}>
+                <span class="slider"></span>
+            </label>
+        `;
+        wbGuestList.appendChild(row);
     });
+    
+    wbGuestList.querySelectorAll('.wb-peer-toggle').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const peerId = e.target.dataset.peer;
+            const checked = e.target.checked;
+            const conn = connections.find(c => c.peer === peerId);
+            if (conn) {
+                if (!conn.permissions) conn.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
+                conn.permissions.whiteboard = checked;
+                conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                if (checked) {
+                    conn.send({ type: 'WHITEBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                    if (wbCanvas && wbCanvas.width > 0) {
+                        conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                    }
+                } else {
+                    conn.send({ type: 'WHITEBOARD_REVOKED' });
+                }
+                renderWbGuestList();
+                if (currentRadarGuestId === peerId) {
+                    const rWb = document.getElementById('radar-perm-whiteboard');
+                    if (rWb) rWb.checked = checked;
+                }
+            }
+        });
+    });
+}
 
-    btnWhiteboard.addEventListener('click', () => {
+function resizeWbCanvas() {
+    const container = document.getElementById('whiteboard-container');
+    if (!container || !wbCanvas) return;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    if (cw === 0 || ch === 0) return;
+    
+    if (wbCanvas.width !== cw || wbCanvas.height !== ch) {
+        if (wbCanvas.width > 0 && wbCanvas.height > 0) {
+            const data = wbCanvas.toDataURL();
+            wbCanvas.width = cw;
+            wbCanvas.height = ch;
+            const img = new Image();
+            img.onload = () => {
+                if (wbCtx) wbCtx.drawImage(img, 0, 0, cw, ch);
+            };
+            img.src = data;
+        } else {
+            wbCanvas.width = cw;
+            wbCanvas.height = ch;
+        }
+    }
+}
+
+function openWhiteboardModal() {
+    if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
+        cyberAlert("You do not have permission to access the whiteboard. Ask the host for access.", "PERMISSION DENIED");
+        return;
+    }
+    if (whiteboardModal) {
         whiteboardModal.classList.remove('hidden');
-        setTimeout(() => {
-            resizeCanvas();
-        }, 100);
+        if (wbHostControls) wbHostControls.style.display = isHost ? 'inline-block' : 'none';
+        if (isHost) renderWbGuestList();
+        setTimeout(resizeWbCanvas, 50);
+        setTimeout(resizeWbCanvas, 200);
         if (!isHost && hostConnection && hostConnection.open) {
             hostConnection.send({ type: 'REQUEST_WHITEBOARD' });
         }
+    }
+}
+
+if (wbCanvas) {
+    wbCtx = wbCanvas.getContext('2d');
+    
+    window.addEventListener('resize', () => {
+        if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) resizeWbCanvas();
     });
+
+    if (btnWhiteboard) btnWhiteboard.addEventListener('click', openWhiteboardModal);
+    if (btnWhiteboardClient) btnWhiteboardClient.addEventListener('click', openWhiteboardModal);
+    const btnWhiteboardHeader = document.getElementById('btn-whiteboard-header');
+    if (btnWhiteboardHeader) btnWhiteboardHeader.addEventListener('click', openWhiteboardModal);
     
     document.querySelectorAll('.wb-color').forEach(swatch => {
         swatch.addEventListener('click', (e) => {
             document.querySelectorAll('.wb-color').forEach(s => s.style.borderColor = 'transparent');
-            const target = e.target;
+            const target = e.currentTarget || e.target;
             target.style.borderColor = target.dataset.color === '#000000' ? '#fff' : target.dataset.color;
-            guestColor = target.dataset.color;
+            wbDrawColor = target.dataset.color;
         });
     });
 
-    btnCloseWhiteboard.addEventListener('click', () => {
-        whiteboardModal.classList.add('hidden');
-    });
+    if (btnCloseWhiteboard) {
+        btnCloseWhiteboard.addEventListener('click', () => {
+            if (whiteboardModal) whiteboardModal.classList.add('hidden');
+            if (wbPermissionsPopover) wbPermissionsPopover.classList.add('hidden');
+        });
+    }
     
-    btnClearWhiteboard.addEventListener('click', () => {
-        wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
-        if (isHost) {
-            connections.forEach(c => {
-                if (c.open && c.isAuthenticated) c.send({ type: 'WHITEBOARD_CLEAR' });
+    if (btnClearWhiteboard) {
+        btnClearWhiteboard.addEventListener('click', () => {
+            if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
+                showToast("Whiteboard permission required.", "warning");
+                return;
+            }
+            if (wbCtx) wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+            if (isHost) {
+                connections.forEach(c => {
+                    if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        c.send({ type: 'WHITEBOARD_CLEAR' });
+                    }
+                });
+            } else if (hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'WHITEBOARD_CLEAR' });
+            }
+        });
+    }
+
+    if (btnWbPermissions && wbPermissionsPopover) {
+        btnWbPermissions.addEventListener('click', (e) => {
+            e.stopPropagation();
+            wbPermissionsPopover.classList.toggle('hidden');
+            if (!wbPermissionsPopover.classList.contains('hidden')) {
+                renderWbGuestList();
+            }
+        });
+        wbPermissionsPopover.addEventListener('click', (e) => e.stopPropagation());
+        document.addEventListener('click', (e) => {
+            if (wbPermissionsPopover && !wbPermissionsPopover.classList.contains('hidden') && wbHostControls && !wbHostControls.contains(e.target)) {
+                wbPermissionsPopover.classList.add('hidden');
+            }
+        });
+    }
+
+    if (btnWbAllowAll) {
+        btnWbAllowAll.addEventListener('click', () => {
+            const activeConns = connections.filter(c => c.open && c.isAuthenticated);
+            activeConns.forEach(c => {
+                if (!c.permissions) c.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
+                c.permissions.whiteboard = true;
+                c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
+                c.send({ type: 'WHITEBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                if (wbCanvas && wbCanvas.width > 0) {
+                    c.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                }
             });
-        } else if (hostConnection && hostConnection.open) {
-            hostConnection.send({ type: 'WHITEBOARD_CLEAR' });
-        }
-    });
+            renderWbGuestList();
+            if (currentRadarGuestId) {
+                const rWb = document.getElementById('radar-perm-whiteboard');
+                if (rWb) rWb.checked = true;
+            }
+            showToast("Whiteboard access granted to all guests", "success");
+        });
+    }
+
+    if (btnWbRevokeAll) {
+        btnWbRevokeAll.addEventListener('click', () => {
+            const activeConns = connections.filter(c => c.open && c.isAuthenticated);
+            activeConns.forEach(c => {
+                if (!c.permissions) c.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
+                c.permissions.whiteboard = false;
+                c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
+                c.send({ type: 'WHITEBOARD_REVOKED' });
+            });
+            renderWbGuestList();
+            if (currentRadarGuestId) {
+                const rWb = document.getElementById('radar-perm-whiteboard');
+                if (rWb) rWb.checked = false;
+            }
+            showToast("Whiteboard access revoked for all guests", "info");
+        });
+    }
 
     function drawLine(x0, y0, x1, y1, color, emit) {
+        if (!wbCtx) return;
         wbCtx.beginPath();
         wbCtx.moveTo(x0, y0);
         wbCtx.lineTo(x1, y1);
-        wbCtx.strokeStyle = color;
+        wbCtx.strokeStyle = color || '#000000';
         wbCtx.lineWidth = 3;
         wbCtx.lineCap = 'round';
         wbCtx.stroke();
@@ -4858,17 +5286,20 @@ if (btnWhiteboard && wbCanvas) {
         
         const w = wbCanvas.width;
         const h = wbCanvas.height;
+        if (!w || !h) return;
         
         const payload = {
             type: 'WHITEBOARD_DRAW',
             x0: x0 / w, y0: y0 / h,
             x1: x1 / w, y1: y1 / h,
-            color: color
+            color: color || '#000000'
         };
 
         if (isHost) {
             connections.forEach(c => {
-                if (c.open && c.isAuthenticated) c.send(payload);
+                if (c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    c.send(payload);
+                }
             });
         } else if (hostConnection && hostConnection.open) {
             hostConnection.send(payload);
@@ -4885,6 +5316,10 @@ if (btnWhiteboard && wbCanvas) {
     }
 
     function onDown(e) {
+        if (!isHost && (!myPermissions || !myPermissions.whiteboard)) {
+            showToast("Whiteboard permission required.", "warning");
+            return;
+        }
         isDrawing = true;
         const pos = getPos(e);
         lastX = pos.x;
@@ -4894,7 +5329,7 @@ if (btnWhiteboard && wbCanvas) {
     function onMove(e) {
         if (!isDrawing) return;
         const pos = getPos(e);
-        drawLine(lastX, lastY, pos.x, pos.y, guestColor, true);
+        drawLine(lastX, lastY, pos.x, pos.y, wbDrawColor, true);
         lastX = pos.x;
         lastY = pos.y;
     }
@@ -5204,6 +5639,8 @@ const radarGuestDot = document.getElementById('radar-guest-dot');
 const radarPermUpload = document.getElementById('radar-perm-upload');
 const radarPermDelete = document.getElementById('radar-perm-delete');
 const radarPermEdit = document.getElementById('radar-perm-edit');
+const radarPermWhiteboard = document.getElementById('radar-perm-whiteboard');
+const radarPermScratchpad = document.getElementById('radar-perm-scratchpad');
 
 let activeNuclearFolderId = null;
 
@@ -5299,12 +5736,19 @@ function openRadarGuestModal(id, alias, color, avatar) {
     radarGuestName.textContent = alias;
     radarGuestDot.style.backgroundColor = color;
     
+    const radarPermSection = document.getElementById('radar-permissions-section');
+    if (radarPermSection) {
+        radarPermSection.style.display = (typeof isHost !== 'undefined' && isHost) ? 'block' : 'none';
+    }
+
     const conn = connections.find(c => c.peer === id);
     if (conn) {
-        if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false };
-        radarPermUpload.checked = conn.permissions.upload;
-        radarPermDelete.checked = conn.permissions.delete;
-        radarPermEdit.checked = conn.permissions.edit;
+        if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false, whiteboard: false, scratchpad: false, chat: true };
+        if (radarPermUpload) radarPermUpload.checked = !!conn.permissions.upload;
+        if (radarPermDelete) radarPermDelete.checked = !!conn.permissions.delete;
+        if (radarPermEdit) radarPermEdit.checked = !!conn.permissions.edit;
+        if (radarPermWhiteboard) radarPermWhiteboard.checked = !!conn.permissions.whiteboard;
+        if (radarPermScratchpad) radarPermScratchpad.checked = !!conn.permissions.scratchpad;
     }
     
     radarGuestModal.classList.remove('hidden');
@@ -5314,18 +5758,45 @@ if (btnCloseRadarModal) {
     btnCloseRadarModal.addEventListener('click', () => radarGuestModal.classList.add('hidden'));
 }
 
-[radarPermUpload, radarPermDelete, radarPermEdit].forEach(checkbox => {
+[radarPermUpload, radarPermDelete, radarPermEdit, radarPermWhiteboard, radarPermScratchpad].forEach(checkbox => {
     if (checkbox) {
         checkbox.addEventListener('change', () => {
             if (!currentRadarGuestId) return;
             const conn = connections.find(c => c.peer === currentRadarGuestId);
             if (conn) {
+                const prevWb = conn.permissions ? !!conn.permissions.whiteboard : false;
+                const prevSp = conn.permissions ? !!conn.permissions.scratchpad : false;
+                const newWb = radarPermWhiteboard ? radarPermWhiteboard.checked : false;
+                const newSp = radarPermScratchpad ? radarPermScratchpad.checked : false;
+
                 conn.permissions = {
-                    upload: radarPermUpload.checked,
-                    delete: radarPermDelete.checked,
-                    edit: radarPermEdit.checked
+                    upload: radarPermUpload ? radarPermUpload.checked : false,
+                    delete: radarPermDelete ? radarPermDelete.checked : false,
+                    edit: radarPermEdit ? radarPermEdit.checked : false,
+                    whiteboard: newWb,
+                    scratchpad: newSp,
+                    chat: conn.permissions ? conn.permissions.chat !== false : true
                 };
                 conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+
+                if (newWb && !prevWb) {
+                    conn.send({ type: 'WHITEBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                    if (wbCanvas && wbCanvas.width > 0) {
+                        conn.send({ type: 'WHITEBOARD_SYNC', image: wbCanvas.toDataURL() });
+                    }
+                } else if (!newWb && prevWb) {
+                    conn.send({ type: 'WHITEBOARD_REVOKED' });
+                }
+
+                if (newSp && !prevSp) {
+                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), text: globalScratchpadContent });
+                    conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+                } else if (!newSp && prevSp) {
+                    conn.send({ type: 'SCRATCHPAD_REVOKED' });
+                }
+
+                if (typeof renderWbGuestList === 'function') renderWbGuestList();
+                if (typeof renderSpGuestList === 'function') renderSpGuestList();
             }
         });
     }

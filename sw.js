@@ -1,9 +1,10 @@
-const CACHE_NAME = 'localcast-v107';
+const CACHE_NAME = 'localcast-v111';
 const ASSETS = [
     './',
     './index.html',
     './style.css',
     './app.js',
+    './plugins.js',
     './manifest.json',
     'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',

@@ -44,7 +44,8 @@ Built entirely with standard web primitives (WebRTC DataChannels, Web Crypto API
 ### 🕹️ 5. P2P Swarm Arcade & Collaboration
 * **Real-Time Multiplayer Gaming:** 60 FPS low-latency <strong style="color: #39ff14;">Cyber-Pong</strong> (synchronized paddle physics), <strong style="color: #00f0ff;">Holo-Chess</strong> (powered by chess.js with full FEN network synchronization), and classic <strong style="color: #ff007f;">Neon-Tac-Toe</strong>.
 * **Retro NES 8-bit Emulator:** Play classic ROMs in-browser with delta-time canvas streaming broadcasted to all connected guests at 60 FPS over WebRTC.
-* **Live Ephemeral Scratchpad:** Collaborative multi-user text workspace with instantaneous keystroke sync across the entire room.
+* **Collaborative P2P Whiteboard:** Real-time synchronized canvas with multi-user vector drawing, touch/stylus support, color palette selection, and granular Host Access Control (individual guest permission switches, one-click "Allow All", interactive admission dialogs, and real-time canvas synchronization upon admission).
+* **Live Ephemeral Scratchpad:** Collaborative multi-user text workspace with instantaneous keystroke sync across the entire room, backed by granular Host Access Control (individual peer switches, one-click "Allow All", interactive admission invites, and real-time state sync upon admission).
 * **Swarm Jukebox:** Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.
 
 ### 📡 6. Proximity Radar, Comm-Links & Serverless Audio

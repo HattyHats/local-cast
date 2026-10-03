@@ -15,63 +15,79 @@ if (btnAirgap) {
         airgapModal.classList.remove('hidden');
     });
 
-    btnAirgapClose.addEventListener('click', () => {
-        airgapModal.classList.add('hidden');
-        if (html5QrcodeScanner) {
-            html5QrcodeScanner.clear();
-            html5QrcodeScanner = null;
-        }
-        airgapScannerContainer.innerHTML = '';
-        airgapScannerContainer.style.display = 'none';
-        airgapQrDisplay.style.display = 'none';
-        airgapQrDisplay.innerHTML = '';
-    });
-
-    btnAirgapGenerate.addEventListener('click', () => {
-        if (html5QrcodeScanner) { html5QrcodeScanner.clear(); html5QrcodeScanner = null; }
-        airgapScannerContainer.innerHTML = '';
-        airgapScannerContainer.style.display = 'none';
-        airgapQrDisplay.style.display = 'block';
-        airgapQrDisplay.innerHTML = '';
-        
-        // Use the Host ID or current peer ID
-        const myId = peer ? peer.id : '';
-        if (!myId) {
-            alert('Peer not ready!');
-            return;
-        }
-        
-        const payload = JSON.stringify({ action: 'airgap_connect', peerId: myId });
-        new QRCode(airgapQrDisplay, {
-            text: payload,
-            width: 250,
-            height: 250,
-            colorDark : "#000000",
-            colorLight : "#ffffff",
-            correctLevel : QRCode.CorrectLevel.L
+    if (btnAirgapClose) {
+        btnAirgapClose.addEventListener('click', () => {
+            if (airgapModal) airgapModal.classList.add('hidden');
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+            if (airgapScannerContainer) {
+                airgapScannerContainer.innerHTML = '';
+                airgapScannerContainer.style.display = 'none';
+            }
+            if (airgapQrDisplay) {
+                airgapQrDisplay.style.display = 'none';
+                airgapQrDisplay.innerHTML = '';
+            }
         });
-    });
+    }
 
-    btnAirgapScan.addEventListener('click', () => {
-        airgapQrDisplay.style.display = 'none';
-        airgapQrDisplay.innerHTML = '';
-        airgapScannerContainer.style.display = 'block';
-        if (!html5QrcodeScanner) {
-            html5QrcodeScanner = new Html5QrcodeScanner("airgap-scanner-container", { fps: 10, qrbox: {width: 200, height: 200} }, false);
-            html5QrcodeScanner.render((decodedText, decodedResult) => {
-                try {
-                    const data = JSON.parse(decodedText);
-                    if (data.action === 'airgap_connect' && data.peerId) {
-                        html5QrcodeScanner.clear();
-                        airgapModal.classList.add('hidden');
-                        if (typeof setupClientPeer !== 'undefined') {
-                            window.location.href = window.location.origin + window.location.pathname + '?room=' + data.peerId;
+    if (btnAirgapGenerate) {
+        btnAirgapGenerate.addEventListener('click', () => {
+            if (html5QrcodeScanner) { html5QrcodeScanner.clear(); html5QrcodeScanner = null; }
+            if (airgapScannerContainer) {
+                airgapScannerContainer.innerHTML = '';
+                airgapScannerContainer.style.display = 'none';
+            }
+            if (airgapQrDisplay) {
+                airgapQrDisplay.style.display = 'block';
+                airgapQrDisplay.innerHTML = '';
+            }
+            
+            // Use the Host ID or current peer ID
+            const myId = (typeof peer !== 'undefined' && peer) ? peer.id : '';
+            if (!myId) {
+                alert('Peer not ready!');
+                return;
+            }
+            
+            const payload = JSON.stringify({ action: 'airgap_connect', peerId: myId });
+            new QRCode(airgapQrDisplay, {
+                text: payload,
+                width: 250,
+                height: 250,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L
+            });
+        });
+    }
+
+    if (btnAirgapScan) {
+        btnAirgapScan.addEventListener('click', () => {
+            if (airgapQrDisplay) {
+                airgapQrDisplay.style.display = 'none';
+                airgapQrDisplay.innerHTML = '';
+            }
+            if (airgapScannerContainer) airgapScannerContainer.style.display = 'block';
+            if (!html5QrcodeScanner) {
+                html5QrcodeScanner = new Html5QrcodeScanner("airgap-scanner-container", { fps: 10, qrbox: {width: 200, height: 200} }, false);
+                html5QrcodeScanner.render((decodedText, decodedResult) => {
+                    try {
+                        const data = JSON.parse(decodedText);
+                        if (data.action === 'airgap_connect' && data.peerId) {
+                            html5QrcodeScanner.clear();
+                            airgapModal.classList.add('hidden');
+                            if (typeof setupClientPeer !== 'undefined') {
+                                window.location.href = window.location.origin + window.location.pathname + '?room=' + data.peerId;
+                            }
                         }
-                    }
-                } catch(e) {}
-            }, (error) => {});
-        }
-    });
+                    } catch(e) {}
+                }, (error) => {});
+            }
+        });
+    }
 }
 
 // 2. Swarm Emulation (jsnes)
