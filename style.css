@@ -2656,4 +2656,27 @@ button, .file-item, .custom-btn, .header-btn {
     }
 }
 
+/* QuickPad Suite Styles */
+#scratchpad-modal .modal-content {
+    max-width: 1200px;
+    width: 95%;
+    height: 88vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0.85rem;
+    box-shadow: 0 0 50px rgba(176, 38, 255, 0.25), 0 0 0 1px rgba(176, 38, 255, 0.2);
+}
+
+@keyframes qp-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+    #scratchpad-modal .modal-content {
+        width: 98% !important;
+        height: 94vh !important;
+        padding: 0.5rem !important;
+    }
+}
 

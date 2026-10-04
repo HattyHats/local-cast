@@ -54,7 +54,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
   * **Persistent Laser Beacons & Text Annotations:** Real-time pointer trails with solid peer nameplate badges and inline vector text placement.
   * **Host Access Control:** Granular individual guest switches, one-click "Allow All", admission dialogs, and instant canvas state synchronization.
 * **Low-Latency P2P Screen Sharing:** Broadcast your desktop, application window, or browser tab directly to connected peers over hardware-accelerated WebRTC media streams at up to 60 FPS. Supports Picture-in-Picture (PiP), full-screen viewer, and optional system audio with zero intermediary servers.
-* **Live Ephemeral Scratchpad:** Collaborative multi-user text workspace with instantaneous keystroke sync across the entire room, backed by granular Host Access Control.
+* **QuickPad Zero-Knowledge Real-Time Suite:** Seamlessly integrated with [QuickPad](https://quickpad.org/) for hyper-fast, client-side AES-256 encrypted note-taking and scratchpad collaboration. The Host securely distributes the zero-knowledge session link exclusively over end-to-end encrypted WebRTC DataChannels to authorized guests. Includes in-modal workspace embedding, one-click Pop Out, instant session generation, custom link syncing, and host permission gating.
 * **Swarm Jukebox:** Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.
 
 ### 🗂️ 6. Multi-File Selection & Batch Operations

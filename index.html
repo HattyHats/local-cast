@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=73">
+    <link rel="stylesheet" href="style.css?v=74">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#07090e">
     
@@ -66,7 +66,7 @@
                 <button id="btn-theme-toggle" class="btn-icon header-btn" title="Themes & Aesthetics">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
                 </button>
-                <button id="btn-cyberspace" class="btn-icon header-btn" title="Enter 3D Cyberspace">
+                <button id="btn-cyberspace" class="btn-icon header-btn hidden" title="Enter 3D Cyberspace">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#ff00ff" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                 </button>
                 <button id="btn-airgap" class="btn-icon header-btn" title="Air-Gapped Offline Connect">
@@ -83,7 +83,7 @@
                 <button id="btn-screenshare-header" class="btn-icon header-btn" title="Live P2P Screen Share" style="border-color: var(--neon-purple); color: var(--neon-purple);">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                 </button>
-                <button id="btn-scratchpad-header" class="btn-icon header-btn hidden" title="Live Scratchpad" style="border-color: var(--neon-purple); color: var(--neon-purple);">
+                <button id="btn-scratchpad-header" class="btn-icon header-btn hidden" title="QuickPad" style="border-color: var(--neon-purple); color: var(--neon-purple);">
                     <svg viewBox="0 0 24 24" fill="none" stroke="var(--neon-purple)" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                 </button>
                 <button id="btn-whiteboard-header" class="btn-icon header-btn hidden" title="Collaborative Whiteboard" style="border-color: #fcee0a; color: #fcee0a;">
@@ -146,7 +146,7 @@
                         
                         <button id="btn-live-scratchpad" class="custom-btn action-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                            <span>Scratchpad</span>
+                            <span>QuickPad</span>
                         </button>
                         <button id="btn-whiteboard" class="custom-btn action-btn" style="border-color: #fcee0a; color: #fcee0a;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
@@ -271,9 +271,9 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                                 Upload Folder
                             </button>
-                            <button id="btn-scratchpad-client" class="custom-btn hidden" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-purple); color: var(--neon-purple);" title="Live Scratchpad">
+                            <button id="btn-scratchpad-client" class="custom-btn hidden" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-purple); color: var(--neon-purple);" title="QuickPad">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                                Scratchpad
+                                QuickPad
                             </button>
                             <button id="btn-whiteboard-client" class="custom-btn hidden" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid #fcee0a; color: #fcee0a;" title="Collaborative Whiteboard">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
@@ -710,18 +710,42 @@
     </div>
 
 
-    <!-- LIVE SCRATCHPAD MODAL -->
+    <!-- LIVE QUICKPAD ZERO-KNOWLEDGE SUITE MODAL -->
     <div id="scratchpad-modal" class="modal hidden">
-        <div class="modal-content card" style="max-width: 850px; width: 92%; height: 80vh; display: flex; flex-direction: column; padding: 1rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.6rem;">
-                <div style="display: flex; align-items: center; gap: 0.8rem;">
-                    <h2 style="margin: 0; color: var(--neon-purple); font-size: 1.2rem; letter-spacing: 1px;">LIVE SCRATCHPAD</h2>
-                    <span id="sp-status-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(176, 38, 255, 0.15); color: var(--neon-purple); border: 1px solid rgba(176, 38, 255, 0.3);">P2P SYNC</span>
+        <div class="modal-content card" style="max-width: 1200px; width: 95%; height: 88vh; display: flex; flex-direction: column; padding: 0.85rem; box-shadow: 0 0 50px rgba(176, 38, 255, 0.25);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.6rem;">
+                <div style="display: flex; align-items: center; gap: 0.7rem;">
+                    <h2 style="margin: 0; color: var(--neon-purple); font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 6px;">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--neon-purple)" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                        <span>QUICKPAD</span>
+                    </h2>
+                    <span id="sp-status-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(176, 38, 255, 0.15); color: var(--neon-purple); border: 1px solid rgba(176, 38, 255, 0.35);" title="Zero-Knowledge Client-Side AES-256 E2EE">🔒 ZERO-KNOWLEDGE E2EE</span>
                 </div>
-                <div style="display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap;">
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <!-- Copy Encrypted Link -->
+                    <button id="btn-qp-copy-link" class="custom-btn" style="border-color: var(--neon-purple); color: var(--neon-purple); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Copy Zero-Knowledge QuickPad Link">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>COPY LINK</span>
+                    </button>
+                    <!-- Pop Out to New Tab Button -->
+                    <button id="btn-qp-popout" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Open QuickPad in New Browser Tab">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                        <span>POP OUT</span>
+                    </button>
+                    <!-- Host Only: New Pad & Set Link -->
+                    <div id="qp-host-action-btns" style="display: flex; gap: 0.5rem;">
+                        <button id="btn-qp-new" class="custom-btn" style="border-color: #fcee0a; color: #fcee0a; padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Generate a New Encrypted QuickPad Session">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"></path></svg>
+                            <span>NEW PAD</span>
+                        </button>
+                        <button id="btn-qp-set-link" class="custom-btn" style="border-color: var(--neon-green); color: var(--neon-green); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Paste an Existing QuickPad Link">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                            <span>CUSTOM LINK</span>
+                        </button>
+                    </div>
                     <!-- Host Guest Access Control -->
                     <div id="sp-host-controls" style="position: relative; display: inline-block;">
-                        <button id="btn-sp-permissions" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.25rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Manage Guest Permissions">
+                        <button id="btn-sp-permissions" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Manage Guest Permissions">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                             <span>GUEST ACCESS</span> (<span id="sp-perm-count">0</span>)
                         </button>
@@ -739,13 +763,20 @@
                             </div>
                         </div>
                     </div>
-                    <div id="scratchpad-users" style="font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 0.5rem;"></div>
+                    <div id="scratchpad-users" style="font-size: 0.8rem; color: var(--text-muted); display: none;"></div>
                     <button id="btn-close-scratchpad" class="btn-icon btn-close-modal" title="Close">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
                 </div>
             </div>
-            <textarea id="scratchpad-textarea" class="custom-input" style="flex: 1; resize: none; font-family: var(--font-mono); font-size: 0.9rem; line-height: 1.5; padding: 1rem; border-color: var(--neon-purple);" placeholder="Type here... everyone with access can see and edit in real-time."></textarea>
+            <div id="quickpad-iframe-container" style="flex: 1; position: relative; width: 100%; border-radius: 6px; overflow: hidden; background: #0a0f1d; border: 1px solid rgba(176, 38, 255, 0.3);">
+                <div id="quickpad-loading-indicator" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0a0f1d; color: var(--neon-purple); font-family: var(--font-mono); font-size: 0.85rem; gap: 12px; z-index: 1;">
+                    <div style="width: 32px; height: 32px; border: 3px solid rgba(176, 38, 255, 0.2); border-top-color: var(--neon-purple); border-radius: 50%; animation: qp-spin 0.8s linear infinite;"></div>
+                    <span>INITIALIZING ENCRYPTED QUICKPAD...</span>
+                </div>
+                <iframe id="quickpad-iframe" allow="clipboard-read; clipboard-write; fullscreen" style="width: 100%; height: 100%; border: none; display: block; background: #0a0f1d;"></iframe>
+            </div>
+            <textarea id="scratchpad-textarea" style="display: none;"></textarea>
         </div>
     </div>
 
@@ -1208,7 +1239,7 @@
                         </label>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: var(--neon-purple); font-size: 0.9rem; font-weight: 600;">Scratchpad Access</span>
+                        <span style="color: var(--neon-purple); font-size: 0.9rem; font-weight: 600;">QuickPad Access</span>
                         <label class="switch">
                             <input type="checkbox" id="radar-perm-scratchpad">
                             <span class="slider"></span>
@@ -1417,7 +1448,7 @@
                     </label>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 1rem; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                    <span style="color: var(--neon-purple); font-weight: bold;">Allow Scratchpad</span>
+                    <span style="color: var(--neon-purple); font-weight: bold;">Allow QuickPad</span>
                     <label class="switch">
                         <input type="checkbox" id="gc-toggle-scratchpad">
                         <span class="slider round"></span>
@@ -1475,12 +1506,12 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=78"></script>
-    <script src="plugins.js?v=5"></script>
+    <script src="app.js?v=80"></script>
+    <script src="plugins.js?v=6"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=122').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=124').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

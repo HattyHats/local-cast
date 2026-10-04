@@ -543,7 +543,14 @@ function getPeerAvatar(id) {
 }
 
 if (btnCyberspace) {
+    if (typeof isHost !== 'undefined' && !isHost) {
+        btnCyberspace.classList.add('hidden');
+    }
     btnCyberspace.addEventListener('click', () => {
+        if (typeof isHost !== 'undefined' && !isHost) {
+            showToast("Cyberspace is restricted to the Session Host.", "warning");
+            return;
+        }
         cyberspaceOverlay.classList.remove('hidden');
         initCyberspace();
     });

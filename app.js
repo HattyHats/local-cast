@@ -1899,6 +1899,9 @@ async function initHost() {
         console.warn("Host password restore warning:", e);
     }
 
+    const btnCyberspaceEl = document.getElementById('btn-cyberspace');
+    if (btnCyberspaceEl) btnCyberspaceEl.classList.remove('hidden');
+
     if (btnLock) {
         btnLock.classList.remove('hidden');
         btnLock.addEventListener('click', async () => {
@@ -2175,23 +2178,24 @@ async function initHost() {
                 });
             } else if (data.type === 'SCRATCHPAD_UPDATE' && conn.isAuthenticated) {
                 if (!conn.permissions || !conn.permissions.scratchpad) return;
-                globalScratchpadContent = data.text;
-                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && scratchpadTextarea.value !== data.text) {
-                    const start = scratchpadTextarea.selectionStart;
-                    const end = scratchpadTextarea.selectionEnd;
-                    scratchpadTextarea.value = data.text;
-                    scratchpadTextarea.setSelectionRange(start, end);
+                const sessionUrl = data.sessionUrl || data.text || '';
+                if (sessionUrl) {
+                    globalQuickPadUrl = sessionUrl;
+                    if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && typeof loadQuickPadUrl === 'function') {
+                        loadQuickPadUrl(globalQuickPadUrl);
+                    }
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                        c.send({ type: 'SCRATCHPAD_UPDATE', text: data.text });
+                        c.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: globalQuickPadUrl, text: globalQuickPadUrl });
                     }
                 });
             } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
                 if (conn.permissions && conn.permissions.scratchpad) {
-                    conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+                    const sessionUrl = typeof getOrCreateQuickPadUrl === 'function' ? getOrCreateQuickPadUrl() : globalQuickPadUrl;
+                    conn.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
                 } else {
-                    conn.send({ type: 'SCRATCHPAD_DENIED', message: 'Scratchpad permission required.' });
+                    conn.send({ type: 'SCRATCHPAD_DENIED', message: 'QuickPad permission required.' });
                 }
             } else if (data.type === 'SCREEN_SHARE_STOPPED') {
                 if (typeof closeScreenShareViewer === 'function') closeScreenShareViewer();
@@ -3562,6 +3566,8 @@ function setupSwarmPeerConnection(conn) {
 
 // --- CLIENT LOGIC ---
 async function initClient() {
+    const btnCyberspaceEl = document.getElementById('btn-cyberspace');
+    if (btnCyberspaceEl) btnCyberspaceEl.classList.add('hidden');
     updateStatus('CONNECTING...', 'offline');
     
     setupClientPeer = function(attempts = 0) {
@@ -3839,22 +3845,24 @@ async function initClient() {
                     showToast("Whiteboard access was revoked by Host.", "warning");
                 }
 
-                // Scratchpad Permission Handling
+                // QuickPad Permission Handling
                 const btnSpClient = document.getElementById('btn-scratchpad-client');
                 if (btnSpClient) btnSpClient.classList.toggle('hidden', !myPermissions.scratchpad);
                 const btnSpHeader = document.getElementById('btn-scratchpad-header');
                 if (btnSpHeader) btnSpHeader.classList.toggle('hidden', !myPermissions.scratchpad);
 
                 if (myPermissions.scratchpad && !prevSp) {
-                    showToast("📝 Scratchpad access granted by Host!", "success");
-                    cyberConfirm("The Host has granted you access to the Live Scratchpad. Would you like to open it now?", "SCRATCHPAD ACCESS").then(join => {
+                    showToast("⚡ QuickPad access granted by Host!", "success");
+                    cyberConfirm("The Host has granted you access to the Live QuickPad. Would you like to open it now?", "QUICKPAD ACCESS").then(join => {
                         if (join && typeof openScratchpadModal === 'function') openScratchpadModal();
                     });
                 } else if (!myPermissions.scratchpad && prevSp) {
                     if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
                         scratchpadModal.classList.add('hidden');
                     }
-                    showToast("Scratchpad access was revoked by Host.", "warning");
+                    const qpIframe = document.getElementById('quickpad-iframe');
+                    if (qpIframe) qpIframe.src = 'about:blank';
+                    showToast("QuickPad access was revoked by Host.", "warning");
                 }
             } else if (data.type === 'WHITEBOARD_INVITE') {
                 if (typeof myPermissions !== 'undefined') myPermissions.whiteboard = true;
@@ -3882,12 +3890,13 @@ async function initClient() {
                 if (btnSpClient) btnSpClient.classList.remove('hidden');
                 const btnSpHeader = document.getElementById('btn-scratchpad-header');
                 if (btnSpHeader) btnSpHeader.classList.remove('hidden');
-                if (typeof data.text === 'string') {
-                    globalScratchpadContent = data.text;
-                    if (scratchpadTextarea) scratchpadTextarea.value = data.text;
+                if (data.sessionUrl) {
+                    globalQuickPadUrl = data.sessionUrl;
+                } else if (typeof data.text === 'string' && data.text.startsWith('http')) {
+                    globalQuickPadUrl = data.text;
                 }
-                showToast("📝 Scratchpad access granted by Host!", "success");
-                cyberConfirm("The Host has invited you to the Live Scratchpad. Would you like to open it now?", "SCRATCHPAD INVITATION").then(join => {
+                showToast("⚡ QuickPad access granted by Host!", "success");
+                cyberConfirm("The Host has invited you to the Live QuickPad session. Would you like to open it now?", "QUICKPAD INVITATION").then(join => {
                     if (join && typeof openScratchpadModal === 'function') openScratchpadModal();
                 });
             } else if (data.type === 'SCRATCHPAD_REVOKED') {
@@ -3899,7 +3908,9 @@ async function initClient() {
                 if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
                     scratchpadModal.classList.add('hidden');
                 }
-                showToast("Scratchpad access was revoked by Host.", "warning");
+                const qpIframe = document.getElementById('quickpad-iframe');
+                if (qpIframe) qpIframe.src = 'about:blank';
+                showToast("QuickPad access was revoked by Host.", "warning");
             } else if (data.type === 'NUCLEAR_VOTE_UPDATE') {
                 if (typeof updateNuclearModalUI === 'function') {
                     updateNuclearModalUI(data.folderId, data.current, data.required);
@@ -4009,14 +4020,15 @@ async function initClient() {
                 if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
                     scratchpadModal.classList.add('hidden');
                 }
-                showToast("Host has not granted scratchpad permission.", "warning");
+                showToast("Host has not granted QuickPad permission.", "warning");
             } else if (data.type === 'SCRATCHPAD_UPDATE') {
-                globalScratchpadContent = data.text;
-                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && scratchpadTextarea && scratchpadTextarea.value !== data.text) {
-                    const start = scratchpadTextarea.selectionStart;
-                    const end = scratchpadTextarea.selectionEnd;
-                    scratchpadTextarea.value = data.text;
-                    scratchpadTextarea.setSelectionRange(start, end);
+                if (data.sessionUrl) {
+                    globalQuickPadUrl = data.sessionUrl;
+                } else if (typeof data.text === 'string' && data.text.startsWith('http')) {
+                    globalQuickPadUrl = data.text;
+                }
+                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && typeof loadQuickPadUrl === 'function') {
+                    loadQuickPadUrl(globalQuickPadUrl);
                 }
             
             } else if (data.type === 'NETWORK_MAP') {
@@ -5944,7 +5956,60 @@ const btnSpRevokeAll = document.getElementById('btn-sp-revoke-all');
 const spPermCount = document.getElementById('sp-perm-count');
 const spHostControls = document.getElementById('sp-host-controls');
 
-let globalScratchpadContent = ''; // Used by Host
+let globalScratchpadContent = ''; // For backwards compatibility
+let globalQuickPadUrl = '';
+
+function generateQuickPadToken() {
+    // Generate high-entropy token format: token1_keyPart1_keyPart2 compatible with QuickPad's #token_key E2EE parser
+    const randPart = () => Math.random().toString(36).substring(2, 10);
+    return `${randPart()}_${randPart()}_${randPart()}`;
+}
+
+function getOrCreateQuickPadUrl() {
+    if (!globalQuickPadUrl) {
+        const saved = localStorage.getItem('localcast_quickpad_url');
+        if (saved && saved.startsWith('https://quickpad.org/#')) {
+            globalQuickPadUrl = saved;
+        } else {
+            globalQuickPadUrl = `https://quickpad.org/#${generateQuickPadToken()}`;
+            try { localStorage.setItem('localcast_quickpad_url', globalQuickPadUrl); } catch(e) {}
+        }
+    }
+    return globalQuickPadUrl;
+}
+
+function loadQuickPadUrl(url) {
+    if (!url) return;
+    const qpIframe = document.getElementById('quickpad-iframe');
+    const qpLoading = document.getElementById('quickpad-loading-indicator');
+    if (!qpIframe) return;
+
+    if (qpLoading) qpLoading.style.display = 'flex';
+    
+    qpIframe.onload = () => {
+        if (qpLoading) qpLoading.style.display = 'none';
+    };
+
+    if (qpIframe.src !== url) {
+        qpIframe.src = url;
+    } else {
+        if (qpLoading) qpLoading.style.display = 'none';
+    }
+}
+
+function broadcastQuickPadSession(url) {
+    if (!isHost || !url) return;
+    const payload = {
+        type: 'SCRATCHPAD_UPDATE',
+        sessionUrl: url,
+        text: url
+    };
+    connections.forEach(c => {
+        if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+            c.send(payload);
+        }
+    });
+}
 
 function renderSpGuestList() {
     if (!isHost) {
@@ -5995,8 +6060,9 @@ function renderSpGuestList() {
                 conn.permissions.scratchpad = checked;
                 conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                 if (checked) {
-                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), text: globalScratchpadContent });
-                    conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+                    const sessionUrl = getOrCreateQuickPadUrl();
+                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), sessionUrl: sessionUrl, text: sessionUrl });
+                    conn.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
                 } else {
                     conn.send({ type: 'SCRATCHPAD_REVOKED' });
                 }
@@ -6012,20 +6078,29 @@ function renderSpGuestList() {
 
 function openScratchpadModal() {
     if (!isHost && (!myPermissions || !myPermissions.scratchpad)) {
-        cyberAlert("You do not have permission to access the scratchpad. Ask the host for access.", "PERMISSION DENIED");
+        cyberAlert("You do not have permission to access QuickPad. Ask the host for access.", "PERMISSION DENIED");
         return;
     }
     if (scratchpadModal) {
         scratchpadModal.classList.remove('hidden');
         if (spHostControls) spHostControls.style.display = isHost ? 'inline-block' : 'none';
+        const qpHostBtns = document.getElementById('qp-host-action-btns');
+        if (qpHostBtns) qpHostBtns.style.display = isHost ? 'flex' : 'none';
+
         if (isHost) {
             renderSpGuestList();
-            scratchpadTextarea.value = globalScratchpadContent;
-        } else if (hostConnection && hostConnection.open) {
-            hostConnection.send({ type: 'REQUEST_SCRATCHPAD' });
+            const sessionUrl = getOrCreateQuickPadUrl();
+            loadQuickPadUrl(sessionUrl);
+        } else {
+            if (globalQuickPadUrl) {
+                loadQuickPadUrl(globalQuickPadUrl);
+            } else if (hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'REQUEST_SCRATCHPAD' });
+            }
         }
     }
 }
+window.openQuickPadModal = openScratchpadModal;
 
 if (btnLiveScratchpad) btnLiveScratchpad.addEventListener('click', openScratchpadModal);
 if (btnScratchpadClient) btnScratchpadClient.addEventListener('click', openScratchpadModal);
@@ -6039,22 +6114,63 @@ if (btnCloseScratchpad) {
     });
 }
 
-if (scratchpadTextarea) {
-    scratchpadTextarea.addEventListener('input', () => {
-        if (!isHost && (!myPermissions || !myPermissions.scratchpad)) {
-            showToast("Scratchpad permission required.", "warning");
-            return;
-        }
-        const text = scratchpadTextarea.value;
-        if (isHost) {
-            globalScratchpadContent = text;
-            connections.forEach(c => {
-                if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                    c.send({ type: 'SCRATCHPAD_UPDATE', text });
-                }
+// QuickPad Controls: Copy Link, Pop Out, New Pad, Set Custom Link
+const btnQpCopyLink = document.getElementById('btn-qp-copy-link');
+if (btnQpCopyLink) {
+    btnQpCopyLink.addEventListener('click', () => {
+        const url = isHost ? getOrCreateQuickPadUrl() : (globalQuickPadUrl || 'https://quickpad.org/');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(() => {
+                showToast("📋 QuickPad zero-knowledge link copied!", "success");
+            }).catch(() => {
+                prompt("Copy this QuickPad link:", url);
             });
-        } else if (hostConnection && hostConnection.open) {
-            hostConnection.send({ type: 'SCRATCHPAD_UPDATE', text });
+        } else {
+            prompt("Copy this QuickPad link:", url);
+        }
+    });
+}
+
+const btnQpPopout = document.getElementById('btn-qp-popout');
+if (btnQpPopout) {
+    btnQpPopout.addEventListener('click', () => {
+        const url = isHost ? getOrCreateQuickPadUrl() : (globalQuickPadUrl || 'https://quickpad.org/');
+        window.open(url, '_blank');
+    });
+}
+
+const btnQpNew = document.getElementById('btn-qp-new');
+if (btnQpNew) {
+    btnQpNew.addEventListener('click', async () => {
+        if (!isHost) return;
+        const confirmed = await cyberConfirm("Generate a brand new zero-knowledge QuickPad session for all participants? All participants with access will switch to the new pad.", "NEW QUICKPAD SESSION");
+        if (confirmed) {
+            globalQuickPadUrl = `https://quickpad.org/#${generateQuickPadToken()}`;
+            try { localStorage.setItem('localcast_quickpad_url', globalQuickPadUrl); } catch(e) {}
+            loadQuickPadUrl(globalQuickPadUrl);
+            broadcastQuickPadSession(globalQuickPadUrl);
+            showToast("✨ New QuickPad session created & synced!", "success");
+        }
+    });
+}
+
+const btnQpSetLink = document.getElementById('btn-qp-set-link');
+if (btnQpSetLink) {
+    btnQpSetLink.addEventListener('click', async () => {
+        if (!isHost) return;
+        const input = await cyberPrompt("Paste an existing QuickPad URL to sync with this session:", globalQuickPadUrl || "https://quickpad.org/#...");
+        if (input && input.trim()) {
+            let cleanUrl = input.trim();
+            if (!cleanUrl.startsWith('http')) cleanUrl = 'https://' + cleanUrl;
+            if (!cleanUrl.includes('quickpad.org')) {
+                showToast("Please enter a valid quickpad.org URL.", "warning");
+                return;
+            }
+            globalQuickPadUrl = cleanUrl;
+            try { localStorage.setItem('localcast_quickpad_url', globalQuickPadUrl); } catch(e) {}
+            loadQuickPadUrl(globalQuickPadUrl);
+            broadcastQuickPadSession(globalQuickPadUrl);
+            showToast("🔗 QuickPad session updated & synced!", "success");
         }
     });
 }
@@ -6078,19 +6194,20 @@ if (btnSpPermissions && spPermissionsPopover) {
 if (btnSpAllowAll) {
     btnSpAllowAll.addEventListener('click', () => {
         const activeConns = connections.filter(c => c.open && c.isAuthenticated);
+        const sessionUrl = getOrCreateQuickPadUrl();
         activeConns.forEach(c => {
             if (!c.permissions) c.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
             c.permissions.scratchpad = true;
             c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
-            c.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), text: globalScratchpadContent });
-            c.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+            c.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), sessionUrl: sessionUrl, text: sessionUrl });
+            c.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
         });
         renderSpGuestList();
         if (currentRadarGuestId) {
             const rSp = document.getElementById('radar-perm-scratchpad');
             if (rSp) rSp.checked = true;
         }
-        showToast("Scratchpad access granted to all guests", "success");
+        showToast("QuickPad access granted to all guests", "success");
     });
 }
 
@@ -6108,7 +6225,7 @@ if (btnSpRevokeAll) {
             const rSp = document.getElementById('radar-perm-scratchpad');
             if (rSp) rSp.checked = false;
         }
-        showToast("Scratchpad access revoked for all guests", "info");
+        showToast("QuickPad access revoked for all guests", "info");
     });
 }
 
@@ -8172,8 +8289,9 @@ if (btnCloseRadarModal) {
                 }
 
                 if (newSp && !prevSp) {
-                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), text: globalScratchpadContent });
-                    conn.send({ type: 'SCRATCHPAD_UPDATE', text: globalScratchpadContent });
+                    const sessionUrl = typeof getOrCreateQuickPadUrl === 'function' ? getOrCreateQuickPadUrl() : globalQuickPadUrl;
+                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), sessionUrl: sessionUrl, text: sessionUrl });
+                    conn.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
                 } else if (!newSp && prevSp) {
                     conn.send({ type: 'SCRATCHPAD_REVOKED' });
                 }
