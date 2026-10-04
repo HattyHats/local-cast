@@ -1506,12 +1506,12 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=80"></script>
+    <script src="app.js?v=81"></script>
     <script src="plugins.js?v=6"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=124').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=125').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

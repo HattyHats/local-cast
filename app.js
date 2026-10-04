@@ -293,8 +293,18 @@ let autoEnterFolderId = null;
 const chatBadge = document.getElementById('chat-badge');
 const toastContainer = document.getElementById('toast-container');
 
+let lastToastMsg = '';
+let lastToastTime = 0;
+
 function showToast(message) {
-    if (!toastContainer) return;
+    if (!toastContainer || !message) return;
+    const now = Date.now();
+    if (message === lastToastMsg && (now - lastToastTime) < 2000) {
+        return; // Suppress duplicate toast message within 2 seconds
+    }
+    lastToastMsg = message;
+    lastToastTime = now;
+
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.textContent = message;
@@ -3833,16 +3843,10 @@ async function initClient() {
                 const btnWbHeader = document.getElementById('btn-whiteboard-header');
                 if (btnWbHeader) btnWbHeader.classList.toggle('hidden', !myPermissions.whiteboard);
 
-                if (myPermissions.whiteboard && !prevWb) {
-                    showToast("🎨 Whiteboard access granted by Host!", "success");
-                    cyberConfirm("The Host has granted you access to the Collaborative Whiteboard. Would you like to open it now?", "WHITEBOARD ACCESS").then(join => {
-                        if (join && typeof openWhiteboardModal === 'function') openWhiteboardModal();
-                    });
-                } else if (!myPermissions.whiteboard && prevWb) {
+                if (!myPermissions.whiteboard && prevWb) {
                     if (whiteboardModal && !whiteboardModal.classList.contains('hidden')) {
                         whiteboardModal.classList.add('hidden');
                     }
-                    showToast("Whiteboard access was revoked by Host.", "warning");
                 }
 
                 // QuickPad Permission Handling
@@ -3851,18 +3855,12 @@ async function initClient() {
                 const btnSpHeader = document.getElementById('btn-scratchpad-header');
                 if (btnSpHeader) btnSpHeader.classList.toggle('hidden', !myPermissions.scratchpad);
 
-                if (myPermissions.scratchpad && !prevSp) {
-                    showToast("⚡ QuickPad access granted by Host!", "success");
-                    cyberConfirm("The Host has granted you access to the Live QuickPad. Would you like to open it now?", "QUICKPAD ACCESS").then(join => {
-                        if (join && typeof openScratchpadModal === 'function') openScratchpadModal();
-                    });
-                } else if (!myPermissions.scratchpad && prevSp) {
+                if (!myPermissions.scratchpad && prevSp) {
                     if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
                         scratchpadModal.classList.add('hidden');
                     }
                     const qpIframe = document.getElementById('quickpad-iframe');
                     if (qpIframe) qpIframe.src = 'about:blank';
-                    showToast("QuickPad access was revoked by Host.", "warning");
                 }
             } else if (data.type === 'WHITEBOARD_INVITE') {
                 if (typeof myPermissions !== 'undefined') myPermissions.whiteboard = true;
