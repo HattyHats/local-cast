@@ -63,7 +63,7 @@
                 <div class="logo glitch-title" data-text="LOCALCAST">
                     <span class="logo-brand">Local</span><span class="logo-accent">Cast</span>
                 </div>
-                <span class="badge-version">P2P v2.4</span>
+                <span class="badge-version">P2P v3.0</span>
             </div>
             <div class="header-actions">
                 <button id="btn-theme-toggle" class="btn-icon header-btn" title="Themes & Aesthetics">
@@ -1713,12 +1713,12 @@ Scanning active WebRTC peer connection...
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=85"></script>
+    <script src="app.js?v=86"></script>
     <script src="plugins.js?v=6"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=129').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=130').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
