@@ -413,7 +413,11 @@ const createFolderModal = document.getElementById('create-folder-modal');
 const btnCloseCreateFolder = document.getElementById('btn-close-create-folder');
 const btnConfirmCreateFolder = document.getElementById('btn-confirm-create-folder');
 const createFolderNameInput = document.getElementById('create-folder-name');
-const createFolderIsVault = document.getElementById('create-folder-is-vault');
+const createFolderVaultSettings = document.getElementById('create-vault-settings');
+const createFolderNuclearSettings = document.getElementById('create-nuclear-settings');
+const createFolderVaultPassInput = document.getElementById('create-folder-vault-pass');
+const createFolderNuclearVotesInput = document.getElementById('create-folder-nuclear-votes');
+const createFolderNuclearPinInput = document.getElementById('create-folder-nuclear-pin');
 
 const vaultPasswordModal = document.getElementById('vault-password-modal');
 const btnCloseVaultModal = document.getElementById('btn-close-vault-modal');
@@ -1409,7 +1413,7 @@ class VirtualFileSystem {
                 nuclearVotesRequired: node.nuclearVotesRequired
             };
             if (node.children) {
-                if ((node.password || node.isVault) && !isUnlocked) {
+                if ((node.password || node.isVault || node.isNuclear) && !isUnlocked) {
                     n.children = []; // Hide contents
                 } else {
                     n.children = node.children.map(clone).filter(x => x !== null);
@@ -2835,61 +2839,98 @@ function setupHostActions() {
     }
 
     btnNewFolder.addEventListener('click', () => {
-        createFolderNameInput.value = '';
-        createFolderIsVault.checked = false;
+        if (createFolderNameInput) createFolderNameInput.value = '';
+        const stdRadio = document.querySelector('input[name="folder-security-type"][value="standard"]');
+        if (stdRadio) stdRadio.checked = true;
+        if (createFolderVaultSettings) createFolderVaultSettings.classList.add('hidden');
+        if (createFolderNuclearSettings) createFolderNuclearSettings.classList.add('hidden');
+        if (createFolderVaultPassInput) createFolderVaultPassInput.value = '';
+        if (createFolderNuclearPinInput) createFolderNuclearPinInput.value = '';
+        if (createFolderNuclearVotesInput) createFolderNuclearVotesInput.value = '1';
         createFolderModal.classList.remove('hidden');
+        if (createFolderNameInput) setTimeout(() => createFolderNameInput.focus(), 60);
     });
     
+    // Toggle security settings based on selected radio
+    document.querySelectorAll('input[name="folder-security-type"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const val = radio.value;
+            if (createFolderVaultSettings) {
+                createFolderVaultSettings.classList.toggle('hidden', val !== 'vault');
+                if (val === 'vault' && createFolderVaultPassInput) setTimeout(() => createFolderVaultPassInput.focus(), 60);
+            }
+            if (createFolderNuclearSettings) {
+                createFolderNuclearSettings.classList.toggle('hidden', val !== 'nuclear');
+                if (val === 'nuclear' && createFolderNuclearPinInput) setTimeout(() => createFolderNuclearPinInput.focus(), 60);
+            }
+        });
+    });
+
     btnCloseCreateFolder.addEventListener('click', () => createFolderModal.classList.add('hidden'));
-    
-    btnConfirmCreateFolder.addEventListener('click', async () => {
-        const name = createFolderNameInput.value.trim();
-        const isVault = createFolderIsVault.checked;
-        if (!name) return;
+    createFolderModal.addEventListener('click', (e) => {
+        if (e.target === createFolderModal) createFolderModal.classList.add('hidden');
+    });
+
+    const submitCreateFolder = async () => {
+        const name = createFolderNameInput ? createFolderNameInput.value.trim() : '';
+        if (!name) {
+            return await cyberAlert("Please enter a directory name.", "INVALID NAME");
+        }
         
-        if (isVault) {
+        const secType = document.querySelector('input[name="folder-security-type"]:checked')?.value || 'standard';
+        
+        if (secType === 'vault') {
+            const pass = createFolderVaultPassInput ? createFolderVaultPassInput.value : '';
+            if (!pass) {
+                return await cyberAlert("Master password is required for Secure Vault!", "VAULT SECURITY", true);
+            }
+            
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const folder = vfs.addFolder(name, true, salt);
+            unlockedVaults[folder.id] = pass; // auto-unlock for host on creation
+            
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
             createFolderModal.classList.add('hidden');
-            if (vaultPasswordModalTitle) vaultPasswordModalTitle.textContent = "Create Secure Vault: " + name;
-            if (vaultPasswordDesc) vaultPasswordDesc.textContent = "Set a strong master password to encrypt this vault. You can link Touch ID / Face ID below for 1-tap unlocking.";
-            if (btnConfirmVaultPassword) btnConfirmVaultPassword.textContent = "CONFIRM & CREATE";
-            vaultPasswordModal.classList.remove('hidden');
-            vaultPasswordInput.value = '';
-            updateVaultBiometricUI(true);
+            showToast(`🔐 Secure Vault "${name}" created!`, "success");
+        } else if (secType === 'nuclear') {
+            const votes = Math.max(1, parseInt(createFolderNuclearVotesInput?.value, 10) || 1);
+            const pin = createFolderNuclearPinInput?.value?.trim();
+            if (!pin) {
+                return await cyberAlert("Launch Code (PIN) is required for Nuclear Vault!", "NUCLEAR SECURITY", true);
+            }
             
-            const handleVaultSubmit = async () => {
-                const pass = vaultPasswordInput.value;
-                if (!pass) return await cyberAlert("Password required for Vault!", "VAULT SECURITY", true);
-                
-                // Remove listener so it doesn't fire multiple times
-                btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
-                vaultPasswordModal.classList.add('hidden');
-                if (btnConfirmVaultPassword) btnConfirmVaultPassword.textContent = "UNLOCK";
-                if (vaultPasswordModalTitle) vaultPasswordModalTitle.textContent = "Vault Password";
-                
-                // Create a dummy salt for the folder (files will have their own)
-                const salt = crypto.getRandomValues(new Uint8Array(16));
-                const folder = vfs.addFolder(name, true, salt);
-                unlockedVaults[folder.id] = pass; // auto-unlock for host on creation
-                
-                saveVFSToDB();
-                renderHostExplorer();
-                broadcastTree();
-                showToast(`🔐 Secure Vault "${name}" created!`, "success");
-            };
+            const folder = vfs.addFolder(name);
+            folder.isNuclear = true;
+            folder.nuclearVotesRequired = votes;
+            folder.password = pin;
+            delete unlockedVaults[folder.id];
+            if (activeNuclearVotes[folder.id]) delete activeNuclearVotes[folder.id];
             
-            btnConfirmVaultPassword.addEventListener('click', handleVaultSubmit);
-            btnCloseVaultModal.addEventListener('click', () => {
-                btnConfirmVaultPassword.removeEventListener('click', handleVaultSubmit);
-                if (btnConfirmVaultPassword) btnConfirmVaultPassword.textContent = "UNLOCK";
-                if (vaultPasswordModalTitle) vaultPasswordModalTitle.textContent = "Vault Password";
-                vaultPasswordModal.classList.add('hidden');
-            }, { once: true });
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
+            createFolderModal.classList.add('hidden');
+            showToast(`☢️ Nuclear Vault "${name}" created (${votes} approval${votes > 1 ? 's' : ''} required)!`, "warning");
         } else {
             vfs.addFolder(name);
             saveVFSToDB();
             renderHostExplorer();
             broadcastTree();
             createFolderModal.classList.add('hidden');
+            showToast(`📁 Directory "${name}" created!`, "success");
+        }
+    };
+
+    btnConfirmCreateFolder.addEventListener('click', submitCreateFolder);
+    
+    // Enable Enter key submission
+    [createFolderNameInput, createFolderVaultPassInput, createFolderNuclearPinInput].forEach(inp => {
+        if (inp) {
+            inp.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') submitCreateFolder();
+            });
         }
     });
     
@@ -3205,6 +3246,99 @@ function moveNode(nodeId, targetFolderId, autoRender = true) {
         });
     });
 
+function configureContextMenuForTarget(node, isHost) {
+    if (!node) return;
+    const isFolder = node.type === 'folder';
+    const isFile = node.type === 'file';
+    
+    // 1. Open / Stream
+    const ctxOpenEl = document.getElementById('ctx-open');
+    const ctxOpenLabel = document.getElementById('ctx-open-label');
+    if (ctxOpenEl) {
+        ctxOpenEl.style.display = 'flex';
+        if (ctxOpenLabel) {
+            ctxOpenLabel.textContent = isFolder ? 'Open Folder' : 'Open / Stream';
+        }
+    }
+
+    // 2. Download (Files only)
+    const ctxDownloadEl = document.getElementById('ctx-download');
+    if (ctxDownloadEl) {
+        ctxDownloadEl.style.display = isFile ? 'flex' : 'none';
+    }
+
+    // 3. Magic Link (Host files only)
+    const ctxMagicLinkEl = document.getElementById('ctx-magic-link');
+    if (ctxMagicLinkEl) {
+        ctxMagicLinkEl.style.display = (isHost && isFile) ? 'flex' : 'none';
+    }
+
+    // 4. Lock / Unlock (Host folders only)
+    const ctxLockEl = document.getElementById('ctx-lock');
+    if (ctxLockEl) {
+        ctxLockEl.style.display = (isHost && isFolder) ? 'flex' : 'none';
+    }
+
+    // 5. Nuclear Vault (Host folders only)
+    const ctxMultisigEl = document.getElementById('ctx-multisig');
+    if (ctxMultisigEl) {
+        if (isHost && isFolder) {
+            ctxMultisigEl.style.display = 'flex';
+            ctxMultisigEl.innerHTML = node.isNuclear 
+                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Disarm Nuclear Vault`
+                : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Make Nuclear Vault`;
+        } else {
+            ctxMultisigEl.style.display = 'none';
+        }
+    }
+
+    // 6. Burn Protocol (Files only; Host or guest with upload/edit)
+    const ctxBurnEl = document.getElementById('ctx-burn');
+    if (ctxBurnEl) {
+        const canBurn = isHost || (typeof myPermissions !== 'undefined' && myPermissions && (myPermissions.upload || myPermissions.edit));
+        ctxBurnEl.style.display = (isFile && canBurn) ? 'flex' : 'none';
+    }
+
+    // 7. Rename (Both files and folders; Host or guest with edit)
+    const ctxRenameEl = document.getElementById('ctx-rename');
+    if (ctxRenameEl) {
+        const canRename = isHost || (typeof myPermissions !== 'undefined' && myPermissions && myPermissions.edit);
+        ctxRenameEl.style.display = canRename ? 'flex' : 'none';
+    }
+
+    // 8. Dead Drop (Host folders only)
+    const ctxDeaddropEl = document.getElementById('ctx-deaddrop');
+    if (ctxDeaddropEl) {
+        ctxDeaddropEl.style.display = (isHost && isFolder) ? 'flex' : 'none';
+    }
+
+    // 9. Honey-Pot (Host folders only)
+    const ctxHoneypotEl = document.getElementById('ctx-honeypot');
+    if (ctxHoneypotEl) {
+        ctxHoneypotEl.style.display = (isHost && isFolder) ? 'flex' : 'none';
+    }
+
+    // 10. Delete (Both files and folders; Host or guest with delete)
+    const ctxDeleteEl = document.getElementById('ctx-delete');
+    if (ctxDeleteEl) {
+        const canDelete = isHost || (typeof myPermissions !== 'undefined' && myPermissions && myPermissions.delete);
+        ctxDeleteEl.style.display = canDelete ? 'flex' : 'none';
+    }
+
+    // 11. Play in Jukebox (Audio files only)
+    const ctxJukeEl = document.getElementById('ctx-juke');
+    if (ctxJukeEl) {
+        const lowerName = (node.name || '').toLowerCase();
+        const isAudio = isFile && (
+            (node.mime && node.mime.startsWith('audio/')) ||
+            lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') ||
+            lowerName.endsWith('.ogg') || lowerName.endsWith('.m4a') ||
+            lowerName.endsWith('.flac') || lowerName.endsWith('.aac')
+        );
+        ctxJukeEl.style.display = isAudio ? 'flex' : 'none';
+    }
+}
+
 function renderHostExplorer() {
     renderBreadcrumbs(vfs.currentDir, hostBreadcrumbs, (node) => {
         vfs.currentDir = node;
@@ -3386,6 +3520,14 @@ function renderHostExplorer() {
         item.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             contextTargetId = child.id;
+            
+            // If right-clicked item is not part of multi-selection, clear previous multi-selection
+            if (!selectedNodes.has(child.id)) {
+                selectedNodes.clear();
+                document.querySelectorAll('#file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+                updateBatchBar();
+            }
+
             const isTargetSelected = selectedNodes.has(child.id) && selectedNodes.size > 1;
             const delLabel = document.getElementById('ctx-delete-label');
             if (delLabel) {
@@ -3393,18 +3535,10 @@ function renderHostExplorer() {
             }
             contextMenu.style.left = `${e.clientX}px`;
             contextMenu.style.top = `${e.clientY}px`;
+            
+            configureContextMenuForTarget(child, true);
+            
             contextMenu.classList.remove('hidden');
-            if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = child.type === 'folder' ? 'flex' : 'none';
-            if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = child.type === 'file' ? 'flex' : 'none';
-            if (document.getElementById('ctx-multisig')) {
-                const el = document.getElementById('ctx-multisig');
-                el.style.display = child.type === 'folder' ? 'flex' : 'none';
-                if (child.type === 'folder') {
-                    el.innerHTML = child.isNuclear 
-                        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Disarm Nuclear Vault`
-                        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Make Nuclear Vault`;
-                }
-            }
         });
         
         if (child.type === 'file' && (child.name.endsWith('.txt') || child.name.endsWith('.md'))) {
@@ -4461,6 +4595,14 @@ function renderClientExplorer() {
         item.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             contextTargetId = child.id;
+            
+            // If right-clicked item is not part of multi-selection, clear previous multi-selection
+            if (!clientSelectedNodes.has(child.id)) {
+                clientSelectedNodes.clear();
+                document.querySelectorAll('#client-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
+                updateBatchBar();
+            }
+
             const isTargetSelected = clientSelectedNodes.has(child.id) && clientSelectedNodes.size > 1;
             const delLabel = document.getElementById('ctx-delete-label');
             if (delLabel) {
@@ -4468,17 +4610,10 @@ function renderClientExplorer() {
             }
             contextMenu.style.left = `${e.clientX}px`;
             contextMenu.style.top = `${e.clientY}px`;
+            
+            configureContextMenuForTarget(child, false);
+            
             contextMenu.classList.remove('hidden');
-            
-            // Hide host-only options
-            if (document.getElementById('ctx-deaddrop')) document.getElementById('ctx-deaddrop').style.display = 'none';
-            if (document.getElementById('ctx-magic-link')) document.getElementById('ctx-magic-link').style.display = 'none';
-            if (document.getElementById('ctx-lock')) document.getElementById('ctx-lock').style.display = 'none';
-            if (document.getElementById('ctx-honeypot')) document.getElementById('ctx-honeypot').style.display = 'none';
-            if (document.getElementById('ctx-multisig')) document.getElementById('ctx-multisig').style.display = 'none';
-            
-            const hasPrivileges = myPermissions && (myPermissions.upload || myPermissions.edit);
-            if (document.getElementById('ctx-burn')) document.getElementById('ctx-burn').style.display = hasPrivileges ? 'flex' : 'none';
         });
         
         clientExplorerGrid.appendChild(item);
@@ -4885,6 +5020,13 @@ document.addEventListener('click', (e) => {
     }
 });
 
+document.addEventListener('contextmenu', (e) => {
+    if (!e.target.closest('.file-item')) {
+        contextMenu.classList.add('hidden');
+        contextTargetId = null;
+    }
+});
+
 function findClientNode(node, id) {
     if (!node) return null;
     if (node.id === id) return node;
@@ -4945,7 +5087,9 @@ if (ctxOpen) {
                     await cyberAlert("Cannot preview this file type.", "PREVIEW NOT AVAILABLE");
                 }
             } else if (node.type === 'folder') {
-                if (node.isVault && !unlockedVaults[node.id]) {
+                if (node.isNuclear && !unlockedVaults[node.id]) {
+                    openNuclearModal(node);
+                } else if (node.isVault && !unlockedVaults[node.id]) {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
                     const handleUnlock = async () => {
@@ -5010,7 +5154,9 @@ if (ctxOpen) {
                 }
                 previewModal.classList.remove('hidden');
             } else if (node.type === 'folder') {
-                if (node.isVault && !clientUnlockedVaults[node.id]) {
+                if (node.isNuclear && !clientUnlockedVaults[node.id]) {
+                    openNuclearModal(node);
+                } else if (node.isVault && !clientUnlockedVaults[node.id]) {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
                     const handleClientVaultUnlock = async () => {

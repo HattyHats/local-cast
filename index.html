@@ -421,7 +421,7 @@
     <div id="context-menu" class="context-menu hidden">
         <div class="context-item" id="ctx-open">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            Open / Stream
+            <span id="ctx-open-label">Open / Stream</span>
         </div>
         <div class="context-item" id="ctx-download">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -1417,28 +1417,70 @@ Scanning active WebRTC peer connection...
 
     <!-- CREATE FOLDER MODAL -->
     <div id="create-folder-modal" class="modal hidden">
-        <div class="modal-content card" style="max-width: 400px; text-align: left;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                <h3 style="color: var(--neon-blue); margin: 0; font-size: 1.2rem;">Create Folder</h3>
+        <div class="modal-content card" style="max-width: 440px; text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+                <h3 style="color: var(--neon-blue); margin: 0; font-size: 1.15rem; font-family: var(--font-mono); letter-spacing: 1px;">CREATE DIRECTORY</h3>
                 <button id="btn-close-create-folder" class="btn-icon btn-close-modal" title="Close">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             </div>
             
-            <input type="text" id="create-folder-name" class="custom-input" placeholder="Folder Name" style="margin-bottom: 1.5rem;" autocomplete="off">
-            
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding: 1rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 8px;">
-                <div>
-                    <span style="color: var(--neon-green); font-size: 1rem; display: block; margin-bottom: 0.2rem;">Secure Vault</span>
-                    <span style="color: var(--text-muted); font-size: 0.8rem;">E2E Encrypt all files uploaded here</span>
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem;">DIRECTORY NAME</label>
+                <input type="text" id="create-folder-name" class="custom-input" placeholder="e.g. Classified_Archive" style="width: 100%; box-sizing: border-box;" autocomplete="off">
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.5rem;">SECURITY PROTOCOL</label>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <!-- Option 1: Standard Folder -->
+                    <label style="display: flex; align-items: center; gap: 10px; padding: 0.7rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
+                        <input type="radio" name="folder-security-type" value="standard" checked style="accent-color: var(--neon-blue);">
+                        <div>
+                            <div style="font-size: 0.85rem; font-weight: bold; color: #fff;">📁 Standard Directory</div>
+                            <div style="font-size: 0.72rem; color: var(--text-muted);">Normal folder shared across connected peers</div>
+                        </div>
+                    </label>
+
+                    <!-- Option 2: Secure Vault -->
+                    <label style="display: flex; align-items: center; gap: 10px; padding: 0.7rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
+                        <input type="radio" name="folder-security-type" value="vault" style="accent-color: var(--neon-green);">
+                        <div>
+                            <div style="font-size: 0.85rem; font-weight: bold; color: var(--neon-green);">🔐 Secure Vault (Password E2EE)</div>
+                            <div style="font-size: 0.72rem; color: var(--text-muted);">Password protected & client-side AES-GCM encrypted</div>
+                        </div>
+                    </label>
+
+                    <!-- Option 3: Nuclear Vault -->
+                    <label style="display: flex; align-items: center; gap: 10px; padding: 0.7rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
+                        <input type="radio" name="folder-security-type" value="nuclear" style="accent-color: #fcee0a;">
+                        <div>
+                            <div style="font-size: 0.85rem; font-weight: bold; color: #fcee0a;">☢️ Nuclear Vault (Multi-Sig Consensus)</div>
+                            <div style="font-size: 0.72rem; color: var(--text-muted);">Requires peer quorum approval votes to unlock</div>
+                        </div>
+                    </label>
                 </div>
-                <label class="switch">
-                    <input type="checkbox" id="create-folder-is-vault">
-                    <span class="slider"></span>
-                </label>
+            </div>
+
+            <!-- Conditional Vault Settings -->
+            <div id="create-vault-settings" class="hidden" style="margin-bottom: 1rem; padding: 0.8rem; background: rgba(57, 255, 20, 0.05); border: 1px solid rgba(57, 255, 20, 0.3); border-radius: 6px;">
+                <label style="display: block; font-size: 0.72rem; color: var(--neon-green); font-family: var(--font-mono); margin-bottom: 0.35rem;">MASTER VAULT PASSWORD</label>
+                <input type="password" id="create-folder-vault-pass" class="custom-input" placeholder="Set a strong vault password" style="width: 100%; box-sizing: border-box; margin-bottom: 0.4rem;" autocomplete="off">
+                <div style="font-size: 0.72rem; color: var(--text-muted);">Host is automatically unlocked upon creation. Guests must enter this password to view files.</div>
+            </div>
+
+            <!-- Conditional Nuclear Settings -->
+            <div id="create-nuclear-settings" class="hidden" style="margin-bottom: 1rem; padding: 0.8rem; background: rgba(252, 238, 10, 0.05); border: 1px solid rgba(252, 238, 10, 0.3); border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <label style="font-size: 0.72rem; color: #fcee0a; font-family: var(--font-mono);">PEER APPROVALS REQUIRED</label>
+                    <input type="number" id="create-folder-nuclear-votes" value="1" min="1" max="10" class="custom-input" style="width: 60px; text-align: center; padding: 0.3rem;" />
+                </div>
+                <label style="display: block; font-size: 0.72rem; color: #fcee0a; font-family: var(--font-mono); margin-bottom: 0.35rem;">LAUNCH CODE (PIN)</label>
+                <input type="password" id="create-folder-nuclear-pin" class="custom-input" placeholder="Set a Nuclear Launch PIN" style="width: 100%; box-sizing: border-box; margin-bottom: 0.4rem;" autocomplete="off">
+                <div style="font-size: 0.72rem; color: var(--text-muted);">Unlocking requires peer quorum approvals and this PIN from connected guests.</div>
             </div>
             
-            <button id="btn-confirm-create-folder" class="custom-btn" style="width: 100%;">CREATE</button>
+            <button id="btn-confirm-create-folder" class="custom-btn" style="width: 100%; padding: 0.6rem;">CREATE DIRECTORY</button>
         </div>
     </div>
 
@@ -1671,12 +1713,12 @@ Scanning active WebRTC peer connection...
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=83"></script>
+    <script src="app.js?v=85"></script>
     <script src="plugins.js?v=6"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=127').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=129').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
