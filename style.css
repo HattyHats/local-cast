@@ -2680,3 +2680,20 @@ button, .file-item, .custom-btn, .header-btn {
     }
 }
 
+/* Proof of Privacy Inspector Styles */
+#privacy-modal .modal-content {
+    box-shadow: 0 0 40px rgba(57, 255, 20, 0.2), 0 0 0 1px rgba(57, 255, 20, 0.2);
+}
+
+@media (max-width: 600px) {
+    #privacy-modal .modal-content {
+        padding: 1rem 0.75rem !important;
+        width: 96% !important;
+    }
+    #privacy-emoji-fingerprint {
+        font-size: 1.6rem !important;
+        letter-spacing: 4px !important;
+    }
+}
+
+

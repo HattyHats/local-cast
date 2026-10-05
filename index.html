@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=74">
+    <link rel="stylesheet" href="style.css?v=75">
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <meta name="theme-color" content="#07090e">
     
     <!-- Google Fonts: Roboto Mono for Terminal, Inter for UI -->
@@ -74,6 +77,12 @@
                 </button>
                 <button id="btn-intercom" class="btn-icon header-btn" title="Live P2P Intercom">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                </button>
+                <button id="btn-privacy-inspector" class="btn-icon header-btn" title="Proof of Privacy & Connection Inspector" style="border-color: var(--neon-green); color: var(--neon-green); box-shadow: 0 0 8px rgba(57, 255, 20, 0.2);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        <path d="M9 12l2 2 4-4"></path>
+                    </svg>
                 </button>
                 <button id="btn-info" style="display: flex; align-items: center; gap: 6px; background: rgba(0, 240, 255, 0.1); border: 1px solid var(--neon-blue); border-radius: 20px; padding: 0.35rem 0.85rem; color: var(--neon-blue); font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 1px; cursor: pointer; box-shadow: 0 0 10px rgba(0, 240, 255, 0.2); transition: all 0.2s ease;" title="System Specifications" onmouseover="this.style.background='rgba(0, 240, 255, 0.2)';" onmouseout="this.style.background='rgba(0, 240, 255, 0.1)';">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -194,6 +203,15 @@
                             <span style="color: var(--text-muted);">SWARM TORRENT:</span>
                             <span style="color: var(--neon-green);">ACTIVE</span>
                         </div>
+                        <div style="margin-top: 0.35rem; padding-top: 0.5rem; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+                            <button id="btn-open-privacy-inspector" class="custom-btn" style="width: 100%; font-size: 0.72rem; padding: 0.45rem 0.5rem; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--neon-green); color: var(--neon-green); background: rgba(57, 255, 20, 0.08); border-radius: 4px; cursor: pointer; box-shadow: 0 0 8px rgba(57, 255, 20, 0.15);" title="Inspect direct P2P transport & verify zero-server privacy">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                    <path d="M9 12l2 2 4-4"></path>
+                                </svg>
+                                <span>PROOF OF PRIVACY // INSPECT</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -238,10 +256,16 @@
                 <div class="explorer-header">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
                         <h2 style="margin: 0;">HOST FILE SERVER</h2>
-                        <button id="btn-switch-to-host" class="custom-btn" style="background: rgba(0, 240, 255, 0.1); border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 0.35rem 0.85rem; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="Create your own host mesh">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                            <span>START AS HOST</span>
-                        </button>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button id="btn-client-privacy-inspector" class="custom-btn" style="background: rgba(57, 255, 20, 0.08); border: 1px solid var(--neon-green); color: var(--neon-green); padding: 0.35rem 0.85rem; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="Inspect direct P2P transport & verify zero-server privacy">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
+                                <span>VERIFY PRIVACY</span>
+                            </button>
+                            <button id="btn-switch-to-host" class="custom-btn" style="background: rgba(0, 240, 255, 0.1); border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 0.35rem 0.85rem; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="Create your own host mesh">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                <span>START AS HOST</span>
+                            </button>
+                        </div>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
                         <div class="breadcrumbs" id="client-breadcrumbs"><span class="crumb" data-id="root">/ Home</span></div>
@@ -571,7 +595,148 @@
     </div>
     
 
-        <!-- INFO MODAL -->
+        <!-- PROOF OF PRIVACY & CONNECTION INSPECTOR MODAL -->
+    <div id="privacy-modal" class="modal hidden" style="z-index: 9999;">
+        <div class="modal-content card" style="max-width: 680px; width: 92%; max-height: 85vh; overflow-y: auto;">
+            <!-- Modal Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0, 240, 255, 0.2); padding-bottom: 0.75rem; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="background: rgba(57, 255, 20, 0.12); border: 1px solid var(--neon-green); border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--neon-green)" stroke-width="2" style="width: 18px; height: 18px;">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                            <path d="M9 12l2 2 4-4"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 class="neon-green" style="margin: 0; font-size: 1.1rem; letter-spacing: 1.5px; font-family: var(--font-mono);">PROOF OF PRIVACY</h2>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;">ZERO-KNOWLEDGE CONNECTION INSPECTOR</div>
+                    </div>
+                </div>
+                <button id="btn-close-privacy" class="btn-icon" style="color: var(--text-muted); border-color: rgba(255,255,255,0.15);" title="Close Inspector">✕</button>
+            </div>
+
+            <!-- Live Status Banner -->
+            <div id="privacy-live-banner" style="background: rgba(57, 255, 20, 0.08); border: 1px solid var(--neon-green); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 1.15rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="status-dot online" style="box-shadow: 0 0 8px #39ff14;"></span>
+                    <span id="privacy-mesh-status" style="font-family: var(--font-mono); font-weight: bold; font-size: 0.82rem; color: #fff;">DIRECT P2P ENCRYPTED MESH ACTIVE</span>
+                </div>
+                <span style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--neon-green); background: rgba(0,0,0,0.4); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(57,255,20,0.3);">ZERO CLOUD RELAYS</span>
+            </div>
+
+            <!-- Section 1: Live WebRTC State & Traffic Monitor (HUD Cards) -->
+            <div style="margin-bottom: 1.25rem;">
+                <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--neon-blue); letter-spacing: 1px; margin-bottom: 0.5rem; text-transform: uppercase;">
+                    ⚡ Live WebRTC State & Traffic Monitor
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.65rem;">
+                    <!-- Card 1: ICE Candidate Type -->
+                    <div class="card" style="margin: 0; padding: 0.7rem; background: rgba(7, 9, 14, 0.7); border: 1px solid rgba(0, 240, 255, 0.2);">
+                        <div style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">CONNECTION STATUS</div>
+                        <div id="privacy-ice-type" style="font-family: var(--font-mono); font-size: 0.9rem; font-weight: bold; color: var(--neon-green); margin-top: 4px;">Direct P2P (host / srflx)</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 3px;">Hardware-to-hardware socket</div>
+                    </div>
+                    <!-- Card 2: Relay Server (TURN) -->
+                    <div class="card" style="margin: 0; padding: 0.7rem; background: rgba(7, 9, 14, 0.7); border: 1px solid rgba(57, 255, 20, 0.2);">
+                        <div style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">SERVER RELAY (TURN) USED</div>
+                        <div id="privacy-turn-status" style="font-family: var(--font-mono); font-size: 0.9rem; font-weight: bold; color: var(--neon-green); margin-top: 4px;">NO (0 Relays Active)</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 3px;">Direct STUN hole-punching</div>
+                    </div>
+                    <!-- Card 3: Direct P2P Traffic -->
+                    <div class="card" style="margin: 0; padding: 0.7rem; background: rgba(7, 9, 14, 0.7); border: 1px solid rgba(255, 0, 255, 0.2);">
+                        <div style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">LIVE P2P DATA TRAFFIC</div>
+                        <div id="privacy-p2p-traffic" style="font-family: var(--font-mono); font-size: 0.9rem; font-weight: bold; color: #ff00ff; margin-top: 4px;">0.00 MB Transferred</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 3px;">Direct between peers</div>
+                    </div>
+                    <!-- Card 4: External Server File Data -->
+                    <div class="card" style="margin: 0; padding: 0.7rem; background: rgba(7, 9, 14, 0.7); border: 1px solid rgba(0, 240, 255, 0.2);">
+                        <div style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">EXTERNAL SERVER FILE DATA</div>
+                        <div id="privacy-server-traffic" style="font-family: var(--font-mono); font-size: 0.9rem; font-weight: bold; color: var(--neon-green); margin-top: 4px;">0 BYTES (VERIFIED)</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 3px;">0 bytes routed via servers</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2: Session Emoji / Safety Fingerprint -->
+            <div style="margin-bottom: 1.25rem; background: rgba(0, 240, 255, 0.04); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 8px; padding: 0.85rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.4rem;">
+                    <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--neon-blue); letter-spacing: 1px; text-transform: uppercase;">
+                        🔐 Session Emoji / Safety Fingerprint
+                    </div>
+                    <button id="btn-copy-safety-hash" class="custom-btn" style="font-size: 0.65rem; padding: 0.25rem 0.55rem; border-color: rgba(0,240,255,0.4); color: var(--neon-blue); background: transparent; cursor: pointer;" title="Copy fingerprint to clipboard">
+                        COPY FINGERPRINT
+                    </button>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 0.65rem;">
+                    Both peers derive identical safety emojis from their active connection keys. Compare these emojis with your peer to visually verify that no man-in-the-middle exists:
+                </div>
+                <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 0.75rem 1rem; flex-wrap: wrap;">
+                    <div id="privacy-emoji-fingerprint" style="font-size: 2rem; letter-spacing: 6px; filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.4));">
+                        🛡️ ⚡ 🛰️ 💎
+                    </div>
+                    <div style="border-left: 1px solid rgba(255,255,255,0.15); padding-left: 0.85rem; text-align: left;">
+                        <div style="font-size: 0.62rem; color: var(--text-muted); font-family: var(--font-mono);">VERIFICATION HASH</div>
+                        <div id="privacy-hex-fingerprint" style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--neon-blue); font-weight: bold; letter-spacing: 1px;">#A4F1-79C0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3: Visual Architectural Flow (Step-by-Step) -->
+            <div style="margin-bottom: 1.25rem;">
+                <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--neon-purple); letter-spacing: 1px; margin-bottom: 0.65rem; text-transform: uppercase;">
+                    📐 Visual Architectural Flow (Zero-Cloud Storage)
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                    <!-- Step 1 -->
+                    <div style="display: flex; gap: 10px; background: rgba(7, 9, 14, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 0.65rem; align-items: flex-start;">
+                        <div style="background: rgba(0, 240, 255, 0.15); border: 1px solid var(--neon-blue); color: var(--neon-blue); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 0.72rem; font-weight: bold; flex-shrink: 0; margin-top: 2px;">1</div>
+                        <div>
+                            <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: bold; color: #fff;">Handshake (Signaling Server Coordinates Metadata Only)</div>
+                            <div style="font-size: 0.73rem; color: var(--text-muted); line-height: 1.35; margin-top: 2px;">
+                                Signaling only brokers temporary connection tokens (SDP offers/answers) so devices can locate each other's IP address. <strong>No file chunks, passwords, or messages ever pass through it.</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Step 2 -->
+                    <div style="display: flex; gap: 10px; background: rgba(7, 9, 14, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 0.65rem; align-items: flex-start;">
+                        <div style="background: rgba(57, 255, 20, 0.15); border: 1px solid var(--neon-green); color: var(--neon-green); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 0.72rem; font-weight: bold; flex-shrink: 0; margin-top: 2px;">2</div>
+                        <div>
+                            <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: bold; color: #fff;">Direct Pipe (DTLS/SCTP Encrypted WebRTC DataChannel)</div>
+                            <div style="font-size: 0.73rem; color: var(--text-muted); line-height: 1.35; margin-top: 2px;">
+                                A hardware-to-hardware socket opens straight from sender to receiver. All payload bytes are encrypted at the transport layer with military-grade DTLS and AES-GCM without touching any middleman.
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Step 3 -->
+                    <div style="display: flex; gap: 10px; background: rgba(7, 9, 14, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 0.65rem; align-items: flex-start;">
+                        <div style="background: rgba(255, 0, 255, 0.15); border: 1px solid #ff00ff; color: #ff00ff; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 0.72rem; font-weight: bold; flex-shrink: 0; margin-top: 2px;">3</div>
+                        <div>
+                            <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: bold; color: #fff;">Local Assembly (FileReader API & In-Memory Blobs)</div>
+                            <div style="font-size: 0.73rem; color: var(--text-muted); line-height: 1.35; margin-top: 2px;">
+                                Files are sliced into 32 KB pieces directly from disk by your browser, streamed across the direct pipe, and reassembled in recipient RAM. Nothing is ever stored or saved on any cloud or disk server.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Independent Verification Tip -->
+                <div style="margin-top: 0.65rem; background: rgba(252, 238, 10, 0.05); border: 1px dashed rgba(252, 238, 10, 0.3); border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.72rem; color: #d0c070; line-height: 1.4;">
+                    🔍 <strong>Independent Verification Audit:</strong> Open your browser's Developer Tools (<code>F12</code>) → <strong>Network</strong> tab during any file transfer. You will see <strong>zero HTTP upload or download requests</strong> to any server because all binary traffic moves exclusively through the direct P2P WebRTC data socket!
+                </div>
+            </div>
+
+            <!-- Section 4: Expandable Technical WebRTC Diagnostics -->
+            <details style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.55rem 0.75rem; font-family: var(--font-mono); font-size: 0.72rem;">
+                <summary style="cursor: pointer; color: var(--neon-blue); outline: none; user-select: none;">
+                    ▶ View Raw WebRTC Stats & Candidate Diagnostics
+                </summary>
+                <div id="privacy-raw-stats" style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.68rem; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow-y: auto; background: rgba(0,0,0,0.6); padding: 0.55rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
+Scanning active WebRTC peer connection...
+                </div>
+            </details>
+        </div>
+    </div>
+
+    <!-- INFO MODAL -->
     <div id="info-modal" class="modal hidden" style="z-index: 9999;">
         <div class="modal-content card" style="max-width: 680px; width: 92%;">
             <h2 class="neon-blue" style="letter-spacing: 2px;">LOCAL-CAST // SYSTEM SPECS</h2>
@@ -1506,12 +1671,12 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=81"></script>
+    <script src="app.js?v=83"></script>
     <script src="plugins.js?v=6"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=125').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=127').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

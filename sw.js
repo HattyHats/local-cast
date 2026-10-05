@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v125';
+const CACHE_NAME = 'localcast-v127';
 const ASSETS = [
     './',
     './index.html',
@@ -9,6 +9,8 @@ const ASSETS = [
     './hat-logo.png',
     './icon-192.png',
     './icon-512.png',
+    './icon-maskable-512.png',
+    './apple-touch-icon.png',
     'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
