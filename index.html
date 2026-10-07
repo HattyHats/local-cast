@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=75">
+    <link rel="stylesheet" href="style.css?v=79">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -63,7 +63,7 @@
                 <div class="logo glitch-title" data-text="LOCALCAST">
                     <span class="logo-brand">Local</span><span class="logo-accent">Cast</span>
                 </div>
-                <span class="badge-version">P2P v3.0</span>
+                <span class="badge-version">P2P v3.1</span>
             </div>
             <div class="header-actions">
                 <button id="btn-theme-toggle" class="btn-icon header-btn" title="Themes & Aesthetics">
@@ -125,8 +125,8 @@
                 <div class="card action-card">
                     <h2>SERVER ACTIONS</h2>
                     <div class="action-buttons">
-                        <button id="btn-share-server" class="custom-btn action-btn btn-share-action" style="grid-column: 1 / -1; background: rgba(0, 240, 255, 0.1); border-color: var(--neon-blue); color: var(--neon-blue); font-weight: 700; letter-spacing: 1.5px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0.75rem 1rem; box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;">
+                        <button id="btn-share-server" class="custom-btn action-btn btn-share-action" style="background: rgba(0, 240, 255, 0.1); border-color: var(--neon-blue); color: var(--neon-blue); font-weight: 700; display: flex; align-items: center; justify-content: flex-start; gap: 0.4rem; box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
                                 <circle cx="18" cy="5" r="3"></circle>
                                 <circle cx="6" cy="12" r="3"></circle>
                                 <circle cx="18" cy="19" r="3"></circle>
@@ -139,10 +139,6 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
                             <span>New Folder</span>
                         </button>
-                        <button id="btn-new-note" class="custom-btn action-btn">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                            <span>New Note</span>
-                        </button>
                         <button id="btn-upload-files" class="custom-btn action-btn">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
                             <span>Upload Files</span>
@@ -151,8 +147,6 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                             <span>Upload Folder</span>
                         </button>
-
-                        
                         <button id="btn-live-scratchpad" class="custom-btn action-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                             <span>QuickPad</span>
@@ -169,7 +163,6 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                             <span>Download All</span>
                         </button>
-                        
                         <button id="btn-radar" class="custom-btn action-btn" style="border-color: #39ff14; color: #39ff14;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle><line x1="12" y1="12" x2="19.07" y2="4.93"></line></svg>
                             <span>Radar</span>
@@ -186,7 +179,7 @@
                 <!-- Session Telemetry Card -->
                 <div class="card" id="session-telemetry-card">
                     <h2>SESSION TELEMETRY</h2>
-                    <div style="display: flex; flex-direction: column; gap: 0.65rem; font-family: var(--font-mono); font-size: 0.8rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.45rem; font-family: var(--font-mono); font-size: 0.74rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span style="color: var(--text-muted);">ROLE:</span>
                             <span style="color: var(--neon-green); font-weight: bold;">HOST / SEEDER</span>
@@ -203,9 +196,9 @@
                             <span style="color: var(--text-muted);">SWARM TORRENT:</span>
                             <span style="color: var(--neon-green);">ACTIVE</span>
                         </div>
-                        <div style="margin-top: 0.35rem; padding-top: 0.5rem; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-                            <button id="btn-open-privacy-inspector" class="custom-btn" style="width: 100%; font-size: 0.72rem; padding: 0.45rem 0.5rem; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--neon-green); color: var(--neon-green); background: rgba(57, 255, 20, 0.08); border-radius: 4px; cursor: pointer; box-shadow: 0 0 8px rgba(57, 255, 20, 0.15);" title="Inspect direct P2P transport & verify zero-server privacy">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;">
+                        <div style="margin-top: 0.25rem; padding-top: 0.4rem; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+                            <button id="btn-open-privacy-inspector" class="custom-btn" style="width: 100%; font-size: 0.68rem; padding: 0.38rem 0.45rem; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--neon-green); color: var(--neon-green); background: rgba(57, 255, 20, 0.08); border-radius: 4px; cursor: pointer; box-shadow: 0 0 8px rgba(57, 255, 20, 0.15);" title="Inspect direct P2P transport & verify zero-server privacy">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 12px; height: 12px;">
                                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                                     <path d="M9 12l2 2 4-4"></path>
                                 </svg>
@@ -374,6 +367,10 @@
                         <span class="copy-text">COPY</span>
                     </button>
                 </div>
+                <button id="btn-native-share" class="custom-btn btn-native-share" style="background: rgba(0, 240, 255, 0.12); border-color: var(--neon-blue); color: var(--neon-blue); width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; padding: 0.65rem; border-radius: 6px; cursor: pointer;">
+                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+                    <span>SHARE VIA APPS (WhatsApp, Messages, AirDrop)</span>
+                </button>
                 <p class="join-instruction" style="margin: 0;">Only share this link with peers you trust on the same network.</p>
                 <button id="btn-done-share" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); width: 100%; margin-top: 0.5rem; font-weight: 700;">DONE</button>
             </div>
@@ -841,35 +838,62 @@ Scanning active WebRTC peer connection...
         </div>
     </div>
 
-    <!-- PROFILE MODAL (GUEST) -->
+    <!-- PROFILE MODAL (GUEST 1-CLICK ONBOARDING) -->
     <div id="profile-modal" class="modal hidden">
-        <div class="modal-content card" style="max-width: 400px;">
-            <h2 style="color: var(--neon-blue); margin-bottom: 0.5rem;">SET YOUR PROFILE</h2>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;">Choose your hacker alias, neon color, and upload an avatar.</p>
+        <div class="modal-content card" style="max-width: 420px; width: 92%; text-align: center; border-color: var(--neon-blue); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(0, 240, 255, 0.25);">
+            <div style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 12px; background: rgba(0, 240, 255, 0.1); border: 1px solid rgba(0, 240, 255, 0.3); font-size: 0.72rem; color: var(--neon-blue); font-family: var(--font-mono); margin-bottom: 0.75rem;">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span>INSTANT 1-CLICK JOIN</span>
+            </div>
+            <h2 style="color: var(--neon-blue); margin: 0 0 0.35rem 0; font-size: 1.35rem; letter-spacing: 1px;">JOIN P2P ROOM</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0 0 1.25rem 0;">We created a cyber identity for you. Join with 1 tap or customize below.</p>
             
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; margin-bottom: 2rem;">
-                <div style="position: relative; width: 100px; height: 100px;">
-                    <div id="profile-avatar-preview" style="width: 100px; height: 100px; border-radius: 50%; border: 2px solid var(--neon-blue); background-color: rgba(255,255,255,0.05); background-size: cover; background-position: center; display: flex; justify-content: center; align-items: center; cursor: pointer;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--neon-blue)" stroke-width="2" style="width: 32px; height: 32px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            <div class="profile-quick-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; align-items: center; position: relative;">
+                <div style="position: relative; width: 88px; height: 88px; margin-bottom: 0.75rem;">
+                    <div id="profile-avatar-preview" style="width: 88px; height: 88px; border-radius: 50%; border: 3px solid var(--neon-blue); background-color: rgba(0,0,0,0.6); background-size: cover; background-position: center; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: 0 0 20px rgba(0,240,255,0.3); font-size: 2.5rem; transition: transform 0.2s ease;">
+                        🦊
                     </div>
+                    <button id="btn-reroll-alias" type="button" title="Roll a new random identity" style="position: absolute; bottom: -4px; right: -4px; width: 30px; height: 30px; border-radius: 50%; background: var(--bg-card); border: 1px solid var(--neon-blue); color: var(--neon-blue); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; box-shadow: 0 2px 8px rgba(0,0,0,0.6); transition: transform 0.2s ease;">
+                        🎲
+                    </button>
                     <input type="file" id="profile-avatar-input" accept="image/*" style="display: none;">
                 </div>
+
+                <div id="profile-suggested-name" style="font-size: 1.25rem; font-weight: 700; color: #fff; font-family: var(--font-mono); letter-spacing: 0.5px;">Neon Fox</div>
+                <div style="font-size: 0.72rem; color: var(--neon-green); margin-top: 2px; font-family: var(--font-mono);">● ZERO-KNOWLEDGE READY</div>
             </div>
 
-            <div class="input-group" style="margin-bottom: 1.5rem;">
-                <input type="text" id="profile-name-input" class="custom-input" placeholder="e.g. Neo, Trinity..." maxlength="15" style="width: 100%; text-align: center;">
-            </div>
-            
-            <div class="color-picker-container" style="display: flex; gap: 1rem; margin-bottom: 2rem; justify-content: center;">
-                <div class="color-swatch selected" data-color="#00f0ff" style="background: #00f0ff; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid #fff;"></div>
-                <div class="color-swatch" data-color="#ff003c" style="background: #ff003c; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
-                <div class="color-swatch" data-color="#39ff14" style="background: #39ff14; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
-                <div class="color-swatch" data-color="#fcee0a" style="background: #fcee0a; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
-                <div class="color-swatch" data-color="#b026ff" style="background: #b026ff; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
+            <!-- ONE-CLICK JOIN BUTTON -->
+            <button id="btn-quick-join" class="custom-btn" style="width: 100%; padding: 0.85rem 1rem; font-size: 1.05rem; font-weight: 800; background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(57, 255, 20, 0.2)); border: 2px solid var(--neon-blue); color: #fff; box-shadow: 0 0 25px rgba(0, 240, 255, 0.35); border-radius: 8px; letter-spacing: 1px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease;">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span id="btn-quick-join-label">JOIN AS NEON FOX</span>
+            </button>
+
+            <!-- CUSTOMIZE TOGGLE -->
+            <div style="margin-top: 0.9rem;">
+                <button id="btn-toggle-profile-custom" type="button" style="background: transparent; border: none; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; text-decoration: underline; font-family: var(--font-mono); transition: color 0.2s ease;">
+                    Customize Name & Colors ▾
+                </button>
             </div>
 
-            <div class="modal-actions" style="margin-top: 1rem;">
-                <button id="btn-save-profile" class="btn" style="width: 100%; border: 1px solid var(--neon-blue); color: var(--neon-blue); background: transparent;">SAVE PROFILE</button>
+            <!-- EXPANDABLE CUSTOM FIELDS -->
+            <div id="profile-custom-fields" class="hidden" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 0.85rem;">
+                <div class="input-group">
+                    <input type="text" id="profile-name-input" class="custom-input" placeholder="Type custom alias..." maxlength="20" style="width: 100%; text-align: center;">
+                </div>
+                
+                <div style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: -0.25rem;">NEON ACCENT COLOR</div>
+                <div class="color-picker-container" style="display: flex; gap: 0.75rem; justify-content: center;">
+                    <div class="color-swatch selected" data-color="#00f0ff" style="background: #00f0ff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid #fff;"></div>
+                    <div class="color-swatch" data-color="#ff003c" style="background: #ff003c; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
+                    <div class="color-swatch" data-color="#39ff14" style="background: #39ff14; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
+                    <div class="color-swatch" data-color="#fcee0a" style="background: #fcee0a; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
+                    <div class="color-swatch" data-color="#b026ff" style="background: #b026ff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;"></div>
+                </div>
+
+                <button id="btn-save-profile" class="custom-btn" style="width: 100%; border: 1px solid var(--neon-blue); color: var(--neon-blue); background: transparent; padding: 0.6rem; font-size: 0.85rem; font-weight: 700;">
+                    SAVE CUSTOM PROFILE
+                </button>
             </div>
         </div>
     </div>
@@ -1290,11 +1314,17 @@ Scanning active WebRTC peer connection...
     <!-- RADAR MODAL -->
     <div id="radar-modal" class="modal hidden">
         <div class="modal-content card" style="max-width: 600px; width: 90%; text-align: center;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h2 style="color: #39ff14; margin: 0; text-shadow: 0 0 10px rgba(57,255,20,0.5);">PROXIMITY RADAR</h2>
-                <button id="btn-close-radar" class="btn-icon btn-close-modal" title="Close">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                </button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                <h2 style="color: #39ff14; margin: 0; text-shadow: 0 0 10px rgba(57,255,20,0.5); font-family: var(--font-mono); font-size: 1.25rem;">PROXIMITY RADAR</h2>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <button id="btn-radar-cyberspace" class="custom-btn" style="background: rgba(255, 0, 255, 0.15); border: 1px solid #ff00ff; color: #ff00ff; padding: 0.35rem 0.85rem; font-size: 0.78rem; font-family: var(--font-mono); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; border-radius: 4px; box-shadow: 0 0 12px rgba(255, 0, 255, 0.3); transition: all 0.2s ease;" title="Switch to 3D Cyberspace">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                        <span>3D CYBERSPACE</span>
+                    </button>
+                    <button id="btn-close-radar" class="btn-icon btn-close-modal" title="Close">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
             </div>
             <div style="position: relative; width: 100%; aspect-ratio: 1/1; background: #050507; border: 2px solid #39ff14; border-radius: 50%; overflow: hidden; box-shadow: inset 0 0 50px rgba(57,255,20,0.2), 0 0 20px rgba(57,255,20,0.2);">
                 <div class="radar-sweep"></div>
@@ -1591,8 +1621,19 @@ Scanning active WebRTC peer connection...
 
 
     <!-- DRAG AND DROP OVERLAY -->
-    <div id="drag-overlay" class="hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 240, 255, 0.2); z-index: 10001; backdrop-filter: blur(5px); display: flex; justify-content: center; align-items: center; border: 4px dashed var(--neon-blue); box-sizing: border-box; pointer-events: none;">
-        <h1 style="color: var(--neon-blue); font-size: 3rem; text-shadow: 0 0 20px var(--neon-blue); font-family: var(--font-mono); pointer-events: none;">DROP TO SECURE UPLOAD</h1>
+    <div id="drag-overlay" class="drag-overlay-backdrop hidden">
+        <div class="drag-overlay-card">
+            <div class="drag-overlay-icon-pulse">
+                <svg viewBox="0 0 24 24" class="drag-overlay-svg" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+            </div>
+            <h2 class="drag-overlay-title">DROP FILES OR FOLDERS ANYWHERE</h2>
+            <p class="drag-overlay-subtitle">Direct P2P Encrypted Stream • Automatic Subfolder Creation • Zero External Servers</p>
+            <div class="drag-overlay-pill">RELEASE TO TRANSFER INSTANTLY</div>
+        </div>
     </div>
 
     <!-- ACTIVE TRANSFER DASHBOARD -->
@@ -1707,18 +1748,37 @@ Scanning active WebRTC peer connection...
 
     <!-- 3D CYBERSPACE OVERLAY -->
     <div id="cyberspace-overlay" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; background: #000;">
-        <button id="btn-pause-cyberspace" style="position: absolute; top: 20px; right: 200px; z-index: 10000; background: transparent; border: 2px solid #00ffff; color: #00ffff; padding: 10px 20px; font-family: var(--font-mono); cursor: pointer; text-shadow: 0 0 5px #00ffff; box-shadow: 0 0 10px rgba(0,255,255,0.2);">PAUSE ORBIT</button>
-        <button id="btn-exit-cyberspace" style="position: absolute; top: 20px; right: 20px; z-index: 10000; background: transparent; border: 2px solid #ff00ff; color: #ff00ff; padding: 10px 20px; font-family: var(--font-mono); cursor: pointer; text-shadow: 0 0 5px #ff00ff; box-shadow: 0 0 10px rgba(255,0,255,0.2);">EXIT CYBERSPACE</button>
+        <div class="cyberspace-top-bar">
+            <button id="btn-cyberspace-radar" class="cyberspace-nav-btn radar-nav-btn" title="Switch back to Proximity Radar">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 2a10 10 0 0 1 10 10"></path>
+                    <path d="M12 6a6 6 0 0 1 6 6"></path>
+                    <circle cx="12" cy="12" r="2"></circle>
+                </svg>
+                <span>RADAR VIEW</span>
+            </button>
+            <button id="btn-pause-cyberspace" class="cyberspace-nav-btn pause-nav-btn" title="Pause or Resume Swarm Orbit">
+                <span>PAUSE ORBIT</span>
+            </button>
+            <button id="btn-exit-cyberspace" class="cyberspace-nav-btn exit-nav-btn" title="Exit Cyberspace">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                <span>EXIT</span>
+            </button>
+        </div>
         <div id="cyberspace-container" style="width: 100%; height: 100%;"></div>
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=86"></script>
-    <script src="plugins.js?v=6"></script>
+    <script src="app.js?v=90"></script>
+    <script src="plugins.js?v=7"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=130').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=134').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

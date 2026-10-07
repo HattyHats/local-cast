@@ -854,15 +854,14 @@ document.addEventListener('dragenter', (e) => {
     dragCounter++;
     if (dragOverlay) {
         dragOverlay.classList.remove('hidden');
-        dragOverlay.style.display = 'flex';
     }
 });
 document.addEventListener('dragleave', (e) => {
     e.preventDefault();
     dragCounter--;
-    if (dragCounter === 0 && dragOverlay) {
+    if (dragCounter <= 0 && dragOverlay) {
+        dragCounter = 0;
         dragOverlay.classList.add('hidden');
-        dragOverlay.style.display = 'none';
     }
 });
 document.addEventListener('dragover', (e) => {
@@ -870,13 +869,17 @@ document.addEventListener('dragover', (e) => {
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
 });
 document.addEventListener('drop', (e) => {
-    e.preventDefault();
     dragCounter = 0;
     if (dragOverlay) {
         dragOverlay.classList.add('hidden');
-        dragOverlay.style.display = 'none';
     }
     // File processing is handled by the global body drop listener to support folders
+});
+window.addEventListener('dragend', () => {
+    dragCounter = 0;
+    if (dragOverlay) {
+        dragOverlay.classList.add('hidden');
+    }
 });
 
 if (btnMinimizeTransfers) {
@@ -952,6 +955,52 @@ function createTransferItem(id, name, type, extra = {}) { // type: 'upload' or '
         totalSize: extra.totalSize || 1
     };
 }
+function updateInlineFileProgress(id, percent, text = null) {
+    const track = document.getElementById(`item-prog-track-${id}`);
+    const fill = document.getElementById(`item-prog-fill-${id}`);
+    const label = document.getElementById(`item-prog-text-${id}`);
+    if (track && fill) {
+        track.classList.remove('hidden');
+        fill.style.width = Math.min(100, Math.max(0, percent)) + '%';
+        if (label) {
+            label.classList.remove('hidden');
+            label.textContent = text !== null ? text : `${Math.floor(percent)}%`;
+        }
+    }
+}
+
+function completeInlineFileProgress(id) {
+    const track = document.getElementById(`item-prog-track-${id}`);
+    const fill = document.getElementById(`item-prog-fill-${id}`);
+    const label = document.getElementById(`item-prog-text-${id}`);
+    if (track && fill) {
+        fill.style.width = '100%';
+        fill.style.background = 'var(--neon-green)';
+        if (label) {
+            label.textContent = '✓ 100%';
+            label.style.color = 'var(--neon-green)';
+        }
+        setTimeout(() => {
+            if (track) track.classList.add('hidden');
+            if (label) label.classList.add('hidden');
+        }, 2500);
+    }
+}
+
+function failInlineFileProgress(id, reason = 'INTERRUPTED') {
+    const track = document.getElementById(`item-prog-track-${id}`);
+    const fill = document.getElementById(`item-prog-fill-${id}`);
+    const label = document.getElementById(`item-prog-text-${id}`);
+    if (track && fill) {
+        fill.style.width = '100%';
+        fill.style.background = 'var(--neon-red)';
+        if (label) {
+            label.textContent = reason;
+            label.style.color = 'var(--neon-red)';
+        }
+    }
+}
+
 function updateTransferProgress(id, newBytesSent, totalSize, chunkIndex = null) {
     const t = activeTransfers[id];
     if (!t) return;
@@ -984,6 +1033,7 @@ function updateTransferProgress(id, newBytesSent, totalSize, chunkIndex = null) 
     }
     const percent = Math.min(100, (t.bytes / totalSize) * 100);
     if (t.progEl) t.progEl.style.width = percent + '%';
+    updateInlineFileProgress(id, percent);
 
     // Illuminate chunk in visual bitfield matrix
     if (t.matrixTrack && chunkIndex !== null && t.totalChunks) {
@@ -997,6 +1047,7 @@ function updateTransferProgress(id, newBytesSent, totalSize, chunkIndex = null) 
     }
 }
 function finishTransfer(id) {
+    completeInlineFileProgress(id);
     const t = activeTransfers[id];
     if (t) {
         t.progEl.style.width = '100%';
@@ -1011,6 +1062,7 @@ function finishTransfer(id) {
     }
 }
 function failTransfer(id, reason = 'FAILED') {
+    failInlineFileProgress(id, reason);
     const t = activeTransfers[id];
     if (t) {
         t.progEl.style.width = '100%';
@@ -2838,6 +2890,30 @@ function setupHostActions() {
         });
     }
 
+    const btnNativeShare = document.getElementById('btn-native-share');
+    if (btnNativeShare) {
+        if (!navigator.share) {
+            btnNativeShare.style.display = 'none';
+        } else {
+            btnNativeShare.addEventListener('click', async () => {
+                if (peer && peer.id) {
+                    const connectUrl = `${window.location.origin}${window.location.pathname}?room=${peer.id}`;
+                    try {
+                        await navigator.share({
+                            title: 'LocalCast P2P Room',
+                            text: 'Connect to my private LocalCast peer-to-peer room:',
+                            url: connectUrl
+                        });
+                    } catch (err) {
+                        if (err && err.name !== 'AbortError') {
+                            console.warn("Share failed:", err);
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     btnNewFolder.addEventListener('click', () => {
         if (createFolderNameInput) createFolderNameInput.value = '';
         const stdRadio = document.querySelector('input[name="folder-security-type"][value="standard"]');
@@ -3359,6 +3435,7 @@ function renderHostExplorer() {
     itemsToRender.forEach(child => {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
+        item.setAttribute('data-id', child.id);
         
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
@@ -3369,7 +3446,8 @@ function renderHostExplorer() {
         const burnIcon = child.isBurn ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
         const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
-        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>`;
+        const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${child.id}"><div class="item-progress-fill" id="item-prog-fill-${child.id}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${child.id}">0%</span>`;
+        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${progressHtml}`;
         item.draggable = true;
         
         if (child.isHoneyPot) {
@@ -3600,6 +3678,25 @@ function renderHostExplorer() {
 
 function renderBreadcrumbs(currentDir, container, onClick) {
     container.innerHTML = '';
+    
+    // Add "UP" button if not in root folder
+    if (currentDir && currentDir.parent) {
+        const upBtn = document.createElement('button');
+        upBtn.className = 'crumb-up-btn';
+        upBtn.title = `Go up to ${currentDir.parent.name || 'Parent Folder'}`;
+        upBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+            <span>UP</span>
+        `;
+        upBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onClick(currentDir.parent);
+        });
+        container.appendChild(upBtn);
+    }
+
     const path = [];
     let curr = currentDir;
     while(curr) {
@@ -3706,7 +3803,7 @@ function setupSwarmPeerConnection(conn) {
 // --- CLIENT LOGIC ---
 async function initClient() {
     const btnCyberspaceEl = document.getElementById('btn-cyberspace');
-    if (btnCyberspaceEl) btnCyberspaceEl.classList.add('hidden');
+    if (btnCyberspaceEl) btnCyberspaceEl.classList.remove('hidden');
     updateStatus('CONNECTING...', 'offline');
     
     setupClientPeer = function(attempts = 0) {
@@ -4368,6 +4465,7 @@ function renderClientExplorer() {
     itemsToRender.forEach(child => {
         const item = document.createElement('div');
         item.className = `file-item ${child.type}`;
+        item.setAttribute('data-id', child.id);
         
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
@@ -4379,7 +4477,8 @@ function renderClientExplorer() {
         const burnIcon = child.isBurn ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
         const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
-        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}`;
+        const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${child.id}"><div class="item-progress-fill" id="item-prog-fill-${child.id}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${child.id}">0%</span>`;
+        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}${progressHtml}`;
         item.draggable = true;
 
         if (clientSelectedNodes.has(child.id)) item.classList.add('selected');
@@ -4616,6 +4715,23 @@ function renderClientExplorer() {
             contextMenu.classList.remove('hidden');
         });
         
+        if (child.type === 'file' && typeof getCachedTransferMeta === 'function') {
+            getCachedTransferMeta(child.id).then(meta => {
+                if (meta && meta.receivedIndices && meta.receivedIndices.length > 0 && meta.receivedIndices.length < meta.totalChunks) {
+                    const pct = Math.floor((meta.receivedIndices.length / meta.totalChunks) * 100);
+                    const badge = document.createElement('div');
+                    badge.className = 'badge-resumable';
+                    badge.innerHTML = `⚡ RESUME (${pct}%)`;
+                    badge.title = `Transfer paused at ${pct}%. Click to resume download.`;
+                    badge.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        startSwarmDownload(child.id);
+                    });
+                    item.appendChild(badge);
+                }
+            }).catch(() => {});
+        }
+
         clientExplorerGrid.appendChild(item);
     });
 }
@@ -4885,12 +5001,14 @@ chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') btnSendCha
 hostSearch.addEventListener('input', (e) => { hostSearchQuery = e.target.value.toLowerCase(); renderHostExplorer(); });
 clientSearch.addEventListener('input', (e) => { clientSearchQuery = e.target.value.toLowerCase(); renderClientExplorer(); });
 
-btnNewNote.addEventListener('click', () => {
-    currentEditorFileId = null;
-    editorFilename.value = 'Untitled.txt';
-    editorTextarea.value = '';
-    editorModal.classList.remove('hidden');
-});
+if (btnNewNote) {
+    btnNewNote.addEventListener('click', () => {
+        currentEditorFileId = null;
+        editorFilename.value = 'Untitled.txt';
+        editorTextarea.value = '';
+        editorModal.classList.remove('hidden');
+    });
+}
 btnCloseEditor.addEventListener('click', () => {
     currentEditorFileId = null;
     editorModal.classList.add('hidden');
@@ -5733,6 +5851,7 @@ document.addEventListener('drop', async (e) => {
     e.preventDefault();
     
     const files = [];
+    const emptyFolders = [];
     async function traverseFileTree(item, path = '') {
         if (item.isFile) {
             const file = await new Promise((resolve) => {
@@ -5753,8 +5872,12 @@ document.addEventListener('drop', async (e) => {
                 allEntries = allEntries.concat(batch);
                 batch = await readEntriesBatch();
             }
-            for (let i = 0; i < allEntries.length; i++) {
-                await traverseFileTree(allEntries[i], path + item.name + '/');
+            if (allEntries.length === 0) {
+                emptyFolders.push(path + item.name);
+            } else {
+                for (let i = 0; i < allEntries.length; i++) {
+                    await traverseFileTree(allEntries[i], path + item.name + '/');
+                }
             }
         }
     }
@@ -5789,6 +5912,39 @@ document.addEventListener('drop', async (e) => {
         }
     }
     
+    if (emptyFolders.length > 0) {
+        if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
+            for (const folderPath of emptyFolders) {
+                const parts = folderPath.split('/').map(p => p.trim()).filter(p => p && p !== '.' && p !== '..');
+                let parentId = clientCurrentDir ? clientCurrentDir.id : 'root';
+                for (const part of parts) {
+                    hostConnection.send({ type: 'CLIENT_CREATE_FOLDER', name: part, targetFolderId: parentId });
+                }
+            }
+        } else if (typeof vfs !== 'undefined' && vfs.currentDir) {
+            for (const folderPath of emptyFolders) {
+                const parts = folderPath.split('/').map(p => p.trim()).filter(p => p && p !== '.' && p !== '..');
+                let current = vfs.currentDir;
+                for (const part of parts) {
+                    let existing = current.children.find(c => c.type === 'folder' && c.name === part);
+                    if (!existing) {
+                        existing = { id: 'folder_' + Math.random().toString(36).substr(2, 9), name: part, type: 'folder', children: [], parent: current };
+                        vfs.addNode(current, existing);
+                    }
+                    current = existing;
+                }
+            }
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
+        }
+    }
+
+    if (files.length === 0 && emptyFolders.length > 0) {
+        if (typeof showToast === 'function') showToast(`Created ${emptyFolders.length} folder(s)`);
+        return;
+    }
+
     if (files.length === 0) {
         if (typeof showToast === 'function') showToast("Drop received, but no valid files found. (If dragging from Mac Photos, drag to Desktop first!)");
         return;
@@ -5985,13 +6141,13 @@ async function initLogic() {
     
     if (magicPeerId && magicFileId) {
         if (!localStorage.getItem('localcast_alias')) {
-            profileModal.classList.remove('hidden');
+            showGuestOnboardingModal();
         } else {
             initApp();
         }
     } else if (roomCode) {
         if (!localStorage.getItem('localcast_alias')) {
-            profileModal.classList.remove('hidden');
+            showGuestOnboardingModal();
         } else {
             initApp();
         }
@@ -6014,13 +6170,68 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
 }
 
 
-// --- GUEST PROFILE LOGIC ---
+// --- GUEST PROFILE LOGIC (1-CLICK ONBOARDING) ---
 const profileModal = document.getElementById('profile-modal');
 const profileNameInput = document.getElementById('profile-name-input');
 const avatarInput = document.getElementById('profile-avatar-input');
 let guestAvatar = localStorage.getItem('localcast_avatar') || '';
 let guestAlias = localStorage.getItem('localcast_alias') || '';
 let guestColor = localStorage.getItem('localcast_color') || '#00f0ff';
+
+const RANDOM_CYBER_IDENTITIES = [
+    { name: 'Neon Fox', emoji: '🦊', color: '#00f0ff' },
+    { name: 'Cyber Otter', emoji: '🦦', color: '#39ff14' },
+    { name: 'Cosmic Hawk', emoji: '🦅', color: '#b026ff' },
+    { name: 'Solar Wolf', emoji: '🐺', color: '#fcee0a' },
+    { name: 'Quantum Panda', emoji: '🐼', color: '#00f0ff' },
+    { name: 'Hyper Lynx', emoji: '🐱', color: '#ff003c' },
+    { name: 'Astral Falcon', emoji: '🦅', color: '#00f0ff' },
+    { name: 'Velvet Tiger', emoji: '🐯', color: '#fcee0a' },
+    { name: 'Turbo Cheetah', emoji: '🐆', color: '#39ff14' },
+    { name: 'Shadow Viper', emoji: '🐍', color: '#ff003c' },
+    { name: 'Echo Dolphin', emoji: '🐬', color: '#00f0ff' },
+    { name: 'Crypto Owl', emoji: '🦉', color: '#b026ff' }
+];
+
+let currentSuggestedIdentity = null;
+
+function generateSuggestedIdentity() {
+    const pick = RANDOM_CYBER_IDENTITIES[Math.floor(Math.random() * RANDOM_CYBER_IDENTITIES.length)];
+    const num = Math.floor(10 + Math.random() * 89);
+    return {
+        name: `${pick.name} ${num}`,
+        emoji: pick.emoji,
+        color: pick.color
+    };
+}
+
+function createEmojiAvatarDataUrl(emoji, bgColor = '#0b0f19', borderColor = '#00f0ff') {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="64" fill="${bgColor}"/><circle cx="64" cy="64" r="60" fill="none" stroke="${borderColor}" stroke-width="4"/><text x="50%" y="54%" font-size="64" text-anchor="middle" dominant-baseline="central">${emoji}</text></svg>`;
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
+
+function updateSuggestedIdentityUI(identity) {
+    currentSuggestedIdentity = identity;
+    const suggestedNameEl = document.getElementById('profile-suggested-name');
+    const quickJoinLabel = document.getElementById('btn-quick-join-label');
+    const previewEl = document.getElementById('profile-avatar-preview');
+    if (suggestedNameEl) suggestedNameEl.textContent = `${identity.name} ${identity.emoji}`;
+    if (quickJoinLabel) quickJoinLabel.textContent = `JOIN AS ${identity.name.toUpperCase()}`;
+    if (profileNameInput) profileNameInput.value = `${identity.name} ${identity.emoji}`;
+    if (previewEl && !guestAvatar) {
+        previewEl.textContent = identity.emoji;
+        previewEl.style.borderColor = identity.color;
+        previewEl.style.boxShadow = `0 0 20px ${identity.color}55`;
+    }
+}
+
+function showGuestOnboardingModal() {
+    if (!profileModal) return;
+    if (!currentSuggestedIdentity) {
+        updateSuggestedIdentityUI(generateSuggestedIdentity());
+    }
+    profileModal.classList.remove('hidden');
+}
 
 const avatarPreview = document.getElementById('profile-avatar-preview');
 if (avatarPreview) {
@@ -6047,16 +6258,66 @@ if (avatarPreview) {
                 ctx.drawImage(img, 0, 0, width, height);
                 guestAvatar = canvas.toDataURL('image/jpeg', 0.8);
                 avatarPreview.style.backgroundImage = `url('${guestAvatar}')`;
+                avatarPreview.innerHTML = '';
             };
             img.src = ev.target.result;
         };
         reader.readAsDataURL(file);
     });
 }
+
+const btnQuickJoin = document.getElementById('btn-quick-join');
+const btnRerollAlias = document.getElementById('btn-reroll-alias');
+const btnToggleProfileCustom = document.getElementById('btn-toggle-profile-custom');
+const profileCustomFields = document.getElementById('profile-custom-fields');
 const btnSaveProfile = document.getElementById('btn-save-profile');
 const btnEditProfile = document.getElementById('btn-edit-profile');
 
 if (profileModal) {
+    // 1-Click Join Button
+    if (btnQuickJoin) {
+        btnQuickJoin.addEventListener('click', () => {
+            if (!currentSuggestedIdentity) {
+                currentSuggestedIdentity = generateSuggestedIdentity();
+            }
+            guestAlias = (profileNameInput && profileNameInput.value.trim()) || `${currentSuggestedIdentity.name} ${currentSuggestedIdentity.emoji}`;
+            guestColor = currentSuggestedIdentity.color || '#00f0ff';
+            if (!guestAvatar) {
+                guestAvatar = createEmojiAvatarDataUrl(currentSuggestedIdentity.emoji, '#0b0f19', guestColor);
+            }
+            localStorage.setItem('localcast_alias', guestAlias);
+            localStorage.setItem('localcast_color', guestColor);
+            localStorage.setItem('localcast_avatar', guestAvatar);
+            profileModal.classList.add('hidden');
+            if (hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor, avatar: guestAvatar });
+            } else if (!isHost) {
+                initApp();
+            }
+        });
+    }
+
+    // Dice Re-roll Identity
+    if (btnRerollAlias) {
+        btnRerollAlias.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const newIdent = generateSuggestedIdentity();
+            guestAvatar = '';
+            if (avatarPreview) {
+                avatarPreview.style.backgroundImage = 'none';
+            }
+            updateSuggestedIdentityUI(newIdent);
+        });
+    }
+
+    // Toggle Custom Fields
+    if (btnToggleProfileCustom && profileCustomFields) {
+        btnToggleProfileCustom.addEventListener('click', () => {
+            const isHidden = profileCustomFields.classList.toggle('hidden');
+            btnToggleProfileCustom.textContent = isHidden ? 'Customize Name & Colors ▾' : 'Hide Customization ▴';
+        });
+    }
+
     document.querySelectorAll('.color-swatch').forEach(swatch => {
         swatch.addEventListener('click', () => {
             document.querySelectorAll('.color-swatch').forEach(s => {
@@ -6066,16 +6327,22 @@ if (profileModal) {
             swatch.classList.add('selected');
             swatch.style.borderColor = '#fff';
             guestColor = swatch.dataset.color;
+            if (avatarPreview && !avatarPreview.style.backgroundImage) {
+                avatarPreview.style.borderColor = guestColor;
+            }
         });
     });
 
     btnSaveProfile.addEventListener('click', () => {
         let val = profileNameInput.value.trim();
         if (!val) {
-            val = 'Guest_' + Math.floor(Math.random() * 10000);
+            val = (currentSuggestedIdentity ? `${currentSuggestedIdentity.name} ${currentSuggestedIdentity.emoji}` : ('Guest_' + Math.floor(Math.random() * 10000)));
         }
         
         guestAlias = val;
+        if (!guestAvatar && currentSuggestedIdentity) {
+            guestAvatar = createEmojiAvatarDataUrl(currentSuggestedIdentity.emoji, '#0b0f19', guestColor);
+        }
         localStorage.setItem('localcast_alias', guestAlias);
         localStorage.setItem('localcast_color', guestColor);
         localStorage.setItem('localcast_avatar', guestAvatar);
@@ -6090,6 +6357,7 @@ if (profileModal) {
     if (btnEditProfile) {
         btnEditProfile.addEventListener('click', () => {
             profileNameInput.value = guestAlias;
+            if (profileCustomFields) profileCustomFields.classList.remove('hidden');
             document.querySelectorAll('.color-swatch').forEach(s => {
                 if (s.dataset.color === guestColor) {
                     s.classList.add('selected');
@@ -6099,7 +6367,7 @@ if (profileModal) {
                     s.style.borderColor = 'transparent';
                 }
             });
-            profileModal.classList.remove('hidden');
+            showGuestOnboardingModal();
         });
     }
 }
@@ -10341,6 +10609,8 @@ class SwarmDownloader {
                 }
                 if (this.completedIndices.size > 0 && this.completedIndices.size < this.totalChunks) {
                     showToast(`⚡ Resumed "${this.fileName}" (${this.completedIndices.size}/${this.totalChunks} chunks from cache)`);
+                    const initialBytes = this.completedIndices.size * CHUNK_SIZE;
+                    updateTransferProgress(this.fileId, initialBytes, this.fileSize);
                 }
             }
         } catch (e) {
@@ -10571,6 +10841,12 @@ function startSwarmDownload(fileId) {
                 }
             } else {
                 triggerDownload(blob, node.name, node.mime, fileId);
+            }
+            if (typeof clearCachedTransfer === 'function') {
+                clearCachedTransfer(fileId);
+            }
+            if (typeof renderClientExplorer === 'function') {
+                renderClientExplorer();
             }
             activeSwarmDownloads.delete(fileId);
         },

@@ -1,5 +1,6 @@
-# 🌐 LOCAL-CAST // Zero-Knowledge Decentralized WebOS & Swarm Network
+# 🌐 LOCAL-CAST v3.1 // Zero-Knowledge Decentralized WebOS & Swarm Network
 
+[![Version](https://img.shields.io/badge/Version-v3.1-39ff14.svg)](https://local-cast.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![WebRTC](https://img.shields.io/badge/WebRTC-Peer--to--Peer-00f0ff.svg)](https://webrtc.org/)
 [![Cryptography](https://img.shields.io/badge/Crypto-AES--GCM--256%20%7C%20ECDH%20P--256-39ff14.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
@@ -80,18 +81,28 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 * **OS-Level Share Integration:** Select photos, videos, or documents directly from your mobile camera roll or file manager, tap "Share", and beam them straight into the Local-Cast network.
 * **Zero-Delay Touch Optimization:** Integrated `touch-action: manipulation` eliminating 300ms tap delays, fluid 3-column mobile file grids, iOS momentum scrolling, and viewport-safe dialogs.
 
+### 📁 10. Native Folder Ingestion & Resumable Swarm Transfers (v3.1)
+* **Native Directory Hierarchy Upload:** Ingest complete local directory trees with arbitrary nesting depth using native browser directory upload (`webkitdirectory`). Local-Cast mirrors folder structures automatically on the Host and across authorized peers, including empty directory nodes.
+* **Interrupted Transfer Auto-Resume:** Download progress is tracked with persistent bitfield segment caching in IndexedDB. If a network drops or a browser reloads, transfers resume instantly with a `⚡ RESUME` indicator.
+* **Proximity Radar & Cyberspace Seamless Dual-Mode:** Toggle effortlessly between 2D Proximity Radar and full-screen 3D spatial Cyberspace with instant camera alignment and zero memory leaks.
+* **1-Click Instant Guest Onboarding:** Auto-generated cyberpunk handles and unique SVG emoji avatars remove all friction for new guests joining the swarm.
+* **Streamlined UI & Compact Sidebar:** Ergonomic 2-column actions toolbar with integrated QuickPad note-taking, responsive folder navigation ("Up One Level" breadcrumbs), and inline real-time transfer progress indicators.
+
 ---
 
 ## 🛠️ Technical Specifications
 
 | Component | Implementation Details |
 | :--- | :--- |
+| **Release Version** | v3.1 (P2P Mesh WebOS) |
 | **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
 | **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing |
 | **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |
 | **P2P Flow Control** | Event-driven `bufferedamountlow` threshold gating (512 KB pipelined buffer window) + coalesced 100ms `SWARM_HAVES` |
 | **Storage Serialization** | Debounced IndexedDB persistence (250ms) and coalesced tree broadcasts (150ms) |
 | **Parallel Concurrency** | Up to 8 concurrent chunk request streams per download |
+| **Folder Upload Engine** | Native recursive folder upload (`webkitdirectory`) with full directory tree preservation |
+| **Resumable Transfers** | Bitfield chunk piece caching with automatic resume recovery |
 | **Symmetric Encryption** | AES-GCM-256 (hardware-accelerated Web Crypto API) |
 | **Key Derivation** | PBKDF2-SHA256 (100,000 iterations, unique salt per vault) |
 | **Asymmetric Key Exchange** | ECDH P-256 for ephemeral volatile session key agreements |
@@ -100,7 +111,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 | **Whiteboard Engine** | Dual-canvas HTML5 Canvas 2D with hardware-accelerated CSS stage transforms (25%-500% zoom, 30 FPS laser throttle) |
 | **Batch File Engine** | Multi-node VFS transaction engine with JSZip batch archive packaging |
 | **Local Storage Engine** | IndexedDB (`localcast_db` for files/folders, `swarmChunks` for torrent pieces) |
-| **3D Cyberspace Engine** | Three.js WebGL with dynamic hardware-tier DPR scaling |
+| **3D Cyberspace Engine** | Three.js WebGL with dynamic hardware-tier DPR scaling & Proximity Radar dual-mode switching |
 | **Multiplayer Sync** | FEN notation (Chess), 60 FPS delta-time state packets (Pong), canvas streaming (NES) |
 | **Offline Discovery** | Base64-encoded SDP/ICE cryptographic QR-code handshake |
 

@@ -1,6 +1,7 @@
 {
     "name": "Local-Cast",
     "short_name": "LocalCast",
+    "version": "3.1.0",
     "description": "A serverless, browser-based local network media streaming hub.",
     "start_url": "./index.html",
     "display": "standalone",

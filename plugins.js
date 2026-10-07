@@ -322,6 +322,8 @@ const cyberspaceContainer = document.getElementById('cyberspace-container');
 const btnCyberspace = document.getElementById('btn-cyberspace');
 const btnExitCyberspace = document.getElementById('btn-exit-cyberspace');
 const btnPauseCyberspace = document.getElementById('btn-pause-cyberspace');
+const btnRadarCyberspace = document.getElementById('btn-radar-cyberspace');
+const btnCyberspaceRadar = document.getElementById('btn-cyberspace-radar');
 
 let scene, camera, renderer, animationId;
 let peerMeshes = {};
@@ -542,49 +544,103 @@ function getPeerAvatar(id) {
     return null;
 }
 
-if (btnCyberspace) {
-    if (typeof isHost !== 'undefined' && !isHost) {
-        btnCyberspace.classList.add('hidden');
+function openCyberspace(fromRadar = false) {
+    if (fromRadar) {
+        const radarModal = document.getElementById('radar-modal');
+        if (radarModal) radarModal.classList.add('hidden');
+        const radarGuestModal = document.getElementById('radar-guest-modal');
+        if (radarGuestModal) radarGuestModal.classList.add('hidden');
     }
-    btnCyberspace.addEventListener('click', () => {
-        if (typeof isHost !== 'undefined' && !isHost) {
-            showToast("Cyberspace is restricted to the Session Host.", "warning");
-            return;
-        }
+    if (cyberspaceOverlay) {
         cyberspaceOverlay.classList.remove('hidden');
         initCyberspace();
-    });
-
-    btnExitCyberspace.addEventListener('click', () => {
-        cyberspaceOverlay.classList.add('hidden');
-        if (animationId) cancelAnimationFrame(animationId);
-        if (hostPlanet) {
-            hostPlanet.dispose();
-            hostPlanet = null;
-        }
-        Object.values(peerMeshes).forEach(p => {
-            if (p.node) p.node.dispose();
-        });
-        peerMeshes = {};
-        if (renderer) {
-            renderer.dispose();
-            cyberspaceContainer.innerHTML = '';
-        }
-        if (cyberspaceLabelsContainer) {
-            cyberspaceLabelsContainer.remove();
-            cyberspaceLabelsContainer = null;
-        }
-    });
-
-    if (btnPauseCyberspace) {
-        btnPauseCyberspace.addEventListener('click', () => {
-            isCyberspacePaused = !isCyberspacePaused;
-            btnPauseCyberspace.innerText = isCyberspacePaused ? 'RESUME ORBIT' : 'PAUSE ORBIT';
-            btnPauseCyberspace.style.borderColor = isCyberspacePaused ? '#fcee0a' : '#00ffff';
-            btnPauseCyberspace.style.color = isCyberspacePaused ? '#fcee0a' : '#00ffff';
-        });
     }
 }
+
+function exitCyberspace(switchToRadar = false) {
+    if (cyberspaceOverlay) cyberspaceOverlay.classList.add('hidden');
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+    if (hostPlanet) {
+        hostPlanet.dispose();
+        hostPlanet = null;
+    }
+    if (peerMeshes) {
+        Object.values(peerMeshes).forEach(p => {
+            if (p.node) p.node.dispose();
+            if (p.label) p.label.remove();
+        });
+        peerMeshes = {};
+    }
+    if (window.cyberspaceBeams && window.cyberspaceBeams.length) {
+        window.cyberspaceBeams.forEach(b => {
+            if (b.mesh && b.mesh.geometry) b.mesh.geometry.dispose();
+            if (b.mesh && b.mesh.material) b.mesh.material.dispose();
+        });
+        window.cyberspaceBeams = [];
+    }
+    if (renderer) {
+        renderer.dispose();
+        if (cyberspaceContainer) cyberspaceContainer.innerHTML = '';
+        renderer = null;
+    }
+    if (cyberspaceLabelsContainer) {
+        cyberspaceLabelsContainer.remove();
+        cyberspaceLabelsContainer = null;
+    }
+    isCyberspacePaused = false;
+    if (btnPauseCyberspace) {
+        btnPauseCyberspace.innerHTML = '<span>PAUSE ORBIT</span>';
+        btnPauseCyberspace.style.borderColor = '#00ffff';
+        btnPauseCyberspace.style.color = '#00ffff';
+    }
+
+    if (switchToRadar) {
+        const radarModal = document.getElementById('radar-modal');
+        if (radarModal) radarModal.classList.remove('hidden');
+    }
+}
+
+if (btnCyberspace) {
+    btnCyberspace.addEventListener('click', () => {
+        openCyberspace(false);
+    });
+}
+
+if (btnRadarCyberspace) {
+    btnRadarCyberspace.addEventListener('click', () => {
+        openCyberspace(true);
+    });
+}
+
+if (btnCyberspaceRadar) {
+    btnCyberspaceRadar.addEventListener('click', () => {
+        exitCyberspace(true);
+    });
+}
+
+if (btnExitCyberspace) {
+    btnExitCyberspace.addEventListener('click', () => {
+        exitCyberspace(false);
+    });
+}
+
+if (btnPauseCyberspace) {
+    btnPauseCyberspace.addEventListener('click', () => {
+        isCyberspacePaused = !isCyberspacePaused;
+        btnPauseCyberspace.innerHTML = isCyberspacePaused ? '<span>RESUME ORBIT</span>' : '<span>PAUSE ORBIT</span>';
+        btnPauseCyberspace.style.borderColor = isCyberspacePaused ? '#fcee0a' : '#00ffff';
+        btnPauseCyberspace.style.color = isCyberspacePaused ? '#fcee0a' : '#00ffff';
+    });
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && cyberspaceOverlay && !cyberspaceOverlay.classList.contains('hidden')) {
+        exitCyberspace(false);
+    }
+});
 
 function initCyberspace() {
     if (typeof THREE === 'undefined') {
@@ -691,7 +747,7 @@ function initCyberspace() {
     }
 
     // Interactivity: Click to open Radar Guest Menu
-    cyberspaceContainer.addEventListener('click', (e) => {
+    renderer.domElement.addEventListener('click', (e) => {
         mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
         mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
