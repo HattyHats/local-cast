@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=79">
+    <link rel="stylesheet" href="style.css?v=82">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -63,7 +63,7 @@
                 <div class="logo glitch-title" data-text="LOCALCAST">
                     <span class="logo-brand">Local</span><span class="logo-accent">Cast</span>
                 </div>
-                <span class="badge-version">P2P v3.1</span>
+                <span class="badge-version">P2P v3.2</span>
             </div>
             <div class="header-actions">
                 <button id="btn-theme-toggle" class="btn-icon header-btn" title="Themes & Aesthetics">
@@ -782,7 +782,7 @@ Scanning active WebRTC peer connection...
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-yellow">NES Retro Gaming:</strong> 8-bit ROM emulator with delta-time canvas streaming to all guests at 60 FPS over WebRTC.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Radar, Whisper & Voice Calls:</strong> 2D proximity radar with latency tracking, 1-on-1 encrypted Whisper channels, and serverless P2P audio voice calls.</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">Low-Latency P2P Screen Sharing:</strong> Stream desktop, application window, or browser tab at 60 FPS over direct WebRTC media channels with optional system audio, Picture-in-Picture (PiP), and full-screen viewer with zero intermediate servers.</li>
-                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-purple);">Live Scratchpad:</strong> Collaborative multi-user text workspace with instantaneous keystroke sync, backed by granular Host Access Control (guest permission switches, "Allow All", admission invites, and auto-sync).</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-purple);">Native QuickPad Collaborative Suite:</strong> Serverless, zero-cloud peer-to-peer collaborative text workspace with multi-file tabs, live multiplayer cursors, line numbers, formatted Markdown preview, download/export, and granular Host Access Control.</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: #00f0ff;">Swarm Jukebox:</strong> Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: #fcee0a;">Collaborative Whiteboard (Infinite Canvas):</strong> Real-time shared canvas with multi-user vector drawing, smooth Zoom (25% to 500%) & Pan navigation (mouse wheel zoom, Spacebar hold-to-pan, on-canvas Quick Zoom HUD, and mobile pinch-to-zoom), drag-and-drop & clipboard image stamping, real-time laser pointer with solid peer nameplates, inline text typing, undo/redo history, and granular Host Access Control.</li>
                 </ul>
@@ -908,28 +908,37 @@ Scanning active WebRTC peer connection...
                         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--neon-purple)" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                         <span>QUICKPAD</span>
                     </h2>
-                    <span id="sp-status-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(176, 38, 255, 0.15); color: var(--neon-purple); border: 1px solid rgba(176, 38, 255, 0.35);" title="Zero-Knowledge Client-Side AES-256 E2EE">🔒 ZERO-KNOWLEDGE E2EE</span>
+                    <span id="sp-status-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(176, 38, 255, 0.15); color: var(--neon-purple); border: 1px solid rgba(176, 38, 255, 0.35);" title="Zero-Knowledge Local P2P AES-256 E2EE">🔒 100% P2P ENCRYPTED</span>
                 </div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                    <!-- Copy Encrypted Link -->
-                    <button id="btn-qp-copy-link" class="custom-btn" style="border-color: var(--neon-purple); color: var(--neon-purple); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Copy Zero-Knowledge QuickPad Link">
+                    <!-- Markdown Preview Toggle -->
+                    <button id="btn-pad-preview" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Toggle Formatted Markdown Preview">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        <span id="pad-preview-btn-text">PREVIEW</span>
+                    </button>
+                    <!-- Copy Current File Content -->
+                    <button id="btn-pad-copy" class="custom-btn" style="border-color: var(--neon-purple); color: var(--neon-purple); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Copy File Content to Clipboard">
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        <span>COPY LINK</span>
+                        <span>COPY</span>
                     </button>
-                    <!-- Pop Out to New Tab Button -->
-                    <button id="btn-qp-popout" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Open QuickPad in New Browser Tab">
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                        <span>POP OUT</span>
+                    <!-- Download Current File -->
+                    <button id="btn-pad-download" class="custom-btn" style="border-color: var(--neon-green); color: var(--neon-green); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Download Active File">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span>DOWNLOAD</span>
                     </button>
-                    <!-- Host Only: New Pad & Set Link -->
+                    <!-- Host Only Actions -->
                     <div id="qp-host-action-btns" style="display: flex; gap: 0.5rem;">
-                        <button id="btn-qp-new" class="custom-btn" style="border-color: #fcee0a; color: #fcee0a; padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Generate a New Encrypted QuickPad Session">
+                        <button id="btn-pad-lock" class="custom-btn" style="border-color: #fcee0a; color: #fcee0a; padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Toggle Read-Only Lock for Guests">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                            <span id="pad-lock-btn-text">LOCK</span>
+                        </button>
+                        <button id="btn-pad-clear" class="custom-btn" style="border-color: var(--neon-pink); color: var(--neon-pink); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Clear Active File Content">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            <span>CLEAR</span>
+                        </button>
+                        <button id="btn-pad-new" class="custom-btn" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Reset Workspace & Start Clean Pad">
                             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"></path></svg>
                             <span>NEW PAD</span>
-                        </button>
-                        <button id="btn-qp-set-link" class="custom-btn" style="border-color: var(--neon-green); color: var(--neon-green); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Paste an Existing QuickPad Link">
-                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-                            <span>CUSTOM LINK</span>
                         </button>
                     </div>
                     <!-- Host Guest Access Control -->
@@ -958,12 +967,45 @@ Scanning active WebRTC peer connection...
                     </button>
                 </div>
             </div>
-            <div id="quickpad-iframe-container" style="flex: 1; position: relative; width: 100%; border-radius: 6px; overflow: hidden; background: #0a0f1d; border: 1px solid rgba(176, 38, 255, 0.3);">
-                <div id="quickpad-loading-indicator" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0a0f1d; color: var(--neon-purple); font-family: var(--font-mono); font-size: 0.85rem; gap: 12px; z-index: 1;">
-                    <div style="width: 32px; height: 32px; border: 3px solid rgba(176, 38, 255, 0.2); border-top-color: var(--neon-purple); border-radius: 50%; animation: qp-spin 0.8s linear infinite;"></div>
-                    <span>INITIALIZING ENCRYPTED QUICKPAD...</span>
+
+            <!-- TABS BAR -->
+            <div id="pad-tabs-bar" class="pad-tabs-bar">
+                <div id="pad-tabs-list" class="pad-tabs-list"></div>
+                <button id="btn-pad-add-tab" class="pad-btn-icon" title="New File / Tab">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+            </div>
+
+            <!-- WORKSPACE -->
+            <div id="pad-workspace" class="pad-workspace">
+                <div id="pad-gutter" class="pad-gutter">1</div>
+                <div id="pad-editor-wrapper" class="pad-editor-wrapper">
+                    <div id="pad-editor-mirror" class="pad-editor-mirror"></div>
+                    <div id="pad-cursors-container" class="pad-cursors-container"></div>
+                    <textarea id="pad-editor" class="pad-editor" spellcheck="false" placeholder="Start typing collaboratively in real-time..."></textarea>
                 </div>
-                <iframe id="quickpad-iframe" allow="clipboard-read; clipboard-write; fullscreen" style="width: 100%; height: 100%; border: none; display: block; background: #0a0f1d;"></iframe>
+                <div id="pad-preview-pane" class="pad-preview-pane hidden"></div>
+            </div>
+
+            <!-- STATUS BAR -->
+            <div id="pad-status-bar" class="pad-status-bar">
+                <div class="pad-status-left" style="display: flex; align-items: center; gap: 8px; position: relative;">
+                    <div id="pad-presence-pill" class="pad-presence-pill" title="Click to view online collaborators">
+                        <span class="pad-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #00ff88; box-shadow: 0 0 6px #00ff88; display: inline-block;"></span>
+                        <span id="pad-online-count">1 Online</span>
+                    </div>
+                    <div id="pad-presence-popover" class="pad-presence-popover hidden">
+                        <div style="font-weight: bold; font-size: 0.75rem; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; margin-bottom: 6px;">COLLABORATORS ONLINE</div>
+                        <div id="pad-participants-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto;"></div>
+                    </div>
+                    <span id="pad-lock-badge" class="pad-badge pad-badge-editable">🔓 EDITABLE</span>
+                    <span id="pad-sync-badge" class="pad-badge pad-badge-sync">⚡ 100% P2P ENCRYPTED</span>
+                </div>
+                <div class="pad-status-right" style="display: flex; align-items: center; gap: 12px;">
+                    <span id="pad-cursor-coords">Ln 1, Col 1</span>
+                    <span id="pad-file-stats">0 words, 0 chars</span>
+                    <span style="opacity: 0.7;">UTF-8</span>
+                </div>
             </div>
             <textarea id="scratchpad-textarea" style="display: none;"></textarea>
         </div>
@@ -1347,9 +1389,29 @@ Scanning active WebRTC peer connection...
                     </button>
                 </div>
             </div>
-            <div id="active-call-banner" class="hidden" style="background: rgba(57, 255, 20, 0.1); border: 1px solid var(--neon-green); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: var(--neon-green); font-family: var(--font-mono); font-weight: bold; animation: glitch-anim 2s infinite;">SECURE COMM-LINK ACTIVE</span>
-                <button id="btn-end-call" class="custom-btn" style="background: transparent; border-color: var(--neon-red); color: var(--neon-red); padding: 0.25rem 0.5rem;">END CALL</button>
+            <div id="active-call-banner" class="hidden" style="background: rgba(57, 255, 20, 0.08); border: 1px solid var(--neon-green); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; box-shadow: 0 0 15px rgba(57,255,20,0.15);">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="call-pulse-dot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--neon-green); box-shadow: 0 0 8px var(--neon-green);"></span>
+                    <span style="color: var(--neon-green); font-family: var(--font-mono); font-weight: bold; font-size: 0.78rem; letter-spacing: 1px;">COMM-LINK ACTIVE</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <div class="voice-changer-live-pill" title="Change Voice Mask Live Mid-Call">
+                        <span style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">MASK:</span>
+                        <select id="call-live-voice-select" class="custom-input" style="padding: 0.2rem 0.35rem; font-size: 0.7rem; border-color: #39ff14; color: #39ff14; background: rgba(5,8,16,0.95); border-radius: 4px; outline: none; cursor: pointer; font-family: var(--font-mono); font-weight: 700;">
+                            <option value="robotic">🤖 ROBOTIC</option>
+                            <option value="deep">👹 DEEP BRUTE</option>
+                            <option value="high">⚡ HIGH CIPHER</option>
+                            <option value="shadow">👤 ANONYMOUS</option>
+                            <option value="radio">📻 RADIO</option>
+                            <option value="ghost">👻 PHANTOM</option>
+                            <option value="natural">🗣️ NATURAL (OFF)</option>
+                        </select>
+                    </div>
+                    <button id="btn-call-mute" class="custom-btn" style="background: transparent; border-color: rgba(255,255,255,0.25); color: var(--text-main); padding: 0.22rem 0.45rem; font-size: 0.7rem; font-family: var(--font-mono);" title="Mute/Unmute Mic">
+                        <span id="call-mute-label">MUTE</span>
+                    </button>
+                    <button id="btn-end-call" class="custom-btn" style="background: rgba(255,0,0,0.15); border-color: var(--neon-red); color: var(--neon-red); padding: 0.22rem 0.55rem; font-size: 0.72rem; font-family: var(--font-mono); font-weight: 700;">END CALL</button>
+                </div>
             </div>
             <div id="whisper-messages" style="height: 300px; overflow-y: auto; background: #000; border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.85rem;"></div>
             <form id="whisper-form" style="display: flex; gap: 0.5rem;">
@@ -1357,6 +1419,148 @@ Scanning active WebRTC peer connection...
                 <button type="submit" class="custom-btn" style="width: auto; background: transparent; border-color: var(--neon-pink); color: var(--neon-pink);">SEND</button>
             </form>
             <audio id="comm-link-audio" autoplay></audio>
+        </div>
+    </div>
+
+    <!-- CALL SETUP & VOICE CHANGER MODAL -->
+    <div id="call-setup-modal" class="modal hidden" style="z-index: 10005;">
+        <div class="modal-content card" style="max-width: 490px; width: 92%; text-align: left; padding: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="width: 28px; height: 28px; border-radius: 50%; background: rgba(57,255,20,0.15); border: 1px solid #39ff14; display: flex; align-items: center; justify-content: center; color: #39ff14;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                    </div>
+                    <div>
+                        <h3 style="margin: 0; font-family: var(--font-mono); font-size: 1.05rem; color: #fff; letter-spacing: 1px;">SECURE COMM-LINK</h3>
+                        <div id="call-setup-target" style="font-size: 0.74rem; color: #39ff14; font-family: var(--font-mono);">CALLING: PEER</div>
+                    </div>
+                </div>
+                <button id="btn-close-call-setup" class="btn-icon btn-close-modal" title="Cancel">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+
+            <!-- Voice Masking Section -->
+            <div style="background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                    <span style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: #00ffff; letter-spacing: 1px;">🎭 VOICE IDENTITY MASKING</span>
+                    <span class="badge-anonymous" style="font-size: 0.62rem; font-family: var(--font-mono); background: rgba(57,255,20,0.15); color: #39ff14; border: 1px solid #39ff14; padding: 2px 6px; border-radius: 3px;">UNTRACEABLE</span>
+                </div>
+                <p style="font-size: 0.72rem; color: var(--text-muted); margin: 0 0 0.8rem 0; line-height: 1.4;">
+                    Scramble your vocal timbre and acoustic biometric markers. Makes it impossible for the other person to recognize who is speaking.
+                </p>
+
+                <!-- Voice Mode Grid -->
+                <div class="voice-mask-grid" id="voice-mask-grid">
+                    <div class="voice-mask-card active" data-mode="robotic">
+                        <div class="vm-icon">🤖</div>
+                        <div class="vm-info">
+                            <div class="vm-title">ROBOTIC</div>
+                            <div class="vm-desc">Cyborg vocoder synth</div>
+                        </div>
+                    </div>
+                    <div class="voice-mask-card" data-mode="deep">
+                        <div class="vm-icon">👹</div>
+                        <div class="vm-info">
+                            <div class="vm-title">DEEP BRUTE</div>
+                            <div class="vm-desc">-7.5 semi pitch drop</div>
+                        </div>
+                    </div>
+                    <div class="voice-mask-card" data-mode="high">
+                        <div class="vm-icon">⚡</div>
+                        <div class="vm-info">
+                            <div class="vm-title">HIGH CIPHER</div>
+                            <div class="vm-desc">+6.5 semi pitch scramble</div>
+                        </div>
+                    </div>
+                    <div class="voice-mask-card" data-mode="shadow">
+                        <div class="vm-icon">👤</div>
+                        <div class="vm-info">
+                            <div class="vm-title">ANONYMOUS</div>
+                            <div class="vm-desc">Witness protection fx</div>
+                        </div>
+                    </div>
+                    <div class="voice-mask-card" data-mode="radio">
+                        <div class="vm-icon">📻</div>
+                        <div class="vm-info">
+                            <div class="vm-title">RADIO COMM</div>
+                            <div class="vm-desc">Tactical bandpass walkie</div>
+                        </div>
+                    </div>
+                    <div class="voice-mask-card" data-mode="ghost">
+                        <div class="vm-icon">👻</div>
+                        <div class="vm-info">
+                            <div class="vm-title">PHANTOM</div>
+                            <div class="vm-desc">Dual-detuned ghost echo</div>
+                        </div>
+                    </div>
+                    <div class="voice-mask-card" data-mode="natural">
+                        <div class="vm-icon">🗣️</div>
+                        <div class="vm-info">
+                            <div class="vm-title">NATURAL</div>
+                            <div class="vm-desc">Off (original voice)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Test & Audio Meter -->
+                <div style="margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <button id="btn-test-voice-mask" class="custom-btn" style="font-size: 0.72rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 6px; border-color: #ff00ff; color: #ff00ff; background: rgba(255,0,255,0.08); font-family: var(--font-mono); font-weight: 700; cursor: pointer;">
+                            <span id="test-voice-icon">🎧</span>
+                            <span id="test-voice-text">TEST MASK (LIVE PREVIEW)</span>
+                        </button>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 0.68rem; font-family: var(--font-mono); color: var(--text-muted);">MIC:</span>
+                            <div style="width: 70px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; position: relative;">
+                                <div id="voice-test-vu-meter" style="width: 0%; height: 100%; background: linear-gradient(90deg, #39ff14, #fcee0a, #ff0055); transition: width 0.05s linear;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="voice-test-tip" style="font-size: 0.65rem; color: var(--text-dim); font-family: var(--font-mono); display: none;">
+                        💡 Tip: Wear headphones when previewing to prevent speaker feedback loop.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button id="btn-cancel-call-setup" class="custom-btn" style="border-color: rgba(255,255,255,0.2); color: var(--text-muted); font-size: 0.78rem; padding: 0.5rem 1rem;">CANCEL</button>
+                <button id="btn-confirm-call-setup" class="custom-btn" style="border-color: #39ff14; color: #000; background: #39ff14; font-size: 0.8rem; font-weight: 800; padding: 0.5rem 1.25rem; box-shadow: 0 0 15px rgba(57,255,20,0.4); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                    <span>START ENCRYPTED CALL</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- INCOMING CALL MODAL -->
+    <div id="incoming-call-modal" class="modal hidden" style="z-index: 10006;">
+        <div class="modal-content card" style="max-width: 440px; width: 90%; text-align: center; padding: 1.75rem;">
+            <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(57,255,20,0.15); border: 2px solid #39ff14; margin: 0 auto 1rem auto; display: flex; align-items: center; justify-content: center; color: #39ff14; box-shadow: 0 0 20px rgba(57,255,20,0.3); animation: statusPulse 1.5s infinite;">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            </div>
+            <h2 style="color: #39ff14; margin: 0 0 0.5rem 0; font-family: var(--font-mono); font-size: 1.2rem; letter-spacing: 2px;">INCOMING COMM-LINK</h2>
+            <div id="incoming-caller-info" style="font-family: var(--font-mono); font-size: 0.95rem; color: #fff; margin-bottom: 1.25rem;">Caller Name</div>
+            
+            <!-- Receiver Voice Mask Option -->
+            <div style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.75rem; margin-bottom: 1.25rem; text-align: left;">
+                <div style="font-size: 0.72rem; color: #00ffff; font-family: var(--font-mono); font-weight: 700; margin-bottom: 0.35rem;">YOUR VOICE MASK:</div>
+                <select id="incoming-voice-mask-select" class="custom-input" style="width: 100%; padding: 0.4rem; font-size: 0.78rem; font-family: var(--font-mono); background: #07090e; color: #39ff14; border-color: #39ff14; border-radius: 4px;">
+                    <option value="robotic">🤖 ROBOTIC (Synthesizer Vocoder)</option>
+                    <option value="deep">👹 DEEP BRUTE (Ultra-Low Pitch)</option>
+                    <option value="high">⚡ HIGH CIPHER (High Pitch Scramble)</option>
+                    <option value="shadow">👤 ANONYMOUS (Witness Protection)</option>
+                    <option value="radio">📻 RADIO COMM (Tactical Walkie)</option>
+                    <option value="ghost">👻 PHANTOM (Dual-Detuned Echo)</option>
+                    <option value="natural">🗣️ NATURAL (Off / Original Voice)</option>
+                </select>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; justify-content: center;">
+                <button id="btn-decline-incoming-call" class="custom-btn" style="flex: 1; border-color: var(--neon-red); color: var(--neon-red); padding: 0.6rem; font-size: 0.82rem; font-weight: 700; cursor: pointer;">DECLINE</button>
+                <button id="btn-accept-incoming-call" class="custom-btn" style="flex: 1.2; background: #39ff14; color: #000; border-color: #39ff14; padding: 0.6rem; font-size: 0.85rem; font-weight: 800; box-shadow: 0 0 15px rgba(57,255,20,0.5); cursor: pointer;">ACCEPT CALL</button>
+            </div>
         </div>
     </div>
 
@@ -1773,12 +1977,12 @@ Scanning active WebRTC peer connection...
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=90"></script>
+    <script src="app.js?v=94"></script>
     <script src="plugins.js?v=7"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=134').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=138').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

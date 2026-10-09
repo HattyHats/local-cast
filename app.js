@@ -1711,7 +1711,347 @@ async function initMagicPeer(targetPeerId, targetFileId) {
     });
 }
 
-// --- COMM-LINK VOICE CALL ENGINE ---
+// --- COMM-LINK VOICE CALL ENGINE & REAL-TIME VOICE MASKING ---
+let voiceAudioContext = null;
+let voiceRawStream = null;
+let voiceProcessedStream = null;
+let voiceSourceNode = null;
+let voiceScriptNode = null;
+let voiceDestNode = null;
+let voiceMonitorGain = null;
+let voiceTestAnalyser = null;
+let voiceTestAnimFrameId = null;
+let isVoiceTestActive = false;
+let currentVoiceMask = 'robotic'; // default disguise
+let isCallMuted = false;
+let pendingCallTarget = null;
+
+function getVoiceMaskLabel(mode) {
+    switch (mode) {
+        case 'robotic': return '🤖 Robotic Vocoder';
+        case 'deep': return '👹 Deep Brute';
+        case 'high': return '⚡ High Cipher';
+        case 'shadow': return '👤 Anonymous';
+        case 'radio': return '📻 Radio Comm';
+        case 'ghost': return '👻 Phantom';
+        case 'natural': return '🗣️ Natural (Off)';
+        default: return '🎭 Voice Mask';
+    }
+}
+
+function cleanupVoiceProcessor() {
+    if (voiceTestAnimFrameId) {
+        cancelAnimationFrame(voiceTestAnimFrameId);
+        voiceTestAnimFrameId = null;
+    }
+    isVoiceTestActive = false;
+
+    const vuMeter = document.getElementById('voice-test-vu-meter');
+    if (vuMeter) vuMeter.style.width = '0%';
+    const testIcon = document.getElementById('test-voice-icon');
+    if (testIcon) testIcon.textContent = '🎧';
+    const testText = document.getElementById('test-voice-text');
+    if (testText) testText.textContent = 'TEST MASK (LIVE PREVIEW)';
+    const testTip = document.getElementById('voice-test-tip');
+    if (testTip) testTip.style.display = 'none';
+    const testBtn = document.getElementById('btn-test-voice-mask');
+    if (testBtn) testBtn.style.background = 'rgba(255, 0, 255, 0.08)';
+
+    if (voiceScriptNode) {
+        try {
+            voiceScriptNode.onaudioprocess = null;
+            voiceScriptNode.disconnect();
+        } catch(e) {}
+        voiceScriptNode = null;
+    }
+    if (voiceSourceNode) {
+        try { voiceSourceNode.disconnect(); } catch(e) {}
+        voiceSourceNode = null;
+    }
+    if (voiceMonitorGain) {
+        try { voiceMonitorGain.disconnect(); } catch(e) {}
+        voiceMonitorGain = null;
+    }
+    if (voiceTestAnalyser) {
+        try { voiceTestAnalyser.disconnect(); } catch(e) {}
+        voiceTestAnalyser = null;
+    }
+    if (voiceDestNode) {
+        try { voiceDestNode.disconnect(); } catch(e) {}
+        voiceDestNode = null;
+    }
+    if (voiceRawStream) {
+        try { voiceRawStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+        voiceRawStream = null;
+    }
+    if (voiceProcessedStream) {
+        try { voiceProcessedStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+        voiceProcessedStream = null;
+    }
+    localMediaStream = null;
+
+    if (voiceAudioContext) {
+        if (voiceAudioContext.state !== 'closed') {
+            try { voiceAudioContext.close(); } catch(e) {}
+        }
+        voiceAudioContext = null;
+    }
+}
+
+async function createVoiceProcessedStream(rawStream, initialMask = 'robotic') {
+    cleanupVoiceProcessor();
+    voiceRawStream = rawStream;
+    currentVoiceMask = initialMask || 'robotic';
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+        console.warn("Web Audio API unavailable; transmitting raw audio.");
+        localMediaStream = rawStream;
+        return rawStream;
+    }
+
+    voiceAudioContext = new AudioContextClass();
+    if (voiceAudioContext.state === 'suspended') {
+        try { await voiceAudioContext.resume(); } catch(e) {}
+    }
+
+    voiceSourceNode = voiceAudioContext.createMediaStreamSource(rawStream);
+    voiceDestNode = voiceAudioContext.createMediaStreamDestination();
+
+    // Local monitor gain (used during test preview; kept muted during active calls to prevent caller echo)
+    voiceMonitorGain = voiceAudioContext.createGain();
+    voiceMonitorGain.gain.value = 0.0;
+    voiceMonitorGain.connect(voiceAudioContext.destination);
+
+    // Audio analyser for real-time VU meter
+    voiceTestAnalyser = voiceAudioContext.createAnalyser();
+    voiceTestAnalyser.fftSize = 256;
+    voiceSourceNode.connect(voiceTestAnalyser);
+
+    // Granular pitch shifter & DSP circular buffer state
+    const BUF_SIZE = 8192;
+    const GRAIN_SIZE = 1024;
+    const circBuf = new Float32Array(BUF_SIZE);
+    let writeIdx = 0;
+    let phase0 = 0;
+    let phase1 = GRAIN_SIZE / 2;
+
+    // Filters, oscillators & delay line state
+    let carrierPhase = 0;
+    let tremoloPhase = 0;
+    let lpPrev = 0;
+    let hpPrevIn = 0;
+    let hpPrevOut = 0;
+    const delayBuf = new Float32Array(4800);
+    let delayIdx = 0;
+
+    // 1024-sample block (~21ms at 48kHz) ensures ultra-low latency for duplex WebRTC voice calls
+    voiceScriptNode = voiceAudioContext.createScriptProcessor(1024, 1, 1);
+    voiceScriptNode.onaudioprocess = (audioEvent) => {
+        const inputData = audioEvent.inputBuffer.getChannelData(0);
+        const outputData = audioEvent.outputBuffer.getChannelData(0);
+
+        if (isCallMuted) {
+            outputData.fill(0);
+            return;
+        }
+
+        const sampleRate = voiceAudioContext ? (voiceAudioContext.sampleRate || 48000) : 48000;
+        const mode = currentVoiceMask;
+
+        for (let i = 0; i < inputData.length; i++) {
+            const inSample = inputData[i];
+            circBuf[writeIdx] = inSample;
+
+            let pitchRatio = 1.0;
+            if (mode === 'deep') pitchRatio = 0.65;
+            else if (mode === 'high') pitchRatio = 1.45;
+            else if (mode === 'shadow') pitchRatio = 0.78;
+            else if (mode === 'ghost') pitchRatio = 0.82;
+
+            // Hann grain envelope crossfade (w0 + w1 = 1.0 everywhere)
+            const w0 = 0.5 * (1 - Math.cos(2 * Math.PI * phase0 / GRAIN_SIZE));
+            const w1 = 0.5 * (1 - Math.cos(2 * Math.PI * phase1 / GRAIN_SIZE));
+
+            const readIdx0 = (writeIdx - GRAIN_SIZE + phase0 * pitchRatio + BUF_SIZE * 4) % BUF_SIZE;
+            const readIdx1 = (writeIdx - GRAIN_SIZE + phase1 * pitchRatio + BUF_SIZE * 4) % BUF_SIZE;
+
+            const i0 = Math.floor(readIdx0);
+            const f0 = readIdx0 - i0;
+            const s0 = circBuf[i0] * (1 - f0) + circBuf[(i0 + 1) % BUF_SIZE] * f0;
+
+            const i1 = Math.floor(readIdx1);
+            const f1 = readIdx1 - i1;
+            const s1 = circBuf[i1] * (1 - f1) + circBuf[(i1 + 1) % BUF_SIZE] * f1;
+
+            const pitched = s0 * w0 + s1 * w1;
+            let outSample = inSample;
+
+            if (mode === 'robotic') {
+                carrierPhase += 2 * Math.PI * 125 / sampleRate;
+                if (carrierPhase > 2 * Math.PI) carrierPhase -= 2 * Math.PI;
+                const carrier = Math.sin(carrierPhase);
+                const mod = inSample * carrier * 1.5;
+                outSample = Math.tanh(mod * 2.0) * 0.85;
+            } else if (mode === 'deep') {
+                lpPrev = lpPrev + 0.35 * (pitched - lpPrev);
+                outSample = Math.tanh(lpPrev * 1.5) * 0.85;
+            } else if (mode === 'high') {
+                outSample = Math.tanh(pitched * 1.3) * 0.85;
+            } else if (mode === 'shadow') {
+                tremoloPhase += 2 * Math.PI * 8.5 / sampleRate;
+                if (tremoloPhase > 2 * Math.PI) tremoloPhase -= 2 * Math.PI;
+                const tremolo = 0.75 + 0.25 * Math.sin(tremoloPhase);
+                outSample = Math.tanh(pitched * 2.0) * tremolo * 0.8;
+            } else if (mode === 'radio') {
+                hpPrevOut = 0.92 * (hpPrevOut + inSample - hpPrevIn);
+                hpPrevIn = inSample;
+                lpPrev = lpPrev + 0.25 * (hpPrevOut - lpPrev);
+                let sat = Math.tanh(lpPrev * 3.0) * 0.8;
+                if (Math.abs(sat) > 0.02) sat += ((Math.random() - 0.5) * 0.02);
+                outSample = sat;
+            } else if (mode === 'ghost') {
+                delayBuf[delayIdx] = pitched;
+                const readD = (delayIdx - 2400 + delayBuf.length) % delayBuf.length;
+                const delayed = delayBuf[readD];
+                delayIdx = (delayIdx + 1) % delayBuf.length;
+                outSample = Math.tanh((pitched * 0.7 + delayed * 0.45) * 1.2) * 0.85;
+            } else { // natural
+                outSample = inSample;
+            }
+
+            outputData[i] = isNaN(outSample) ? 0 : outSample;
+
+            writeIdx = (writeIdx + 1) % BUF_SIZE;
+            phase0 = (phase0 + 1) % GRAIN_SIZE;
+            phase1 = (phase1 + 1) % GRAIN_SIZE;
+        }
+    };
+
+    voiceSourceNode.connect(voiceScriptNode);
+    voiceScriptNode.connect(voiceDestNode);
+    voiceScriptNode.connect(voiceMonitorGain);
+
+    voiceProcessedStream = voiceDestNode.stream;
+    localMediaStream = voiceProcessedStream;
+    return voiceProcessedStream;
+}
+
+async function startVoiceTestPreview() {
+    if (isVoiceTestActive) return;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+        await createVoiceProcessedStream(stream, currentVoiceMask);
+        if (voiceMonitorGain) {
+            voiceMonitorGain.gain.value = 1.0;
+        }
+
+        const vuMeter = document.getElementById('voice-test-vu-meter');
+        const testIcon = document.getElementById('test-voice-icon');
+        const testText = document.getElementById('test-voice-text');
+        const testTip = document.getElementById('voice-test-tip');
+        const testBtn = document.getElementById('btn-test-voice-mask');
+        if (testTip) testTip.style.display = 'block';
+        if (testIcon) testIcon.textContent = '⏹️';
+        if (testText) testText.textContent = 'STOP TEST';
+        if (testBtn) testBtn.style.background = 'rgba(255, 0, 255, 0.25)';
+
+        isVoiceTestActive = true;
+
+        if (voiceTestAnalyser) {
+            const dataArray = new Uint8Array(voiceTestAnalyser.fftSize);
+            const renderMeter = () => {
+                if (!isVoiceTestActive || !voiceTestAnalyser) return;
+                voiceTestAnalyser.getByteTimeDomainData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    const val = (dataArray[i] - 128) / 128;
+                    sum += val * val;
+                }
+                const rms = Math.sqrt(sum / dataArray.length);
+                const pct = Math.min(100, Math.round(rms * 450));
+                if (vuMeter) vuMeter.style.width = pct + '%';
+                voiceTestAnimFrameId = requestAnimationFrame(renderMeter);
+            };
+            voiceTestAnimFrameId = requestAnimationFrame(renderMeter);
+        }
+    } catch(err) {
+        console.warn("Could not start voice test preview:", err);
+        showToast("Microphone access denied for preview.", "error");
+        stopVoiceTestPreview();
+    }
+}
+
+function stopVoiceTestPreview() {
+    if (!isVoiceTestActive && !voiceAudioContext) return;
+    cleanupVoiceProcessor();
+}
+
+function openCallSetupModal(targetId, targetAlias = 'Peer', targetColor = 'var(--neon-green)') {
+    if (!targetId) {
+        showToast("No target peer selected for Comm-Link.");
+        return;
+    }
+    if (targetId === (peer ? peer.id : null)) {
+        showToast("Cannot call yourself.");
+        return;
+    }
+    if (currentCall) {
+        cyberConfirm("A call is already active. Disconnect and start a new Comm-Link?", "CALL IN PROGRESS").then(drop => {
+            if (drop) {
+                endCommLink();
+                openCallSetupModal(targetId, targetAlias, targetColor);
+            }
+        });
+        return;
+    }
+
+    pendingCallTarget = { targetId, targetAlias, targetColor };
+
+    const callSetupTarget = document.getElementById('call-setup-target');
+    if (callSetupTarget) {
+        callSetupTarget.textContent = 'CALLING: ' + (targetAlias || 'PEER').toUpperCase();
+    }
+
+    // Highlight current active voice mask card
+    document.querySelectorAll('.voice-mask-card').forEach(card => {
+        if (card.getAttribute('data-mode') === currentVoiceMask) {
+            card.classList.add('active');
+        } else {
+            card.classList.remove('active');
+        }
+    });
+
+    stopVoiceTestPreview();
+
+    const callSetupModal = document.getElementById('call-setup-modal');
+    if (callSetupModal) {
+        callSetupModal.classList.remove('hidden');
+    }
+}
+
+function closeCallSetupModal() {
+    stopVoiceTestPreview();
+    const callSetupModal = document.getElementById('call-setup-modal');
+    if (callSetupModal) {
+        callSetupModal.classList.add('hidden');
+    }
+    pendingCallTarget = null;
+}
+
+async function confirmCallSetup() {
+    if (!pendingCallTarget) return;
+    const { targetId, targetAlias, targetColor } = pendingCallTarget;
+    closeCallSetupModal();
+    await initiateCommLink(targetId, targetAlias, targetColor, currentVoiceMask);
+}
+
 function setupCallHandlers(call) {
     if (!call) return;
     if (activeCallBanner) activeCallBanner.classList.remove('hidden');
@@ -1747,12 +2087,26 @@ function endCommLink() {
         try { currentCall.close(); } catch(e) {}
         currentCall = null;
     }
-    if (localMediaStream) {
-        try { localMediaStream.getTracks().forEach(t => t.stop()); } catch(e) {}
-        localMediaStream = null;
+    cleanupVoiceProcessor();
+    if (commLinkAudio) {
+        try {
+            commLinkAudio.pause();
+            commLinkAudio.srcObject = null;
+        } catch(e) {}
     }
-    if (commLinkAudio) commLinkAudio.srcObject = null;
     if (activeCallBanner) activeCallBanner.classList.add('hidden');
+
+    isCallMuted = false;
+    const callMuteLabel = document.getElementById('call-mute-label');
+    const btnCallMute = document.getElementById('btn-call-mute');
+    if (callMuteLabel) callMuteLabel.textContent = 'MUTE';
+    if (btnCallMute) {
+        btnCallMute.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+        btnCallMute.style.color = 'var(--text-main)';
+    }
+
+    const incomingModal = document.getElementById('incoming-call-modal');
+    if (incomingModal) incomingModal.classList.add('hidden');
 }
 
 async function handleIncomingCall(call) {
@@ -1823,44 +2177,107 @@ async function handleIncomingCall(call) {
     playCyberChime(580, 'sine', 0.25);
     setTimeout(() => playCyberChime(720, 'sine', 0.3), 300);
 
-    const accept = await cyberConfirm(
-        `Incoming encrypted voice Comm-Link from "${callerName}". Would you like to connect?`,
-        `INCOMING COMM-LINK: ${callerName}`
-    );
+    const incomingModal = document.getElementById('incoming-call-modal');
+    const callerInfo = document.getElementById('incoming-caller-info');
+    const voiceSelect = document.getElementById('incoming-voice-mask-select');
+    const btnAccept = document.getElementById('btn-accept-incoming-call');
+    const btnDecline = document.getElementById('btn-decline-incoming-call');
 
-    if (!accept) {
+    let userDecision = null;
+    if (incomingModal && callerInfo && btnAccept && btnDecline) {
+        callerInfo.textContent = `Encrypted Comm-Link from "${callerName}"`;
+        if (voiceSelect) voiceSelect.value = currentVoiceMask || 'robotic';
+        incomingModal.classList.remove('hidden');
+
+        userDecision = await new Promise((resolve) => {
+            const onAccept = () => {
+                cleanup();
+                const chosenMask = voiceSelect ? voiceSelect.value : currentVoiceMask;
+                resolve({ accepted: true, mask: chosenMask });
+            };
+            const onDecline = () => {
+                cleanup();
+                resolve({ accepted: false });
+            };
+            const onClose = () => {
+                cleanup();
+                resolve({ accepted: false, remoteCancelled: true });
+            };
+
+            function cleanup() {
+                btnAccept.removeEventListener('click', onAccept);
+                btnDecline.removeEventListener('click', onDecline);
+                call.off('close', onClose);
+                incomingModal.classList.add('hidden');
+            }
+
+            btnAccept.addEventListener('click', onAccept);
+            btnDecline.addEventListener('click', onDecline);
+            call.on('close', onClose);
+        });
+    } else {
+        const accept = await cyberConfirm(
+            `Incoming encrypted voice Comm-Link from "${callerName}". Would you like to connect?`,
+            `INCOMING COMM-LINK: ${callerName}`
+        );
+        userDecision = { accepted: accept, mask: currentVoiceMask };
+    }
+
+    if (!userDecision || !userDecision.accepted) {
         try { call.close(); } catch(e) {}
-        showToast(`Comm-Link from ${callerName} declined.`);
+        if (userDecision && userDecision.remoteCancelled) {
+            showToast(`Comm-Link from ${callerName} cancelled by caller.`);
+        } else {
+            showToast(`Comm-Link from ${callerName} declined.`);
+        }
         return;
     }
 
-    let replyStream = null;
+    currentVoiceMask = userDecision.mask || currentVoiceMask || 'robotic';
+
+    let rawStream = null;
     try {
-        replyStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        localMediaStream = replyStream;
+        rawStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
     } catch(err) {
         console.warn("Receiver microphone unavailable, connecting in Listen-Only mode:", err);
         showToast("Connected in Listen-Only mode (Microphone unavailable).");
     }
 
     try {
-        if (replyStream) {
-            call.answer(replyStream);
+        if (rawStream) {
+            const processedStream = await createVoiceProcessedStream(rawStream, currentVoiceMask);
+            call.answer(processedStream);
         } else {
             call.answer();
         }
         currentCall = call;
         openWhisper(call.peer, callerName, 'var(--neon-green)');
         setupCallHandlers(call);
-        showToast(`Comm-Link established with ${callerName}!`);
+
+        const callLiveVoiceSelect = document.getElementById('call-live-voice-select');
+        if (callLiveVoiceSelect) {
+            callLiveVoiceSelect.value = currentVoiceMask;
+        }
+        isCallMuted = false;
+        const callMuteLabel = document.getElementById('call-mute-label');
+        if (callMuteLabel) callMuteLabel.textContent = 'MUTE';
+
+        showToast(`Comm-Link established with ${callerName}! Mask: ${getVoiceMaskLabel(currentVoiceMask)}`);
     } catch(e) {
         console.error("Failed to answer call:", e);
         try { call.close(); } catch(err) {}
         showToast("Comm-Link connection failed.");
+        endCommLink();
     }
 }
 
-async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'var(--neon-green)') {
+async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'var(--neon-green)', voiceMask = currentVoiceMask) {
     if (!targetId) {
         showToast("No target peer selected for Comm-Link.");
         return;
@@ -1876,8 +2293,17 @@ async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'v
         endCommLink();
     }
 
+    currentVoiceMask = voiceMask || currentVoiceMask || 'robotic';
+
+    let rawStream = null;
     try {
-        localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        rawStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
     } catch(e) {
         console.error("Microphone access denied:", e);
         await cyberAlert("Microphone access is required to transmit your voice. Please enable microphone permissions in your browser.", "COMM-LINK ACCESS DENIED", true);
@@ -1885,10 +2311,11 @@ async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'v
     }
 
     openWhisper(targetId, targetAlias, targetColor);
-    showToast(`Calling ${targetAlias}... Waiting for response.`);
+    showToast(`Calling ${targetAlias} with ${getVoiceMaskLabel(currentVoiceMask)}...`);
 
     try {
-        currentCall = peer.call(targetId, localMediaStream, {
+        const processedStream = await createVoiceProcessedStream(rawStream, currentVoiceMask);
+        currentCall = peer.call(targetId, processedStream, {
             metadata: {
                 type: 'comm_link',
                 callerId: peer.id,
@@ -1896,6 +2323,14 @@ async function initiateCommLink(targetId, targetAlias = 'Peer', targetColor = 'v
             }
         });
         setupCallHandlers(currentCall);
+
+        const callLiveVoiceSelect = document.getElementById('call-live-voice-select');
+        if (callLiveVoiceSelect) {
+            callLiveVoiceSelect.value = currentVoiceMask;
+        }
+        isCallMuted = false;
+        const callMuteLabel = document.getElementById('call-mute-label');
+        if (callMuteLabel) callMuteLabel.textContent = 'MUTE';
     } catch(e) {
         console.error("peer.call failed:", e);
         await cyberAlert("Failed to establish P2P call: " + e.message, "COMM-LINK ERROR", true);
@@ -2242,24 +2677,95 @@ async function initHost() {
                         c.send({ type: 'CHAT_MSG', sender: sName, text: data.text, color: sColor });
                     }
                 });
-            } else if (data.type === 'SCRATCHPAD_UPDATE' && conn.isAuthenticated) {
+            } else if (data.type === 'PAD_EDIT' && conn.isAuthenticated) {
                 if (!conn.permissions || !conn.permissions.scratchpad) return;
-                const sessionUrl = data.sessionUrl || data.text || '';
-                if (sessionUrl) {
-                    globalQuickPadUrl = sessionUrl;
-                    if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && typeof loadQuickPadUrl === 'function') {
-                        loadQuickPadUrl(globalQuickPadUrl);
+                if (typeof nativePadState !== 'undefined' && nativePadState.isLocked) return;
+                if (typeof applyRemotePadEdit === 'function') applyRemotePadEdit(data);
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        try { c.send(data); } catch(e) {}
+                    }
+                });
+            } else if (data.type === 'PAD_CURSOR' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.scratchpad) return;
+                if (typeof padPeerCursors !== 'undefined') {
+                    padPeerCursors[data.peerId] = {
+                        pos: data.pos,
+                        selEnd: data.selEnd,
+                        fileId: data.fileId,
+                        name: data.name,
+                        color: data.color
+                    };
+                    if (typeof getActivePadFile === 'function' && getActivePadFile().id === data.fileId && typeof renderPeerCursor === 'function') {
+                        renderPeerCursor(data.peerId, data.pos, data.name, data.color);
                     }
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                        c.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: globalQuickPadUrl, text: globalQuickPadUrl });
+                        try { c.send(data); } catch(e) {}
                     }
                 });
-            } else if (data.type === 'REQUEST_SCRATCHPAD' && conn.isAuthenticated) {
+            } else if (data.type === 'PAD_TAB_CREATE' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.scratchpad) return;
+                if (typeof nativePadState !== 'undefined' && nativePadState.isLocked) return;
+                if (data.file && typeof nativePadState !== 'undefined' && !nativePadState.files.some(f => f.id === data.file.id)) {
+                    nativePadState.files.push(data.file);
+                    if (typeof renderPadTabs === 'function') renderPadTabs();
+                    if (typeof saveNativePadState === 'function') saveNativePadState();
+                    connections.forEach(c => {
+                        if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                            try { c.send(data); } catch(e) {}
+                        }
+                    });
+                }
+            } else if (data.type === 'PAD_TAB_RENAME' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.scratchpad) return;
+                if (typeof nativePadState !== 'undefined' && nativePadState.isLocked) return;
+                if (typeof renamePadTab === 'function') renamePadTab(data.fileId, data.name, false);
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        try { c.send(data); } catch(e) {}
+                    }
+                });
+            } else if (data.type === 'PAD_TAB_DELETE' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.scratchpad) return;
+                if (typeof nativePadState !== 'undefined' && nativePadState.isLocked) return;
+                if (typeof deletePadTab === 'function') deletePadTab(data.fileId, false);
+                connections.forEach(c => {
+                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        try { c.send(data); } catch(e) {}
+                    }
+                });
+            } else if ((data.type === 'PAD_PRESENCE' || data.type === 'PAD_HEARTBEAT') && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.scratchpad) return;
+                const pid = conn.peer;
+                if (typeof padPeerPresence !== 'undefined') {
+                    padPeerPresence[pid] = {
+                        name: (conn.profile && conn.profile.name) || conn.guestAlias || ('Peer ' + pid.substring(0, 6)),
+                        color: (conn.profile && conn.profile.color) || conn.guestColor || 'var(--neon-blue)',
+                        activeFileId: data.activeFileId || 'f_main',
+                        inPad: !!data.inPad,
+                        lastSeen: Date.now()
+                    };
+                    if (!data.inPad && typeof removePeerCursor === 'function') {
+                        removePeerCursor(pid);
+                    }
+                    if (typeof updatePadPresenceUI === 'function') updatePadPresenceUI();
+                    const presenceBroadcast = {
+                        type: 'PAD_PEERS_UPDATE',
+                        presenceMap: padPeerPresence
+                    };
+                    connections.forEach(c => {
+                        if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                            try { c.send(presenceBroadcast); } catch(e) {}
+                        }
+                    });
+                }
+            } else if ((data.type === 'PAD_REQUEST_SYNC' || data.type === 'REQUEST_SCRATCHPAD') && conn.isAuthenticated) {
                 if (conn.permissions && conn.permissions.scratchpad) {
-                    const sessionUrl = typeof getOrCreateQuickPadUrl === 'function' ? getOrCreateQuickPadUrl() : globalQuickPadUrl;
-                    conn.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
+                    if (typeof sendPadFullSync === 'function') {
+                        sendPadFullSync(conn);
+                    }
                 } else {
                     conn.send({ type: 'SCRATCHPAD_DENIED', message: 'QuickPad permission required.' });
                 }
@@ -2704,6 +3210,7 @@ async function initHost() {
         conn.on('close', () => {
             connections = connections.filter(c => c !== conn);
             broadcastPeers();
+            if (typeof onPeerDisconnectedFromPad === 'function') onPeerDisconnectedFromPad(conn.peer);
         });
     });
     };
@@ -4085,8 +4592,6 @@ async function initClient() {
                     if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
                         scratchpadModal.classList.add('hidden');
                     }
-                    const qpIframe = document.getElementById('quickpad-iframe');
-                    if (qpIframe) qpIframe.src = 'about:blank';
                 }
             } else if (data.type === 'WHITEBOARD_INVITE') {
                 if (typeof myPermissions !== 'undefined') myPermissions.whiteboard = true;
@@ -4114,11 +4619,6 @@ async function initClient() {
                 if (btnSpClient) btnSpClient.classList.remove('hidden');
                 const btnSpHeader = document.getElementById('btn-scratchpad-header');
                 if (btnSpHeader) btnSpHeader.classList.remove('hidden');
-                if (data.sessionUrl) {
-                    globalQuickPadUrl = data.sessionUrl;
-                } else if (typeof data.text === 'string' && data.text.startsWith('http')) {
-                    globalQuickPadUrl = data.text;
-                }
                 showToast("⚡ QuickPad access granted by Host!", "success");
                 cyberConfirm("The Host has invited you to the Live QuickPad session. Would you like to open it now?", "QUICKPAD INVITATION").then(join => {
                     if (join && typeof openScratchpadModal === 'function') openScratchpadModal();
@@ -4132,8 +4632,6 @@ async function initClient() {
                 if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
                     scratchpadModal.classList.add('hidden');
                 }
-                const qpIframe = document.getElementById('quickpad-iframe');
-                if (qpIframe) qpIframe.src = 'about:blank';
                 showToast("QuickPad access was revoked by Host.", "warning");
             } else if (data.type === 'NUCLEAR_VOTE_UPDATE') {
                 if (typeof updateNuclearModalUI === 'function') {
@@ -4245,15 +4743,78 @@ async function initClient() {
                     scratchpadModal.classList.add('hidden');
                 }
                 showToast("Host has not granted QuickPad permission.", "warning");
-            } else if (data.type === 'SCRATCHPAD_UPDATE') {
-                if (data.sessionUrl) {
-                    globalQuickPadUrl = data.sessionUrl;
-                } else if (typeof data.text === 'string' && data.text.startsWith('http')) {
-                    globalQuickPadUrl = data.text;
+            } else if (data.type === 'PAD_FULL_SYNC') {
+                if (data.files && Array.isArray(data.files)) {
+                    nativePadState.files = data.files;
+                    nativePadState.activeFileId = data.activeFileId || data.files[0].id;
+                    nativePadState.isLocked = !!data.isLocked;
+                    if (data.presenceMap) {
+                        padPeerPresence = data.presenceMap;
+                    }
+                    const active = (typeof getActivePadFile === 'function') ? getActivePadFile() : data.files[0];
+                    if (padEditor) {
+                        padEditor.value = active.content || '';
+                        padEditor.readOnly = nativePadState.isLocked;
+                    }
+                    if (typeof updatePadLockUI === 'function') updatePadLockUI();
+                    if (typeof renderPadTabs === 'function') renderPadTabs();
+                    if (typeof updatePadLineNumbers === 'function') updatePadLineNumbers();
+                    if (typeof updatePadStats === 'function') updatePadStats();
+                    if (typeof padPreviewMode !== 'undefined' && padPreviewMode && typeof renderPadPreview === 'function') renderPadPreview();
+                    if (typeof updatePadPresenceUI === 'function') updatePadPresenceUI();
                 }
-                if (scratchpadModal && !scratchpadModal.classList.contains('hidden') && typeof loadQuickPadUrl === 'function') {
-                    loadQuickPadUrl(globalQuickPadUrl);
+            } else if (data.type === 'PAD_EDIT') {
+                if (typeof applyRemotePadEdit === 'function') applyRemotePadEdit(data);
+            } else if (data.type === 'PAD_CURSOR') {
+                if (data.peerId && typeof padPeerCursors !== 'undefined') {
+                    padPeerCursors[data.peerId] = {
+                        pos: data.pos,
+                        selEnd: data.selEnd,
+                        fileId: data.fileId,
+                        name: data.name,
+                        color: data.color
+                    };
+                    if (typeof getActivePadFile === 'function' && getActivePadFile().id === data.fileId && typeof renderPeerCursor === 'function') {
+                        renderPeerCursor(data.peerId, data.pos, data.name, data.color);
+                    }
                 }
+            } else if (data.type === 'PAD_TAB_CREATE') {
+                if (data.file && typeof nativePadState !== 'undefined' && !nativePadState.files.some(f => f.id === data.file.id)) {
+                    nativePadState.files.push(data.file);
+                    if (typeof renderPadTabs === 'function') renderPadTabs();
+                }
+            } else if (data.type === 'PAD_TAB_RENAME') {
+                if (typeof renamePadTab === 'function') renamePadTab(data.fileId, data.name, false);
+            } else if (data.type === 'PAD_TAB_DELETE') {
+                if (typeof deletePadTab === 'function') deletePadTab(data.fileId, false);
+            } else if (data.type === 'PAD_LOCK_TOGGLE') {
+                if (typeof nativePadState !== 'undefined') {
+                    nativePadState.isLocked = !!data.isLocked;
+                    if (padEditor) padEditor.readOnly = nativePadState.isLocked;
+                    if (typeof updatePadLockUI === 'function') updatePadLockUI();
+                    showToast(nativePadState.isLocked ? "🔒 Host locked QuickPad (read-only)." : "🔓 QuickPad unlocked by Host.", "info");
+                }
+            } else if (data.type === 'PAD_RESET') {
+                if (typeof nativePadState !== 'undefined') {
+                    nativePadState.files = [{ id: 'f_main', name: 'main.txt', content: '', rev: 0 }];
+                    nativePadState.activeFileId = 'f_main';
+                    if (padEditor) padEditor.value = '';
+                    if (typeof renderPadTabs === 'function') renderPadTabs();
+                    if (typeof updatePadLineNumbers === 'function') updatePadLineNumbers();
+                    if (typeof updatePadStats === 'function') updatePadStats();
+                    if (typeof padPreviewMode !== 'undefined' && padPreviewMode && typeof renderPadPreview === 'function') renderPadPreview();
+                    showToast("✨ Host reset the QuickPad workspace.", "info");
+                }
+            } else if (data.type === 'PAD_PEERS_UPDATE') {
+                if (data.presenceMap && typeof padPeerPresence !== 'undefined') {
+                    padPeerPresence = data.presenceMap;
+                    if (typeof updatePadPresenceUI === 'function') updatePadPresenceUI();
+                }
+            } else if (data.type === 'SCRATCHPAD_CLOSED') {
+                if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
+                    scratchpadModal.classList.add('hidden');
+                }
+                showToast("QuickPad session was closed by the Host.", "info");
             
             } else if (data.type === 'NETWORK_MAP') {
                 const map = data.peers;
@@ -6373,9 +6934,8 @@ if (profileModal) {
 }
 
 
-// --- SCRATCHPAD LOGIC ---
+// --- NATIVE COLLABORATIVE QUICKPAD (P2P E2EE ZERO-KNOWLEDGE SUITE) ---
 const scratchpadModal = document.getElementById('scratchpad-modal');
-const scratchpadTextarea = document.getElementById('scratchpad-textarea');
 const btnCloseScratchpad = document.getElementById('btn-close-scratchpad');
 const btnLiveScratchpad = document.getElementById('btn-live-scratchpad');
 const btnScratchpadClient = document.getElementById('btn-scratchpad-client');
@@ -6388,61 +6948,785 @@ const btnSpRevokeAll = document.getElementById('btn-sp-revoke-all');
 const spPermCount = document.getElementById('sp-perm-count');
 const spHostControls = document.getElementById('sp-host-controls');
 
-let globalScratchpadContent = ''; // For backwards compatibility
-let globalQuickPadUrl = '';
+// Native Pad DOM Elements
+const padTabsList = document.getElementById('pad-tabs-list');
+const btnPadAddTab = document.getElementById('btn-pad-add-tab');
+const padWorkspace = document.getElementById('pad-workspace');
+const padGutter = document.getElementById('pad-gutter');
+const padEditor = document.getElementById('pad-editor');
+const padEditorWrapper = document.getElementById('pad-editor-wrapper');
+const padEditorMirror = document.getElementById('pad-editor-mirror');
+const padCursorsContainer = document.getElementById('pad-cursors-container');
+const padPreviewPane = document.getElementById('pad-preview-pane');
+const btnPadPreview = document.getElementById('btn-pad-preview');
+const padPreviewBtnText = document.getElementById('pad-preview-btn-text');
+const btnPadCopy = document.getElementById('btn-pad-copy');
+const btnPadDownload = document.getElementById('btn-pad-download');
+const btnPadLock = document.getElementById('btn-pad-lock');
+const padLockBtnText = document.getElementById('pad-lock-btn-text');
+const btnPadClear = document.getElementById('btn-pad-clear');
+const btnPadNew = document.getElementById('btn-pad-new');
+const padPresencePill = document.getElementById('pad-presence-pill');
+const padOnlineCount = document.getElementById('pad-online-count');
+const padPresencePopover = document.getElementById('pad-presence-popover');
+const padParticipantsList = document.getElementById('pad-participants-list');
+const padLockBadge = document.getElementById('pad-lock-badge');
+const padCursorCoords = document.getElementById('pad-cursor-coords');
+const padFileStats = document.getElementById('pad-file-stats');
 
-function generateQuickPadToken() {
-    // Generate high-entropy token format: token1_keyPart1_keyPart2 compatible with QuickPad's #token_key E2EE parser
-    const randPart = () => Math.random().toString(36).substring(2, 10);
-    return `${randPart()}_${randPart()}_${randPart()}`;
+// Native Pad State
+let nativePadState = {
+    files: [
+        { id: 'f_main', name: 'main.txt', content: '', rev: 0 }
+    ],
+    activeFileId: 'f_main',
+    isLocked: false,
+    version: 1
+};
+let padPeerPresence = {}; // { [peerId]: { name, color, activeFileId, inPad: boolean, lastSeen: timestamp } }
+let padPeerCursors = {};  // { [peerId]: { pos, selEnd, fileId, name, color } }
+let padPreviewMode = false;
+let padSaveDebounce = null;
+let padCursorDebounce = null;
+let padHeartbeatTimer = null;
+
+// Backwards compatibility variables
+let globalScratchpadContent = '';
+let globalQuickPadUrl = '';
+function generateQuickPadToken() { return ''; }
+function getOrCreateQuickPadUrl() { return ''; }
+function loadQuickPadUrl() {}
+function broadcastQuickPadSession() {}
+function closeQuickPadSession() { closeScratchpadModal(); }
+
+// --- Persistence ---
+function saveNativePadState() {
+    if (!isHost) return;
+    if (padSaveDebounce) clearTimeout(padSaveDebounce);
+    padSaveDebounce = setTimeout(() => {
+        try {
+            localStorage.setItem('localcast_native_pad', JSON.stringify({
+                files: nativePadState.files,
+                activeFileId: nativePadState.activeFileId,
+                isLocked: nativePadState.isLocked
+            }));
+        } catch(e) {}
+    }, 350);
 }
 
-function getOrCreateQuickPadUrl() {
-    if (!globalQuickPadUrl) {
-        const saved = localStorage.getItem('localcast_quickpad_url');
-        if (saved && saved.startsWith('https://quickpad.org/#')) {
-            globalQuickPadUrl = saved;
-        } else {
-            globalQuickPadUrl = `https://quickpad.org/#${generateQuickPadToken()}`;
-            try { localStorage.setItem('localcast_quickpad_url', globalQuickPadUrl); } catch(e) {}
+function loadNativePadState() {
+    try {
+        const saved = localStorage.getItem('localcast_native_pad');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed && Array.isArray(parsed.files) && parsed.files.length > 0) {
+                nativePadState.files = parsed.files;
+                nativePadState.activeFileId = parsed.activeFileId || parsed.files[0].id;
+                nativePadState.isLocked = !!parsed.isLocked;
+            }
+        }
+    } catch(e) {}
+}
+
+// --- Active File & Content Helpers ---
+function getActivePadFile() {
+    if (!nativePadState.files || nativePadState.files.length === 0) {
+        nativePadState.files = [{ id: 'f_main', name: 'main.txt', content: '', rev: 0 }];
+        nativePadState.activeFileId = 'f_main';
+    }
+    let f = nativePadState.files.find(item => item.id === nativePadState.activeFileId);
+    if (!f) {
+        f = nativePadState.files[0];
+        nativePadState.activeFileId = f.id;
+    }
+    return f;
+}
+
+// Minimal fast diff & splice
+function computeTextDiff(oldText, newText) {
+    if (oldText === newText) return null;
+    let start = 0;
+    const oldLen = oldText.length;
+    const newLen = newText.length;
+    while (start < oldLen && start < newLen && oldText[start] === newText[start]) {
+        start++;
+    }
+    let oldEnd = oldLen;
+    let newEnd = newLen;
+    while (oldEnd > start && newEnd > start && oldText[oldEnd - 1] === newEnd[newEnd - 1]) {
+        oldEnd--;
+        newEnd--;
+    }
+    return {
+        start: start,
+        length: oldEnd - start,
+        text: newText.substring(start, newEnd)
+    };
+}
+
+function applyTextDiff(currentText, diff) {
+    if (!diff) return currentText;
+    const start = Math.max(0, Math.min(diff.start, currentText.length));
+    const deleteLength = Math.max(0, Math.min(diff.length, currentText.length - start));
+    const before = currentText.substring(0, start);
+    const after = currentText.substring(start + deleteLength);
+    return before + (diff.text || '') + after;
+}
+
+// --- Line Numbers & Stats ---
+function updatePadLineNumbers() {
+    if (!padGutter || !padEditor) return;
+    const lines = (padEditor.value.match(/\n/g) || []).length + 1;
+    let gutterText = '';
+    for (let i = 1; i <= lines; i++) {
+        gutterText += i + '\n';
+    }
+    padGutter.textContent = gutterText;
+    padGutter.scrollTop = padEditor.scrollTop;
+}
+
+function updatePadStats() {
+    if (!padEditor) return;
+    const val = padEditor.value;
+    const pos = padEditor.selectionStart || 0;
+    
+    // Ln & Col
+    const textUpToCursor = val.substring(0, pos);
+    const lines = textUpToCursor.split('\n');
+    const lineNum = lines.length;
+    const colNum = lines[lines.length - 1].length + 1;
+    if (padCursorCoords) padCursorCoords.textContent = `Ln ${lineNum}, Col ${colNum}`;
+
+    // Word and Char counts
+    const words = (val.trim().length > 0) ? (val.trim().match(/\S+/g) || []).length : 0;
+    const chars = val.length;
+    if (padFileStats) padFileStats.textContent = `${words} word${words === 1 ? '' : 's'}, ${chars} char${chars === 1 ? '' : 's'}`;
+}
+
+// --- Caret Coordinates & Peer Cursors ---
+let _cachedPadCharWidth = 0;
+let _cachedPadLineHeight = 22;
+
+function getPadMetrics() {
+    if (!padEditor) return { charWidth: 8.43, lineHeight: 22 };
+    if (_cachedPadCharWidth > 0) {
+        return { charWidth: _cachedPadCharWidth, lineHeight: _cachedPadLineHeight };
+    }
+    const test = document.createElement('span');
+    test.style.fontFamily = "'SF Mono', Menlo, Monaco, Consolas, 'Roboto Mono', 'JetBrains Mono', 'Liberation Mono', 'Courier New', monospace";
+    test.style.fontSize = "14px";
+    test.style.lineHeight = "22px";
+    test.style.letterSpacing = "0px";
+    test.style.wordSpacing = "0px";
+    test.style.fontVariantLigatures = "none";
+    test.style.fontFeatureSettings = '"liga" 0, "calt" 0';
+    test.style.visibility = "hidden";
+    test.style.position = "absolute";
+    test.style.whiteSpace = "pre";
+    test.textContent = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".repeat(5); // 310 chars
+    (document.body || document.documentElement).appendChild(test);
+    const rect = test.getBoundingClientRect();
+    const w = rect.width / 310;
+    test.remove();
+    _cachedPadCharWidth = (w > 0) ? w : 8.43;
+    _cachedPadLineHeight = 22;
+    return { charWidth: _cachedPadCharWidth, lineHeight: _cachedPadLineHeight };
+}
+
+function getCaretCoordinates(pos) {
+    if (!padEditor) return { top: 12, left: 14, height: 22 };
+    if (typeof pos !== 'number' || isNaN(pos)) pos = 0;
+    const val = padEditor.value || '';
+    pos = Math.max(0, Math.min(pos, val.length));
+
+    const { charWidth, lineHeight } = getPadMetrics();
+    const padLeft = 14;
+    const padTop = 12;
+
+    const textBefore = val.substring(0, pos);
+    const linesBefore = textBefore.split('\n');
+    const lineIndex = linesBefore.length - 1;
+    const colIndex = linesBefore[lineIndex].length;
+
+    const allLines = val.split('\n');
+    const currentLine = allLines[lineIndex] || '';
+
+    // Available width for text in padEditor (clientWidth minus 14px left and 14px right padding)
+    const availWidth = Math.max(100, padEditor.clientWidth - 28);
+
+    // Check if any line up to the caret position wrapped, or if the current line contains tabs/emojis
+    let hasWrapOrSpecial = false;
+    if (currentLine.includes('\t') || /[^\x20-\x7E\s]/.test(currentLine)) {
+        hasWrapOrSpecial = true;
+    } else {
+        for (let i = 0; i <= lineIndex; i++) {
+            const lText = allLines[i] || '';
+            if (lText.length * charWidth > (availWidth - (charWidth * 1.5))) {
+                hasWrapOrSpecial = true;
+                break;
+            }
         }
     }
-    return globalQuickPadUrl;
-}
 
-function loadQuickPadUrl(url) {
-    if (!url) return;
-    const qpIframe = document.getElementById('quickpad-iframe');
-    const qpLoading = document.getElementById('quickpad-loading-indicator');
-    if (!qpIframe) return;
-
-    if (qpLoading) qpLoading.style.display = 'flex';
-    
-    qpIframe.onload = () => {
-        if (qpLoading) qpLoading.style.display = 'none';
-    };
-
-    if (qpIframe.src !== url) {
-        qpIframe.src = url;
-    } else {
-        if (qpLoading) qpLoading.style.display = 'none';
+    if (!hasWrapOrSpecial) {
+        // Monospace grid coordinates: mathematically exact, 0 drift
+        const left = padLeft + (colIndex * charWidth) - padEditor.scrollLeft;
+        const top = padTop + (lineIndex * lineHeight) - padEditor.scrollTop;
+        return { top, left, height: lineHeight };
     }
+
+    // Mirror div fallback with identical metrics for wrapped or special lines
+    if (padEditorMirror) {
+        padEditorMirror.style.width = padEditor.clientWidth + 'px';
+        padEditorMirror.textContent = textBefore;
+
+        const marker = document.createElement('span');
+        marker.textContent = val.substring(pos, pos + 200) || '.';
+        padEditorMirror.appendChild(marker);
+
+        const left = marker.offsetLeft - padEditor.scrollLeft;
+        const top = marker.offsetTop - padEditor.scrollTop;
+        return { top, left, height: lineHeight };
+    }
+
+    const left = padLeft + (colIndex * charWidth) - padEditor.scrollLeft;
+    const top = padTop + (lineIndex * lineHeight) - padEditor.scrollTop;
+    return { top, left, height: lineHeight };
 }
 
-function broadcastQuickPadSession(url) {
-    if (!isHost || !url) return;
-    const payload = {
-        type: 'SCRATCHPAD_UPDATE',
-        sessionUrl: url,
-        text: url
-    };
-    connections.forEach(c => {
-        if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-            c.send(payload);
+function renderPeerCursor(peerId, pos, name, color) {
+    if (!padCursorsContainer || !padEditor) return;
+    let cursor = document.getElementById('peer-cursor-' + peerId);
+    if (!cursor) {
+        cursor = document.createElement('div');
+        cursor.id = 'peer-cursor-' + peerId;
+        cursor.className = 'peer-cursor';
+        padCursorsContainer.appendChild(cursor);
+    }
+    const safeName = name || 'Collaborator';
+    const safeColor = sanitizeCssColor(color || 'var(--neon-purple)');
+    cursor.setAttribute('data-name', safeName);
+    cursor.style.setProperty('--cursor-color', safeColor);
+
+    const coords = getCaretCoordinates(pos);
+    cursor.style.top = `${coords.top}px`;
+    cursor.style.left = `${coords.left}px`;
+    cursor.style.height = `${coords.height}px`;
+
+    // Position badge below caret if near top of editor to prevent clipping
+    if (coords.top < 22) {
+        cursor.classList.add('top-edge');
+    } else {
+        cursor.classList.remove('top-edge');
+    }
+
+    const isVisible = (coords.top >= -20 && coords.top <= padEditor.clientHeight + 20);
+    cursor.style.display = isVisible ? 'block' : 'none';
+}
+
+function removePeerCursor(peerId) {
+    const cursor = document.getElementById('peer-cursor-' + peerId);
+    if (cursor) cursor.remove();
+    delete padPeerCursors[peerId];
+}
+
+function updateAllPeerCursors() {
+    if (!padCursorsContainer || !padEditor) return;
+    const activeFile = getActivePadFile();
+    Object.keys(padPeerCursors).forEach(pid => {
+        const c = padPeerCursors[pid];
+        if (c && c.fileId === activeFile.id) {
+            renderPeerCursor(pid, c.pos, c.name, c.color);
+        } else {
+            const el = document.getElementById('peer-cursor-' + pid);
+            if (el) el.style.display = 'none';
         }
     });
 }
 
+function onPeerDisconnectedFromPad(peerId) {
+    if (!peerId) return;
+    delete padPeerPresence[peerId];
+    removePeerCursor(peerId);
+    updatePadPresenceUI();
+}
+
+// --- Tabs Management ---
+function renderPadTabs() {
+    if (!padTabsList) return;
+    padTabsList.innerHTML = '';
+    const activeFile = getActivePadFile();
+
+    nativePadState.files.forEach(f => {
+        const tab = document.createElement('div');
+        tab.className = `pad-tab ${f.id === activeFile.id ? 'active' : ''}`;
+        tab.dataset.fileId = f.id;
+        
+        // Find peers currently viewing this tab
+        const peersOnThisTab = Object.keys(padPeerPresence).filter(pid => {
+            const p = padPeerPresence[pid];
+            return p && p.inPad && p.activeFileId === f.id;
+        });
+
+        let dotsHtml = '';
+        if (peersOnThisTab.length > 0) {
+            dotsHtml = `<div class="pad-tab-peers">${peersOnThisTab.map(pid => {
+                const p = padPeerPresence[pid];
+                const col = sanitizeCssColor((p && p.color) || 'var(--neon-purple)');
+                const nm = escapeHtml((p && p.name) || 'User');
+                return `<span class="pad-tab-peer-dot" style="background:${col};" title="${nm}"></span>`;
+            }).join('')}</div>`;
+        }
+
+        const isOnlyTab = (nativePadState.files.length <= 1);
+        const closeBtnHtml = isOnlyTab ? '' : `<span class="pad-tab-close" data-close-id="${f.id}" title="Close Tab">✕</span>`;
+
+        tab.innerHTML = `
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.7; flex-shrink: 0;"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+            <span class="pad-tab-name" title="Double click to rename">${escapeHtml(f.name)}</span>
+            ${dotsHtml}
+            ${closeBtnHtml}
+        `;
+
+        // Click to switch
+        tab.addEventListener('click', (e) => {
+            if (e.target.classList.contains('pad-tab-close')) return;
+            switchPadTab(f.id);
+        });
+
+        // Double click to rename
+        tab.addEventListener('dblclick', async (e) => {
+            e.stopPropagation();
+            if (!isHost && nativePadState.isLocked) {
+                showToast("Pad is locked by the host.", "warning");
+                return;
+            }
+            const newName = await cyberPrompt("Rename file:", f.name);
+            if (newName && newName.trim() && newName.trim() !== f.name) {
+                renamePadTab(f.id, newName.trim(), true);
+            }
+        });
+
+        // Close button
+        const closeBtn = tab.querySelector('.pad-tab-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!isHost && nativePadState.isLocked) {
+                    showToast("Pad is locked by the host.", "warning");
+                    return;
+                }
+                const confirmed = await cyberConfirm(`Close and delete "${f.name}"?`, "DELETE FILE");
+                if (confirmed) {
+                    deletePadTab(f.id, true);
+                }
+            });
+        }
+
+        padTabsList.appendChild(tab);
+    });
+}
+
+function switchPadTab(fileId) {
+    const cur = getActivePadFile();
+    if (padEditor && cur) {
+        cur.content = padEditor.value;
+    }
+    nativePadState.activeFileId = fileId;
+    const next = getActivePadFile();
+    if (padEditor) {
+        padEditor.value = next.content || '';
+        padEditor.readOnly = (!isHost && nativePadState.isLocked);
+    }
+    updatePadLineNumbers();
+    updatePadStats();
+    if (padPreviewMode) renderPadPreview();
+    renderPadTabs();
+    updateAllPeerCursors();
+    saveNativePadState();
+    broadcastPadPresence();
+    broadcastPadCursor();
+}
+
+function createPadTab(filename, initialContent = '', broadcast = true) {
+    let cleanName = (filename || '').trim();
+    if (!cleanName) {
+        const count = nativePadState.files.length + 1;
+        cleanName = `notes-${count}.txt`;
+    }
+    const newFile = {
+        id: 'f_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        name: cleanName,
+        content: initialContent || '',
+        rev: 0
+    };
+    nativePadState.files.push(newFile);
+    switchPadTab(newFile.id);
+    if (broadcast) {
+        broadcastPadNetwork({
+            type: 'PAD_TAB_CREATE',
+            file: newFile
+        });
+    }
+}
+
+function renamePadTab(fileId, newName, broadcast = true) {
+    const file = nativePadState.files.find(f => f.id === fileId);
+    if (!file) return;
+    file.name = newName;
+    renderPadTabs();
+    saveNativePadState();
+    if (broadcast) {
+        broadcastPadNetwork({
+            type: 'PAD_TAB_RENAME',
+            fileId: fileId,
+            name: newName
+        });
+    }
+}
+
+function deletePadTab(fileId, broadcast = true) {
+    if (nativePadState.files.length <= 1) return;
+    const idx = nativePadState.files.findIndex(f => f.id === fileId);
+    if (idx === -1) return;
+    nativePadState.files.splice(idx, 1);
+    if (nativePadState.activeFileId === fileId) {
+        const nextFile = nativePadState.files[Math.max(0, idx - 1)];
+        switchPadTab(nextFile.id);
+    } else {
+        renderPadTabs();
+        saveNativePadState();
+    }
+    if (broadcast) {
+        broadcastPadNetwork({
+            type: 'PAD_TAB_DELETE',
+            fileId: fileId
+        });
+    }
+}
+
+// --- Editor Input & Network Broadcasts ---
+function handlePadEditorInput() {
+    if (!padEditor) return;
+    if (!isHost && nativePadState.isLocked) {
+        padEditor.value = getActivePadFile().content || '';
+        showToast("QuickPad is locked by the Host (read-only).", "warning");
+        return;
+    }
+
+    const cur = getActivePadFile();
+    const oldContent = cur.content || '';
+    const newContent = padEditor.value;
+
+    if (oldContent === newContent) {
+        updatePadStats();
+        return;
+    }
+
+    const diff = computeTextDiff(oldContent, newContent);
+    cur.content = newContent;
+    cur.rev = (cur.rev || 0) + 1;
+
+    updatePadLineNumbers();
+    updatePadStats();
+    if (padPreviewMode) renderPadPreview();
+    updateAllPeerCursors();
+    saveNativePadState();
+
+    if (diff) {
+        const payload = {
+            type: 'PAD_EDIT',
+            fileId: cur.id,
+            diff: diff,
+            rev: cur.rev,
+            pos: padEditor.selectionStart || 0,
+            selEnd: padEditor.selectionEnd || 0,
+            peerId: (peer && peer.id) || (isHost ? 'host' : 'guest'),
+            name: typeof getMyAlias === 'function' ? getMyAlias() : (isHost ? 'Host' : 'Guest'),
+            color: sanitizeCssColor(guestColor || (isHost ? 'var(--neon-purple)' : 'var(--neon-blue)'))
+        };
+        broadcastPadNetwork(payload);
+    }
+}
+
+function broadcastPadCursor() {
+    if (!padEditor) return;
+    if (padCursorDebounce) clearTimeout(padCursorDebounce);
+    padCursorDebounce = setTimeout(() => {
+        const activeFile = getActivePadFile();
+        const payload = {
+            type: 'PAD_CURSOR',
+            fileId: activeFile.id,
+            pos: padEditor.selectionStart || 0,
+            selEnd: padEditor.selectionEnd || 0,
+            peerId: (peer && peer.id) || (isHost ? 'host' : 'guest'),
+            name: typeof getMyAlias === 'function' ? getMyAlias() : (isHost ? 'Host' : 'Guest'),
+            color: sanitizeCssColor(guestColor || (isHost ? 'var(--neon-purple)' : 'var(--neon-blue)'))
+        };
+        broadcastPadNetwork(payload);
+    }, 60);
+}
+
+function broadcastPadNetwork(payload) {
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                try { c.send(payload); } catch(e) {}
+            }
+        });
+    } else {
+        if (hostConnection && hostConnection.open) {
+            try { hostConnection.send(payload); } catch(e) {}
+        }
+    }
+}
+
+function applyRemotePadEdit(data) {
+    if (!data || !data.fileId || !data.diff) return;
+    const file = nativePadState.files.find(f => f.id === data.fileId);
+    if (!file) {
+        requestPadFullSync();
+        return;
+    }
+
+    const oldText = file.content || '';
+    const updated = applyTextDiff(oldText, data.diff);
+    file.content = updated;
+    file.rev = Math.max(file.rev || 0, data.rev || 0);
+
+    const activeFile = getActivePadFile();
+    if (activeFile.id === data.fileId && padEditor) {
+        const myStart = padEditor.selectionStart || 0;
+        const myEnd = padEditor.selectionEnd || 0;
+        const diffStart = data.diff.start;
+        const delta = (data.diff.text ? data.diff.text.length : 0) - (data.diff.length || 0);
+
+        let newStart = myStart;
+        let newEnd = myEnd;
+        if (myStart > diffStart) {
+            newStart = Math.max(diffStart, myStart + delta);
+        }
+        if (myEnd > diffStart) {
+            newEnd = Math.max(diffStart, myEnd + delta);
+        }
+
+        padEditor.value = updated;
+        try { padEditor.setSelectionRange(newStart, newEnd); } catch(e) {}
+        updatePadLineNumbers();
+        updatePadStats();
+        if (padPreviewMode) renderPadPreview();
+    }
+
+    if (data.peerId) {
+        padPeerCursors[data.peerId] = {
+            pos: data.pos || 0,
+            selEnd: data.selEnd || 0,
+            fileId: data.fileId,
+            name: data.name,
+            color: data.color
+        };
+        if (activeFile.id === data.fileId) {
+            renderPeerCursor(data.peerId, data.pos || 0, data.name, data.color);
+        }
+    }
+    saveNativePadState();
+}
+
+function sendPadFullSync(targetConn) {
+    if (!targetConn || !targetConn.open) return;
+    try {
+        targetConn.send({
+            type: 'PAD_FULL_SYNC',
+            files: nativePadState.files,
+            activeFileId: nativePadState.activeFileId,
+            isLocked: nativePadState.isLocked,
+            presenceMap: padPeerPresence
+        });
+    } catch(e) {}
+}
+
+function requestPadFullSync() {
+    if (isHost) return;
+    if (hostConnection && hostConnection.open) {
+        try { hostConnection.send({ type: 'PAD_REQUEST_SYNC' }); } catch(e) {}
+    }
+}
+
+// --- Lock & Permissions UI ---
+function updatePadLockUI() {
+    if (padLockBadge) {
+        if (nativePadState.isLocked) {
+            padLockBadge.className = 'pad-badge pad-badge-locked';
+            padLockBadge.textContent = '🔒 LOCKED (VIEW-ONLY)';
+        } else {
+            padLockBadge.className = 'pad-badge pad-badge-editable';
+            padLockBadge.textContent = '🔓 EDITABLE';
+        }
+    }
+    if (padLockBtnText) {
+        padLockBtnText.textContent = nativePadState.isLocked ? 'UNLOCK' : 'LOCK';
+    }
+    if (btnPadLock) {
+        btnPadLock.style.borderColor = nativePadState.isLocked ? 'var(--neon-green)' : '#fcee0a';
+        btnPadLock.style.color = nativePadState.isLocked ? 'var(--neon-green)' : '#fcee0a';
+    }
+    if (padEditor) {
+        padEditor.readOnly = (!isHost && nativePadState.isLocked);
+    }
+}
+
+// --- Online Presence Tracking ---
+function broadcastPadPresence() {
+    const isModalOpen = (scratchpadModal && !scratchpadModal.classList.contains('hidden'));
+    const myId = (peer && peer.id) || (isHost ? 'host' : 'guest');
+    const myName = (typeof getMyAlias === 'function' ? getMyAlias() : (isHost ? 'Host' : 'Guest'));
+    const myColor = sanitizeCssColor(guestColor || (isHost ? 'var(--neon-purple)' : 'var(--neon-blue)'));
+    const activeFile = getActivePadFile();
+
+    if (isModalOpen) {
+        padPeerPresence[myId] = {
+            name: myName,
+            color: myColor,
+            activeFileId: activeFile.id,
+            inPad: true,
+            isHost: isHost,
+            lastSeen: Date.now()
+        };
+    } else {
+        delete padPeerPresence[myId];
+    }
+
+    broadcastPadNetwork({
+        type: 'PAD_PRESENCE',
+        peerId: myId,
+        name: myName,
+        color: myColor,
+        activeFileId: activeFile.id,
+        inPad: isModalOpen
+    });
+
+    updatePadPresenceUI();
+}
+
+function updatePadPresenceUI() {
+    const isModalOpen = (scratchpadModal && !scratchpadModal.classList.contains('hidden'));
+    let onlineUsers = [];
+
+    // Local user
+    if (isModalOpen) {
+        onlineUsers.push({
+            id: (peer && peer.id) || (isHost ? 'host' : 'guest'),
+            name: (typeof getMyAlias === 'function' ? getMyAlias() : (isHost ? 'Host' : 'Guest')) + ' (You)',
+            color: sanitizeCssColor(guestColor || (isHost ? 'var(--neon-purple)' : 'var(--neon-blue)')),
+            role: isHost ? 'Host' : 'Guest',
+            activeFileId: nativePadState.activeFileId
+        });
+    }
+
+    // Remote peers
+    const now = Date.now();
+    Object.keys(padPeerPresence).forEach(pid => {
+        const p = padPeerPresence[pid];
+        if (p && p.inPad && (now - (p.lastSeen || 0) < 30000)) {
+            onlineUsers.push({
+                id: pid,
+                name: p.name || ('Peer ' + pid.substring(0, 5)),
+                color: sanitizeCssColor(p.color || 'var(--neon-blue)'),
+                role: p.isHost ? 'Host' : 'Guest',
+                activeFileId: p.activeFileId
+            });
+        }
+    });
+
+    const count = onlineUsers.length;
+    if (padOnlineCount) {
+        padOnlineCount.textContent = `${count} Online`;
+    }
+
+    if (padParticipantsList) {
+        if (onlineUsers.length === 0) {
+            padParticipantsList.innerHTML = `<div style="color: var(--text-muted); font-size: 0.75rem;">No active collaborators</div>`;
+        } else {
+            padParticipantsList.innerHTML = onlineUsers.map(u => {
+                const targetFile = nativePadState.files.find(f => f.id === u.activeFileId);
+                const fileLabel = targetFile ? targetFile.name : 'main.txt';
+                return `
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.78rem;">
+                        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
+                            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${u.color}; flex-shrink: 0; box-shadow: 0 0 6px ${u.color};"></span>
+                            <span style="color: #fff; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(u.name)}</span>
+                        </div>
+                        <span style="color: var(--neon-purple); font-size: 0.7rem; font-family: var(--font-mono);">${escapeHtml(fileLabel)}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    renderPadTabs();
+}
+
+// --- Markdown Preview Parser ---
+function renderMarkdownToHtml(md) {
+    if (!md) return '<div style="color: var(--text-muted); font-style: italic; padding: 12px 0;">(Empty file)</div>';
+    let html = md
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Code blocks
+    html = html.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        return `<pre class="pad-code-block"><code>${code.trim()}</code></pre>`;
+    });
+
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code class="pad-inline-code">$1</code>');
+
+    // Headings
+    html = html.replace(/^###### (.*$)/gim, '<h6 class="pad-md-h6">$1</h6>');
+    html = html.replace(/^##### (.*$)/gim, '<h5 class="pad-md-h5">$1</h5>');
+    html = html.replace(/^#### (.*$)/gim, '<h4 class="pad-md-h4">$1</h4>');
+    html = html.replace(/^### (.*$)/gim, '<h3 class="pad-md-h3">$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2 class="pad-md-h2">$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1 class="pad-md-h1">$1</h1>');
+
+    // Blockquote
+    html = html.replace(/^\> (.*$)/gim, '<blockquote class="pad-md-quote">$1</blockquote>');
+
+    // Horizontal rules
+    html = html.replace(/^(?:---|\*\*\*|___)\s*$/gim, '<hr class="pad-md-hr">');
+
+    // Checklists
+    html = html.replace(/^\s*-\s*\[x\]\s*(.*$)/gim, '<div class="pad-checklist-item"><input type="checkbox" checked disabled> <span>$1</span></div>');
+    html = html.replace(/^\s*-\s*\[ \]\s*(.*$)/gim, '<div class="pad-checklist-item"><input type="checkbox" disabled> <span>$1</span></div>');
+
+    // Unordered lists
+    html = html.replace(/^\s*[-*]\s+(.*$)/gim, '<li class="pad-md-li">$1</li>');
+    html = html.replace(/(<li class="pad-md-li">[\s\S]*?<\/li>)+/g, '<ul class="pad-md-ul">$&</ul>');
+
+    // Bold / italic
+    html = html.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+    // Links
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="pad-md-link">$1</a>');
+
+    // Paragraphs & breaks
+    html = html.replace(/\n\n+/g, '</p><p class="pad-md-p">');
+    html = html.replace(/\n/g, '<br>');
+
+    return `<div class="pad-rendered-markdown"><p class="pad-md-p">${html}</p></div>`;
+}
+
+function renderPadPreview() {
+    if (!padPreviewPane) return;
+    const cur = getActivePadFile();
+    padPreviewPane.innerHTML = renderMarkdownToHtml(cur.content || '');
+}
+
+// --- Host Guest Permissions Table ---
 function renderSpGuestList() {
     if (!isHost) {
         if (spHostControls) spHostControls.style.display = 'none';
@@ -6492,11 +7776,13 @@ function renderSpGuestList() {
                 conn.permissions.scratchpad = checked;
                 conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
                 if (checked) {
-                    const sessionUrl = getOrCreateQuickPadUrl();
-                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), sessionUrl: sessionUrl, text: sessionUrl });
-                    conn.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
+                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                    sendPadFullSync(conn);
                 } else {
                     conn.send({ type: 'SCRATCHPAD_REVOKED' });
+                    delete padPeerPresence[conn.peer];
+                    removePeerCursor(conn.peer);
+                    updatePadPresenceUI();
                 }
                 renderSpGuestList();
                 if (currentRadarGuestId === peerId) {
@@ -6508,6 +7794,7 @@ function renderSpGuestList() {
     });
 }
 
+// --- Modal Open / Close Logic ---
 function openScratchpadModal() {
     if (!isHost && (!myPermissions || !myPermissions.scratchpad)) {
         cyberAlert("You do not have permission to access QuickPad. Ask the host for access.", "PERMISSION DENIED");
@@ -6520,93 +7807,238 @@ function openScratchpadModal() {
         if (qpHostBtns) qpHostBtns.style.display = isHost ? 'flex' : 'none';
 
         if (isHost) {
+            loadNativePadState();
             renderSpGuestList();
-            const sessionUrl = getOrCreateQuickPadUrl();
-            loadQuickPadUrl(sessionUrl);
         } else {
-            if (globalQuickPadUrl) {
-                loadQuickPadUrl(globalQuickPadUrl);
-            } else if (hostConnection && hostConnection.open) {
-                hostConnection.send({ type: 'REQUEST_SCRATCHPAD' });
-            }
+            requestPadFullSync();
         }
+
+        const active = getActivePadFile();
+        if (padEditor) {
+            padEditor.value = active.content || '';
+            padEditor.readOnly = (!isHost && nativePadState.isLocked);
+        }
+        updatePadLockUI();
+        renderPadTabs();
+        updatePadLineNumbers();
+        updatePadStats();
+        if (padPreviewMode) renderPadPreview();
+        broadcastPadPresence();
+
+        if (padHeartbeatTimer) clearInterval(padHeartbeatTimer);
+        padHeartbeatTimer = setInterval(() => {
+            if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
+                broadcastPadNetwork({
+                    type: 'PAD_HEARTBEAT',
+                    inPad: true,
+                    activeFileId: getActivePadFile().id
+                });
+            } else {
+                clearInterval(padHeartbeatTimer);
+                padHeartbeatTimer = null;
+            }
+        }, 8000);
     }
 }
 window.openQuickPadModal = openScratchpadModal;
 
+function closeScratchpadModal() {
+    if (scratchpadModal) scratchpadModal.classList.add('hidden');
+    if (spPermissionsPopover) spPermissionsPopover.classList.add('hidden');
+    if (padPresencePopover) padPresencePopover.classList.add('hidden');
+    if (padHeartbeatTimer) {
+        clearInterval(padHeartbeatTimer);
+        padHeartbeatTimer = null;
+    }
+    broadcastPadPresence();
+}
+
+// --- Wire Up Buttons & Listeners ---
 if (btnLiveScratchpad) btnLiveScratchpad.addEventListener('click', openScratchpadModal);
 if (btnScratchpadClient) btnScratchpadClient.addEventListener('click', openScratchpadModal);
 const btnScratchpadHeaderEl = document.getElementById('btn-scratchpad-header');
 if (btnScratchpadHeaderEl) btnScratchpadHeaderEl.addEventListener('click', openScratchpadModal);
 
-if (btnCloseScratchpad) {
-    btnCloseScratchpad.addEventListener('click', () => {
-        if (scratchpadModal) scratchpadModal.classList.add('hidden');
-        if (spPermissionsPopover) spPermissionsPopover.classList.add('hidden');
+if (btnCloseScratchpad) btnCloseScratchpad.addEventListener('click', closeScratchpadModal);
+
+// Add Tab Button
+if (btnPadAddTab) {
+    btnPadAddTab.addEventListener('click', async () => {
+        if (!isHost && nativePadState.isLocked) {
+            showToast("Pad is locked by the host.", "warning");
+            return;
+        }
+        const name = await cyberPrompt("Enter new file name (e.g. notes.md, snippet.js):", `notes-${nativePadState.files.length + 1}.txt`);
+        if (name && name.trim()) {
+            createPadTab(name.trim(), '', true);
+        }
     });
 }
 
-// QuickPad Controls: Copy Link, Pop Out, New Pad, Set Custom Link
-const btnQpCopyLink = document.getElementById('btn-qp-copy-link');
-if (btnQpCopyLink) {
-    btnQpCopyLink.addEventListener('click', () => {
-        const url = isHost ? getOrCreateQuickPadUrl() : (globalQuickPadUrl || 'https://quickpad.org/');
+// Markdown Preview Toggle
+if (btnPadPreview) {
+    btnPadPreview.addEventListener('click', () => {
+        padPreviewMode = !padPreviewMode;
+        if (padPreviewPane) {
+            padPreviewPane.classList.toggle('hidden', !padPreviewMode);
+            if (padPreviewMode) {
+                renderPadPreview();
+                if (padPreviewBtnText) padPreviewBtnText.textContent = 'EDITOR';
+                btnPadPreview.style.borderColor = 'var(--neon-green)';
+                btnPadPreview.style.color = 'var(--neon-green)';
+            } else {
+                if (padPreviewBtnText) padPreviewBtnText.textContent = 'PREVIEW';
+                btnPadPreview.style.borderColor = 'var(--neon-blue)';
+                btnPadPreview.style.color = 'var(--neon-blue)';
+            }
+        }
+    });
+}
+
+// Copy File Content
+if (btnPadCopy) {
+    btnPadCopy.addEventListener('click', () => {
+        const cur = getActivePadFile();
+        const text = cur.content || '';
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(url).then(() => {
-                showToast("📋 QuickPad zero-knowledge link copied!", "success");
+            navigator.clipboard.writeText(text).then(() => {
+                showToast(`📋 Copied "${cur.name}" to clipboard!`, "success");
             }).catch(() => {
-                prompt("Copy this QuickPad link:", url);
+                prompt("Copy file text:", text);
             });
         } else {
-            prompt("Copy this QuickPad link:", url);
+            prompt("Copy file text:", text);
         }
     });
 }
 
-const btnQpPopout = document.getElementById('btn-qp-popout');
-if (btnQpPopout) {
-    btnQpPopout.addEventListener('click', () => {
-        const url = isHost ? getOrCreateQuickPadUrl() : (globalQuickPadUrl || 'https://quickpad.org/');
-        window.open(url, '_blank');
+// Download Active File
+if (btnPadDownload) {
+    btnPadDownload.addEventListener('click', () => {
+        const cur = getActivePadFile();
+        const text = cur.content || '';
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = cur.name || 'quickpad.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        showToast(`💾 Downloaded "${cur.name}"`, "success");
     });
 }
 
-const btnQpNew = document.getElementById('btn-qp-new');
-if (btnQpNew) {
-    btnQpNew.addEventListener('click', async () => {
+// Host Only: Lock Pad
+if (btnPadLock) {
+    btnPadLock.addEventListener('click', () => {
         if (!isHost) return;
-        const confirmed = await cyberConfirm("Generate a brand new zero-knowledge QuickPad session for all participants? All participants with access will switch to the new pad.", "NEW QUICKPAD SESSION");
+        nativePadState.isLocked = !nativePadState.isLocked;
+        updatePadLockUI();
+        saveNativePadState();
+        broadcastPadNetwork({
+            type: 'PAD_LOCK_TOGGLE',
+            isLocked: nativePadState.isLocked
+        });
+        showToast(nativePadState.isLocked ? "🔒 Pad locked for guests (read-only)." : "🔓 Pad unlocked for all guests.", "info");
+    });
+}
+
+// Host Only: Clear Active File
+if (btnPadClear) {
+    btnPadClear.addEventListener('click', async () => {
+        if (!isHost && nativePadState.isLocked) return;
+        const cur = getActivePadFile();
+        const confirmed = await cyberConfirm(`Clear all text in "${cur.name}"?`, "CLEAR FILE");
         if (confirmed) {
-            globalQuickPadUrl = `https://quickpad.org/#${generateQuickPadToken()}`;
-            try { localStorage.setItem('localcast_quickpad_url', globalQuickPadUrl); } catch(e) {}
-            loadQuickPadUrl(globalQuickPadUrl);
-            broadcastQuickPadSession(globalQuickPadUrl);
-            showToast("✨ New QuickPad session created & synced!", "success");
+            if (padEditor) padEditor.value = '';
+            handlePadEditorInput();
+            showToast(`🗑️ Cleared "${cur.name}"`, "info");
         }
     });
 }
 
-const btnQpSetLink = document.getElementById('btn-qp-set-link');
-if (btnQpSetLink) {
-    btnQpSetLink.addEventListener('click', async () => {
+// Host Only: Reset Entire Workspace
+if (btnPadNew) {
+    btnPadNew.addEventListener('click', async () => {
         if (!isHost) return;
-        const input = await cyberPrompt("Paste an existing QuickPad URL to sync with this session:", globalQuickPadUrl || "https://quickpad.org/#...");
-        if (input && input.trim()) {
-            let cleanUrl = input.trim();
-            if (!cleanUrl.startsWith('http')) cleanUrl = 'https://' + cleanUrl;
-            if (!cleanUrl.includes('quickpad.org')) {
-                showToast("Please enter a valid quickpad.org URL.", "warning");
-                return;
-            }
-            globalQuickPadUrl = cleanUrl;
-            try { localStorage.setItem('localcast_quickpad_url', globalQuickPadUrl); } catch(e) {}
-            loadQuickPadUrl(globalQuickPadUrl);
-            broadcastQuickPadSession(globalQuickPadUrl);
-            showToast("🔗 QuickPad session updated & synced!", "success");
+        const confirmed = await cyberConfirm("Reset entire QuickPad workspace? This will clear all files and reset to a clean main.txt for all participants.", "RESET QUICKPAD");
+        if (confirmed) {
+            nativePadState.files = [{ id: 'f_main', name: 'main.txt', content: '', rev: 0 }];
+            nativePadState.activeFileId = 'f_main';
+            if (padEditor) padEditor.value = '';
+            renderPadTabs();
+            updatePadLineNumbers();
+            updatePadStats();
+            if (padPreviewMode) renderPadPreview();
+            saveNativePadState();
+            broadcastPadNetwork({ type: 'PAD_RESET' });
+            showToast("✨ QuickPad workspace reset & synced!", "success");
         }
     });
 }
 
+// Online Presence Pill Click Popover
+if (padPresencePill) {
+    padPresencePill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (padPresencePopover) padPresencePopover.classList.toggle('hidden');
+    });
+}
+
+// Editor Keydown (Tab & Enter indentation)
+if (padEditor) {
+    padEditor.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = padEditor.selectionStart;
+            const end = padEditor.selectionEnd;
+            if (!e.shiftKey) {
+                padEditor.setRangeText('    ', start, end, 'end');
+                handlePadEditorInput();
+            } else {
+                const val = padEditor.value;
+                const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+                const prefix = val.substring(lineStart, lineStart + 4);
+                if (prefix === '    ') {
+                    padEditor.setRangeText('', lineStart, lineStart + 4, 'end');
+                    handlePadEditorInput();
+                }
+            }
+        } else if (e.key === 'Enter') {
+            const start = padEditor.selectionStart;
+            const lineStart = padEditor.value.lastIndexOf('\n', start - 1) + 1;
+            const line = padEditor.value.substring(lineStart, start);
+            const match = line.match(/^(\s+)/);
+            if (match) {
+                e.preventDefault();
+                const indent = match[1];
+                padEditor.setRangeText('\n' + indent, start, padEditor.selectionEnd, 'end');
+                handlePadEditorInput();
+            }
+        }
+    });
+
+    padEditor.addEventListener('input', handlePadEditorInput);
+    padEditor.addEventListener('scroll', () => {
+        if (padGutter) padGutter.scrollTop = padEditor.scrollTop;
+        updateAllPeerCursors();
+    });
+    padEditor.addEventListener('keyup', () => {
+        updatePadStats();
+        broadcastPadCursor();
+    });
+    padEditor.addEventListener('click', () => {
+        updatePadStats();
+        broadcastPadCursor();
+    });
+    window.addEventListener('resize', () => {
+        _cachedPadCharWidth = 0;
+        updateAllPeerCursors();
+    });
+}
+
+// Host Guest Permissions Popover
 if (btnSpPermissions && spPermissionsPopover) {
     btnSpPermissions.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -6620,19 +8052,21 @@ if (btnSpPermissions && spPermissionsPopover) {
         if (spPermissionsPopover && !spPermissionsPopover.classList.contains('hidden') && spHostControls && !spHostControls.contains(e.target)) {
             spPermissionsPopover.classList.add('hidden');
         }
+        if (padPresencePopover && !padPresencePopover.classList.contains('hidden') && padPresencePill && !padPresencePill.contains(e.target)) {
+            padPresencePopover.classList.add('hidden');
+        }
     });
 }
 
 if (btnSpAllowAll) {
     btnSpAllowAll.addEventListener('click', () => {
         const activeConns = connections.filter(c => c.open && c.isAuthenticated);
-        const sessionUrl = getOrCreateQuickPadUrl();
         activeConns.forEach(c => {
             if (!c.permissions) c.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
             c.permissions.scratchpad = true;
             c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
-            c.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), sessionUrl: sessionUrl, text: sessionUrl });
-            c.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
+            c.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+            sendPadFullSync(c);
         });
         renderSpGuestList();
         if (currentRadarGuestId) {
@@ -6651,7 +8085,10 @@ if (btnSpRevokeAll) {
             c.permissions.scratchpad = false;
             c.send({ type: 'GUEST_PERMISSIONS', permissions: c.permissions });
             c.send({ type: 'SCRATCHPAD_REVOKED' });
+            delete padPeerPresence[c.peer];
+            removePeerCursor(c.peer);
         });
+        updatePadPresenceUI();
         renderSpGuestList();
         if (currentRadarGuestId) {
             const rSp = document.getElementById('radar-perm-scratchpad');
@@ -8790,11 +10227,84 @@ if (btnStartCall) {
             return;
         }
         const targetAlias = (activePeers[whisperTarget] && activePeers[whisperTarget].alias) || (isHost ? 'Guest' : 'Host');
-        initiateCommLink(whisperTarget, targetAlias, 'var(--neon-green)');
+        openCallSetupModal(whisperTarget, targetAlias, 'var(--neon-green)');
     });
 }
 if (btnEndCall) {
     btnEndCall.addEventListener('click', endCommLink);
+}
+
+// Voice Mask Card Selection
+document.querySelectorAll('.voice-mask-card').forEach(card => {
+    card.addEventListener('click', () => {
+        const mode = card.getAttribute('data-mode');
+        if (!mode) return;
+        currentVoiceMask = mode;
+        document.querySelectorAll('.voice-mask-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+    });
+});
+
+// Live Test Preview Button
+const btnTestVoiceMask = document.getElementById('btn-test-voice-mask');
+if (btnTestVoiceMask) {
+    btnTestVoiceMask.addEventListener('click', () => {
+        if (isVoiceTestActive) {
+            stopVoiceTestPreview();
+        } else {
+            startVoiceTestPreview();
+        }
+    });
+}
+
+// Call Setup Modal Actions
+const btnCloseCallSetup = document.getElementById('btn-close-call-setup');
+if (btnCloseCallSetup) {
+    btnCloseCallSetup.addEventListener('click', closeCallSetupModal);
+}
+const btnCancelCallSetup = document.getElementById('btn-cancel-call-setup');
+if (btnCancelCallSetup) {
+    btnCancelCallSetup.addEventListener('click', closeCallSetupModal);
+}
+const btnConfirmCallSetup = document.getElementById('btn-confirm-call-setup');
+if (btnConfirmCallSetup) {
+    btnConfirmCallSetup.addEventListener('click', confirmCallSetup);
+}
+
+const callSetupModal = document.getElementById('call-setup-modal');
+if (callSetupModal) {
+    callSetupModal.addEventListener('click', (e) => {
+        if (e.target === callSetupModal) {
+            closeCallSetupModal();
+        }
+    });
+}
+
+// Live Call Banner Controls
+const callLiveVoiceSelect = document.getElementById('call-live-voice-select');
+if (callLiveVoiceSelect) {
+    callLiveVoiceSelect.addEventListener('change', (e) => {
+        currentVoiceMask = e.target.value;
+        showToast(`Voice Mask switched to: ${getVoiceMaskLabel(currentVoiceMask)}`);
+    });
+}
+
+const btnCallMute = document.getElementById('btn-call-mute');
+if (btnCallMute) {
+    btnCallMute.addEventListener('click', () => {
+        isCallMuted = !isCallMuted;
+        if (voiceRawStream) {
+            voiceRawStream.getAudioTracks().forEach(t => t.enabled = !isCallMuted);
+        }
+        if (voiceProcessedStream) {
+            voiceProcessedStream.getAudioTracks().forEach(t => t.enabled = !isCallMuted);
+        }
+        const callMuteLabel = document.getElementById('call-mute-label');
+        if (callMuteLabel) callMuteLabel.textContent = isCallMuted ? 'UNMUTE' : 'MUTE';
+        btnCallMute.style.borderColor = isCallMuted ? 'var(--neon-red)' : 'rgba(255,255,255,0.25)';
+        btnCallMute.style.color = isCallMuted ? 'var(--neon-red)' : 'var(--text-main)';
+        showToast(isCallMuted ? 'Microphone muted.' : 'Microphone unmuted.');
+    });
 }
 
 
@@ -8980,11 +10490,11 @@ if (btnCloseRadarModal) {
                 }
 
                 if (newSp && !prevSp) {
-                    const sessionUrl = typeof getOrCreateQuickPadUrl === 'function' ? getOrCreateQuickPadUrl() : globalQuickPadUrl;
-                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host'), sessionUrl: sessionUrl, text: sessionUrl });
-                    conn.send({ type: 'SCRATCHPAD_UPDATE', sessionUrl: sessionUrl, text: sessionUrl });
+                    conn.send({ type: 'SCRATCHPAD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                    if (typeof sendPadFullSync === 'function') sendPadFullSync(conn);
                 } else if (!newSp && prevSp) {
                     conn.send({ type: 'SCRATCHPAD_REVOKED' });
+                    if (typeof onPeerDisconnectedFromPad === 'function') onPeerDisconnectedFromPad(conn.peer);
                 }
 
                 if (typeof renderWbGuestList === 'function') renderWbGuestList();
@@ -9265,7 +10775,7 @@ if (btnRadarCall) {
         if (!currentRadarGuestId) return;
         const radarGuestModal = document.getElementById('radar-guest-modal');
         if (radarGuestModal) radarGuestModal.classList.add('hidden');
-        initiateCommLink(currentRadarGuestId, currentRadarGuestAlias || 'Guest', currentRadarGuestColor || 'var(--neon-green)');
+        openCallSetupModal(currentRadarGuestId, currentRadarGuestAlias || 'Guest', currentRadarGuestColor || 'var(--neon-green)');
     });
 }
 

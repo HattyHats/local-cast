@@ -1,6 +1,6 @@
-# 🌐 LOCAL-CAST v3.1 // Zero-Knowledge Decentralized WebOS & Swarm Network
+# 🌐 LOCAL-CAST v3.2 // Zero-Knowledge Decentralized WebOS & Swarm Network
 
-[![Version](https://img.shields.io/badge/Version-v3.1-39ff14.svg)](https://local-cast.org)
+[![Version](https://img.shields.io/badge/Version-v3.2-39ff14.svg)](https://local-cast.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![WebRTC](https://img.shields.io/badge/WebRTC-Peer--to--Peer-00f0ff.svg)](https://webrtc.org/)
 [![Cryptography](https://img.shields.io/badge/Crypto-AES--GCM--256%20%7C%20ECDH%20P--256-39ff14.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
@@ -55,7 +55,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
   * **Persistent Laser Beacons & Text Annotations:** Real-time pointer trails with solid peer nameplate badges and inline vector text placement.
   * **Host Access Control:** Granular individual guest switches, one-click "Allow All", admission dialogs, and instant canvas state synchronization.
 * **Low-Latency P2P Screen Sharing:** Broadcast your desktop, application window, or browser tab directly to connected peers over hardware-accelerated WebRTC media streams at up to 60 FPS. Supports Picture-in-Picture (PiP), full-screen viewer, and optional system audio with zero intermediary servers.
-* **QuickPad Zero-Knowledge Real-Time Suite:** Seamlessly integrated with [QuickPad](https://quickpad.org/) for hyper-fast, client-side AES-256 encrypted note-taking and scratchpad collaboration. The Host securely distributes the zero-knowledge session link exclusively over end-to-end encrypted WebRTC DataChannels to authorized guests. Includes in-modal workspace embedding, one-click Pop Out, instant session generation, custom link syncing, and host permission gating.
+* **Native QuickPad Real-Time Collaborative Suite:** Built directly into Local-Cast with 100% serverless, zero-cloud peer-to-peer WebRTC synchronization. Features multi-tab file management (`main.txt`, `notes.md`, code snippets), live multiplayer cursors with peer nameplates, pixel-accurate line-number gutter, auto-indentation & Tab formatting, formatted Markdown live preview, rock-solid presence tracking that never disconnects, Host lock/read-only controls, file downloads, and granular Host Access Control.
 * **Swarm Jukebox:** Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.
 
 ### 🗂️ 6. Multi-File Selection & Batch Operations
@@ -68,10 +68,20 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 * **Batch Drag & Drop:** Dragging any selected file carries all selected items together and moves them into any folder.
 * **Context Menu Batch Sync:** Right-clicking any selected file dynamically updates the context menu to show `Delete (N items)`.
 
-### 📡 7. Proximity Radar, Comm-Links & Serverless Audio
+### 📡 7. Proximity Radar, Comm-Links & Real-Time Voice Masking (v3.2)
 * **2D Proximity Radar:** Visualizes connected peers with real-time signal strength, round-trip ping, and role indicators.
 * **Encrypted Whisper Channels:** 1-on-1 private messaging channels with zero-knowledge encryption.
-* **Serverless WebRTC Audio Calls:** Initiate direct encrypted P2P voice calls directly inside Whisper sessions with zero audio passing through intermediate servers.
+* **Untraceable Real-Time Voice Masking:** Browser-native DSP audio engine built with the Web Audio API (`AudioContext`, `createScriptProcessor`, circular buffers, and dual Hann-windowed granular pitch shifters). Scrambles vocal timbre, harmonic formants, and biometric identifiers in real time before transmission across WebRTC:
+  * 🤖 **ROBOTIC:** Cyborg vocoder synthesizer with carrier-frequency ring modulation and wave-folding saturation.
+  * 👹 **DEEP BRUTE:** -7.5 semitone granular drop with 1-pole low-pass resonance filter and warm bass saturation.
+  * ⚡ **HIGH CIPHER:** +6.5 semitone high-frequency scramble and treble formant shift.
+  * 👤 **ANONYMOUS:** Witness-protection style pitch drop with 8.5 Hz tremolo wobble and non-linear distortion.
+  * 📻 **RADIO COMM:** Tactical walkie-talkie bandpass filtering (500 Hz – 2.8 kHz) with diode overdrive clipping.
+  * 👻 **PHANTOM:** Dual-detuned ethereal slapback echo with 50ms delay line.
+  * 🗣️ **NATURAL:** Clean unmasked audio pass-through.
+* **Live Headphone Preview & Animated VU Meter:** Real-time microphone test modal with animated volume VU meter to audition disguises before placing a call.
+* **Live Mid-Call Switching & Software Mute:** Change disguises dynamically on the fly during active calls without renegotiating WebRTC, plus instantaneous software/hardware audio mute controls.
+* **Serverless WebRTC Audio Calls:** Peer-to-peer audio transmission directly between browsers with zero intermediate audio servers or storage.
 
 ### 📶 8. Air-Gap LAN Mode (100% Offline)
 * **Zero Internet Operation:** Local-Cast can operate completely disconnected from the public internet. Connect devices directly over local Wi-Fi, Ethernet, or ad-hoc mobile hotspots using a cryptographic QR-code handshake.
@@ -94,7 +104,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 
 | Component | Implementation Details |
 | :--- | :--- |
-| **Release Version** | v3.1 (P2P Mesh WebOS) |
+| **Release Version** | v3.2 (P2P Mesh WebOS & Voice Masking) |
 | **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
 | **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing |
 | **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |
