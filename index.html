@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=82">
+    <link rel="stylesheet" href="style.css?v=83">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -63,7 +63,7 @@
                 <div class="logo glitch-title" data-text="LOCALCAST">
                     <span class="logo-brand">Local</span><span class="logo-accent">Cast</span>
                 </div>
-                <span class="badge-version">P2P v3.2</span>
+                <span class="badge-version">P2P v3.3</span>
             </div>
             <div class="header-actions">
                 <button id="btn-theme-toggle" class="btn-icon header-btn" title="Themes & Aesthetics">
@@ -250,10 +250,6 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
                         <h2 style="margin: 0;">HOST FILE SERVER</h2>
                         <div style="display: flex; gap: 8px; align-items: center;">
-                            <button id="btn-client-privacy-inspector" class="custom-btn" style="background: rgba(57, 255, 20, 0.08); border: 1px solid var(--neon-green); color: var(--neon-green); padding: 0.35rem 0.85rem; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="Inspect direct P2P transport & verify zero-server privacy">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
-                                <span>VERIFY PRIVACY</span>
-                            </button>
                             <button id="btn-switch-to-host" class="custom-btn" style="background: rgba(0, 240, 255, 0.1); border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 0.35rem 0.85rem; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="Create your own host mesh">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                                 <span>START AS HOST</span>
@@ -1977,12 +1973,12 @@ Scanning active WebRTC peer connection...
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=94"></script>
+    <script src="app.js?v=97"></script>
     <script src="plugins.js?v=7"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=138').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=141').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

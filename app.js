@@ -47,6 +47,17 @@ function sanitizeFilename(name) {
     return clean.substring(0, 255);
 }
 
+function safeSend(conn, payload) {
+    if (!conn || !conn.open) return false;
+    try {
+        conn.send(payload);
+        return true;
+    } catch(err) {
+        console.warn("safeSend warning (connection lost or closing):", err);
+        return false;
+    }
+}
+
 // --- CYBER DIALOG SYSTEM (Non-blocking replacements for alert, confirm, prompt) ---
 const cyberDialogModal = document.getElementById('cyber-dialog-modal');
 const cyberDialogTitle = document.getElementById('cyber-dialog-title');
@@ -324,7 +335,7 @@ function notifyFileAdded(filename) {
     showToast(`New file: ${filename}`);
     if (isHost) {
         connections.forEach(c => {
-            if (c.open && c.isAuthenticated) c.send({ type: 'FILE_ADDED_TOAST', filename });
+            if (c.open && c.isAuthenticated) safeSend(c, { type: 'FILE_ADDED_TOAST', filename });
         });
     }
 }
@@ -709,6 +720,7 @@ if (btnConfirmSetFolderPassword) {
         }
         if (pass) {
             targetLockFolderNode.password = pass;
+            targetLockFolderNode.isLocked = true;
             showToast(`🔒 Folder "${targetLockFolderNode.name}" locked with password`, "success");
         }
         if (setFolderPasswordModal) setFolderPasswordModal.classList.add('hidden');
@@ -723,6 +735,7 @@ if (btnRemoveFolderPassword) {
         if (!targetLockFolderNode) return;
         if (await cyberConfirm(`Remove password protection from "${targetLockFolderNode.name}"?`, "UNLOCK FOLDER")) {
             delete targetLockFolderNode.password;
+            targetLockFolderNode.isLocked = false;
             delete unlockedVaults[targetLockFolderNode.id];
             connections.forEach(c => {
                 if (c.unlockedFolders) c.unlockedFolders.delete(targetLockFolderNode.id);
@@ -1446,6 +1459,7 @@ class VirtualFileSystem {
         const folder = { id, name, type: 'folder', children: [], parent: this.currentDir };
         if (isVault) {
             folder.isVault = true;
+            folder.isLocked = true;
             folder.salt = salt;
         }
         this.currentDir.children.push(folder);
@@ -1455,17 +1469,25 @@ class VirtualFileSystem {
     getTree(unlockedSet = new Set()) {
         function clone(node) {
             if (node.isHidden && !showDeadDrops) return null;
-            const isUnlocked = unlockedSet && unlockedSet.has(node.id);
+            const isUnlocked = !!(unlockedSet && unlockedSet.has(node.id));
+            const isSecured = !!(node.password || node.isLocked || node.isVault || node.isNuclear);
             const n = { 
                 id: node.id, type: node.type, name: node.name, size: node.size, mime: node.mime, thumbnail: node.thumbnail,
-                isLocked: !!node.password, isVault: !!node.isVault, isUnlocked, isHidden: node.isHidden,
-                isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv,
-                isBurn: !!node.isBurn,
+                isLocked: !!(node.password || node.isLocked) && !isUnlocked,
+                isSecured: isSecured,
+                isVault: !!node.isVault,
                 isNuclear: !!node.isNuclear,
+                isUnlocked: isUnlocked,
+                hasPassword: !!node.password,
+                isHidden: node.isHidden,
+                isEncrypted: node.isEncrypted,
+                salt: node.salt,
+                iv: node.iv,
+                isBurn: !!node.isBurn,
                 nuclearVotesRequired: node.nuclearVotesRequired
             };
             if (node.children) {
-                if ((node.password || node.isVault || node.isNuclear) && !isUnlocked) {
+                if (isSecured && !isUnlocked) {
                     n.children = []; // Hide contents
                 } else {
                     n.children = node.children.map(clone).filter(x => x !== null);
@@ -2652,8 +2674,8 @@ async function initHost() {
                     handleWhisper(data);
                 } else {
                     const target = connections.find(c => c.peer === data.targetId);
-                    if (target && target.open) {
-                        target.send({ type: 'WHISPER', fromId: data.fromId, fromAlias: data.fromAlias, fromColor: data.fromColor, msg: data.msg });
+                    if (target) {
+                        safeSend(target, { type: 'WHISPER', fromId: data.fromId, fromAlias: data.fromAlias, fromColor: data.fromColor, msg: data.msg });
                     }
                 }
             } else if (data.type === 'ARCADE_RELAY' && conn.isAuthenticated) {
@@ -2662,8 +2684,8 @@ async function initHost() {
                     handleArcadeNetwork(data.data);
                 } else {
                     const target = connections.find(c => c.peer === data.targetId);
-                    if (target && target.open) {
-                        target.send(data.data);
+                    if (target) {
+                        safeSend(target, data.data);
                     }
                 }
             } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type) && conn.isAuthenticated) {
@@ -2672,9 +2694,9 @@ async function initHost() {
                 const sName = conn.profile ? conn.profile.name : (data.sender || 'Guest');
                 const sColor = conn.profile ? conn.profile.color : (data.color || 'var(--neon-blue)');
                 appendChatMessage(sName, data.text, 'other', sColor);
-                Object.values(connections).forEach(c => {
+                connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated) {
-                        c.send({ type: 'CHAT_MSG', sender: sName, text: data.text, color: sColor });
+                        safeSend(c, { type: 'CHAT_MSG', sender: sName, text: data.text, color: sColor });
                     }
                 });
             } else if (data.type === 'PAD_EDIT' && conn.isAuthenticated) {
@@ -2787,7 +2809,7 @@ async function initHost() {
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send(data);
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'WHITEBOARD_SHAPE' && conn.isAuthenticated) {
@@ -2800,7 +2822,7 @@ async function initHost() {
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send(data);
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'WHITEBOARD_TEXT' && conn.isAuthenticated) {
@@ -2813,7 +2835,7 @@ async function initHost() {
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send(data);
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'WHITEBOARD_STAMP' && conn.isAuthenticated) {
@@ -2823,7 +2845,7 @@ async function initHost() {
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send(data);
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'WHITEBOARD_LASER' && conn.isAuthenticated) {
@@ -2836,7 +2858,7 @@ async function initHost() {
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send(data);
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'WHITEBOARD_THEME' && conn.isAuthenticated) {
@@ -2846,7 +2868,7 @@ async function initHost() {
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send(data);
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'WHITEBOARD_UNDO' && conn.isAuthenticated) {
@@ -2868,25 +2890,25 @@ async function initHost() {
                 }
                 connections.forEach(c => {
                     if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
-                        c.send(data);
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'REQUEST_WHITEBOARD' && conn.isAuthenticated) {
                 if (conn.permissions && conn.permissions.whiteboard) {
                     if (wbCanvas && wbCanvas.width > 0 && wbCanvas.height > 0) {
-                        conn.send({ 
+                        safeSend(conn, { 
                             type: 'WHITEBOARD_SYNC', 
                             image: wbCanvas.toDataURL(),
                             theme: typeof currentWbTheme !== 'undefined' ? currentWbTheme : 'cyber'
                         });
                     }
                 } else {
-                    conn.send({ type: 'WHITEBOARD_DENIED', message: 'Whiteboard permission required.' });
+                    safeSend(conn, { type: 'WHITEBOARD_DENIED', message: 'Whiteboard permission required.' });
                 }
             } else if (data.type === 'INTERCOM_JOIN' && conn.isAuthenticated) {
                 intercomUsers.add(data.peerId);
                 const others = Array.from(intercomUsers).filter(id => id !== data.peerId);
-                conn.send({ type: 'INTERCOM_LIST', users: others });
+                safeSend(conn, { type: 'INTERCOM_LIST', users: others });
             } else if (data.type === 'INTERCOM_LEAVE' && conn.isAuthenticated) {
                 intercomUsers.delete(data.peerId);
             } else if (data.type === 'PROFILE_UPDATE' && conn.isAuthenticated) {
@@ -3200,17 +3222,27 @@ async function initHost() {
                         }
                         
                         connections.forEach(c => {
-                            if (c !== conn && c.open) c.send({ type: 'TEXT_EDIT_SYNC', fileId: data.fileId, text: data.text });
+                            if (c !== conn && c.open) safeSend(c, { type: 'TEXT_EDIT_SYNC', fileId: data.fileId, text: data.text });
                         });
                     }
                 }
             }
         });
         
-        conn.on('close', () => {
+        const handlePeerDisconnect = () => {
             connections = connections.filter(c => c !== conn);
+            if (typeof activeScreenCalls !== 'undefined' && activeScreenCalls[conn.peer]) {
+                try { activeScreenCalls[conn.peer].close(); } catch(e) {}
+                delete activeScreenCalls[conn.peer];
+            }
             broadcastPeers();
             if (typeof onPeerDisconnectedFromPad === 'function') onPeerDisconnectedFromPad(conn.peer);
+        };
+
+        conn.on('close', handlePeerDisconnect);
+        conn.on('error', (err) => {
+            console.warn("Host connection error with peer:", conn.peer, err);
+            handlePeerDisconnect();
         });
     });
     };
@@ -3470,6 +3502,7 @@ function setupHostActions() {
             
             const salt = crypto.getRandomValues(new Uint8Array(16));
             const folder = vfs.addFolder(name, true, salt);
+            folder.isLocked = true;
             unlockedVaults[folder.id] = pass; // auto-unlock for host on creation
             
             saveVFSToDB();
@@ -3486,6 +3519,7 @@ function setupHostActions() {
             
             const folder = vfs.addFolder(name);
             folder.isNuclear = true;
+            folder.isLocked = true;
             folder.nuclearVotesRequired = votes;
             folder.password = pin;
             delete unlockedVaults[folder.id];
@@ -3947,7 +3981,7 @@ function renderHostExplorer() {
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
         const icon = safeThumb ? `<div class="item-thumbnail" style="background-image: url('${safeThumb}');"></div>` : (child.type === 'folder' ? 
-            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password || child.isVault ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
+            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password || child.isVault || child.isNuclear ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
         const burnIcon = child.isBurn ? '🔥 ' : '';
@@ -4389,11 +4423,6 @@ async function initClient() {
                 clearTimeout(connectionTimeout);
                 updateStatus('CONNECTION FAILED', 'offline');
             });
-
-            hostConnection.on('close', () => {
-                clearTimeout(connectionTimeout);
-                updateStatus('DISCONNECTED', 'offline');
-            });
         
         hostConnection.on('data', (data) => {
             if (window.handlePluginMessage) window.handlePluginMessage(data);
@@ -4750,6 +4779,10 @@ async function initClient() {
                     nativePadState.isLocked = !!data.isLocked;
                     if (data.presenceMap) {
                         padPeerPresence = data.presenceMap;
+                        if (peer && peer.id) {
+                            delete padPeerPresence[peer.id];
+                        }
+                        delete padPeerPresence['guest'];
                     }
                     const active = (typeof getActivePadFile === 'function') ? getActivePadFile() : data.files[0];
                     if (padEditor) {
@@ -4880,6 +4913,7 @@ async function initClient() {
         });
         
         hostConnection.on('close', () => {
+            if (typeof connectionTimeout !== 'undefined') clearTimeout(connectionTimeout);
             if (isServerBurned || isBurnSequenceActive) {
                 triggerBurnSequence();
                 return;
@@ -5030,8 +5064,19 @@ function renderClientExplorer() {
         
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
+        const isFolderSecured = child.type === 'folder' && (child.isLocked || child.isVault || child.isNuclear || child.password || child.isSecured);
+        const isFolderUnlocked = isFolderSecured && (child.isUnlocked || (typeof clientUnlockedVaults !== 'undefined' && !!clientUnlockedVaults[child.id]));
+        const isFolderLocked = isFolderSecured && !isFolderUnlocked;
+
+        let folderLockBadge = '';
+        if (isFolderLocked) {
+            folderLockBadge = '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>';
+        } else if (isFolderUnlocked) {
+            folderLockBadge = '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-green)" stroke="var(--neon-green)"></rect><path d="M17 16a2 2 0 0 1 4 0v0" stroke="var(--neon-green)"></path>';
+        }
+
         const icon = safeThumb ? `<div class="item-thumbnail" style="background-image: url('${safeThumb}');"></div>` : (child.type === 'folder' ? 
-            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
+            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${folderLockBadge}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
         const sizeText = (typeof child.size === 'number' && child.size > 0) ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
@@ -5151,11 +5196,6 @@ function renderClientExplorer() {
             if (child.type === 'folder') {
                 if (child.isNuclear && !clientUnlockedVaults[child.id]) {
                     openNuclearModal(child);
-                } else if (child.isLocked && !child.isUnlocked) {
-                    activeAuthFolderId = child.id;
-                    folderPasswordInput.value = '';
-                    folderPasswordError.classList.add('hidden');
-                    folderPasswordModal.classList.remove('hidden');
                 } else if (child.isNativeRoot && !clientUnlockedVaults[child.id]) {
                     hostConnection.send({ type: 'REQUEST_NATIVE_VAULT_ACCESS' });
                     guestOtpEntryModal.classList.remove('hidden');
@@ -5195,6 +5235,11 @@ function renderClientExplorer() {
                         btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
                         vaultPasswordModal.classList.add('hidden');
                     }, { once: true });
+                } else if (child.isLocked && !child.isUnlocked) {
+                    activeAuthFolderId = child.id;
+                    folderPasswordInput.value = '';
+                    folderPasswordError.classList.add('hidden');
+                    folderPasswordModal.classList.remove('hidden');
                 } else {
                     clientCurrentDir = child;
                     renderClientExplorer();
@@ -7249,6 +7294,12 @@ function onPeerDisconnectedFromPad(peerId) {
     delete padPeerPresence[peerId];
     removePeerCursor(peerId);
     updatePadPresenceUI();
+    if (isHost && typeof broadcastPadNetwork === 'function') {
+        broadcastPadNetwork({
+            type: 'PAD_PEERS_UPDATE',
+            presenceMap: padPeerPresence
+        });
+    }
 }
 
 // --- Tabs Management ---
@@ -7535,12 +7586,23 @@ function applyRemotePadEdit(data) {
 function sendPadFullSync(targetConn) {
     if (!targetConn || !targetConn.open) return;
     try {
+        const cleanPresence = {};
+        const now = Date.now();
+        Object.keys(padPeerPresence).forEach(pid => {
+            const p = padPeerPresence[pid];
+            if (!p || !p.inPad) return;
+            if (now - (p.lastSeen || 0) >= 16000) return;
+            if (isHost && pid !== (peer ? peer.id : 'host') && !connections.some(c => c.peer === pid && c.open && c.isAuthenticated)) {
+                return;
+            }
+            cleanPresence[pid] = p;
+        });
         targetConn.send({
             type: 'PAD_FULL_SYNC',
             files: nativePadState.files,
             activeFileId: nativePadState.activeFileId,
             isLocked: nativePadState.isLocked,
-            presenceMap: padPeerPresence
+            presenceMap: cleanPresence
         });
     } catch(e) {}
 }
@@ -7583,6 +7645,11 @@ function broadcastPadPresence() {
     const myColor = sanitizeCssColor(guestColor || (isHost ? 'var(--neon-purple)' : 'var(--neon-blue)'));
     const activeFile = getActivePadFile();
 
+    if (peer && peer.id) {
+        delete padPeerPresence['host'];
+        delete padPeerPresence['guest'];
+    }
+
     if (isModalOpen) {
         padPeerPresence[myId] = {
             name: myName,
@@ -7594,6 +7661,7 @@ function broadcastPadPresence() {
         };
     } else {
         delete padPeerPresence[myId];
+        if (peer && peer.id) delete padPeerPresence[peer.id];
     }
 
     broadcastPadNetwork({
@@ -7610,24 +7678,40 @@ function broadcastPadPresence() {
 
 function updatePadPresenceUI() {
     const isModalOpen = (scratchpadModal && !scratchpadModal.classList.contains('hidden'));
+    const myId = (peer && peer.id) || (isHost ? 'host' : 'guest');
+    const myName = (typeof getMyAlias === 'function' ? getMyAlias() : (isHost ? 'Host' : 'Guest'));
     let onlineUsers = [];
+    const seenIds = new Set();
 
     // Local user
     if (isModalOpen) {
         onlineUsers.push({
-            id: (peer && peer.id) || (isHost ? 'host' : 'guest'),
-            name: (typeof getMyAlias === 'function' ? getMyAlias() : (isHost ? 'Host' : 'Guest')) + ' (You)',
+            id: myId,
+            name: myName + ' (You)',
             color: sanitizeCssColor(guestColor || (isHost ? 'var(--neon-purple)' : 'var(--neon-blue)')),
             role: isHost ? 'Host' : 'Guest',
             activeFileId: nativePadState.activeFileId
         });
+        seenIds.add(myId);
+        if (peer && peer.id) seenIds.add(peer.id);
+        seenIds.add(isHost ? 'host' : 'guest');
     }
 
     // Remote peers
     const now = Date.now();
     Object.keys(padPeerPresence).forEach(pid => {
+        if (seenIds.has(pid) || pid === myId || (peer && pid === peer.id) || pid === (isHost ? 'host' : 'guest')) {
+            return;
+        }
+
         const p = padPeerPresence[pid];
-        if (p && p.inPad && (now - (p.lastSeen || 0) < 30000)) {
+        if (isHost && !connections.some(c => c.peer === pid && c.open && c.isAuthenticated)) {
+            delete padPeerPresence[pid];
+            return;
+        }
+
+        if (p && p.inPad && (now - (p.lastSeen || 0) < 16000)) {
+            seenIds.add(pid);
             onlineUsers.push({
                 id: pid,
                 name: p.name || ('Peer ' + pid.substring(0, 5)),
@@ -7635,6 +7719,8 @@ function updatePadPresenceUI() {
                 role: p.isHost ? 'Host' : 'Guest',
                 activeFileId: p.activeFileId
             });
+        } else if (p && (!p.inPad || (now - (p.lastSeen || 0) >= 16000))) {
+            delete padPeerPresence[pid];
         }
     });
 

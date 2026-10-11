@@ -2562,23 +2562,28 @@ button, .file-item, .custom-btn, .header-btn {
         display: inline !important;
     }
 
-    /* Swipeable single-row horizontal toolbar ribbon */
+    /* Responsive multi-row wrapped toolbar for shrunk or mobile viewports */
     .wb-toolbar-container {
         display: flex !important;
-        flex-wrap: nowrap !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        gap: 4px !important;
-        padding: 4px 6px !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        overflow-x: visible !important;
+        gap: 4px 6px !important;
+        padding: 4px 8px !important;
         margin-bottom: 4px !important;
-        scrollbar-width: none !important;
-        overscroll-behavior-x: contain !important;
         flex-shrink: 0 !important;
         border-radius: 6px !important;
+        scrollbar-width: thin !important;
     }
 
     .wb-toolbar-container::-webkit-scrollbar {
-        display: none !important;
+        height: 4px !important;
+        width: 4px !important;
+    }
+
+    .wb-toolbar-container::-webkit-scrollbar-thumb {
+        background: rgba(0, 240, 255, 0.4) !important;
+        border-radius: 2px !important;
     }
 
     .wb-tool-group {
