@@ -2695,7 +2695,7 @@ async function initHost() {
                 const sColor = conn.profile ? conn.profile.color : (data.color || 'var(--neon-blue)');
                 appendChatMessage(sName, data.text, 'other', sColor);
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated) {
                         safeSend(c, { type: 'CHAT_MSG', sender: sName, text: data.text, color: sColor });
                     }
                 });
@@ -2704,8 +2704,8 @@ async function initHost() {
                 if (typeof nativePadState !== 'undefined' && nativePadState.isLocked) return;
                 if (typeof applyRemotePadEdit === 'function') applyRemotePadEdit(data);
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                        try { c.send(data); } catch(e) {}
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'PAD_CURSOR' && conn.isAuthenticated) {
@@ -2723,8 +2723,8 @@ async function initHost() {
                     }
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                        try { c.send(data); } catch(e) {}
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'PAD_TAB_CREATE' && conn.isAuthenticated) {
@@ -2735,8 +2735,8 @@ async function initHost() {
                     if (typeof renderPadTabs === 'function') renderPadTabs();
                     if (typeof saveNativePadState === 'function') saveNativePadState();
                     connections.forEach(c => {
-                        if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                            try { c.send(data); } catch(e) {}
+                        if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                            safeSend(c, data);
                         }
                     });
                 }
@@ -2745,8 +2745,8 @@ async function initHost() {
                 if (typeof nativePadState !== 'undefined' && nativePadState.isLocked) return;
                 if (typeof renamePadTab === 'function') renamePadTab(data.fileId, data.name, false);
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                        try { c.send(data); } catch(e) {}
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'PAD_TAB_DELETE' && conn.isAuthenticated) {
@@ -2754,8 +2754,8 @@ async function initHost() {
                 if (typeof nativePadState !== 'undefined' && nativePadState.isLocked) return;
                 if (typeof deletePadTab === 'function') deletePadTab(data.fileId, false);
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
-                        try { c.send(data); } catch(e) {}
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        safeSend(c, data);
                     }
                 });
             } else if ((data.type === 'PAD_PRESENCE' || data.type === 'PAD_HEARTBEAT') && conn.isAuthenticated) {
@@ -2795,8 +2795,8 @@ async function initHost() {
                 if (typeof closeScreenShareViewer === 'function') closeScreenShareViewer();
                 showToast("Screen stream ended by presenter.", "info");
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open) {
-                        try { c.send(data); } catch(e) {}
+                    if (c.peer !== conn.peer && c !== conn && c.open) {
+                        safeSend(c, data);
                     }
                 });
             } else if (data.type === 'WHITEBOARD_DRAW' && conn.isAuthenticated) {
@@ -2808,7 +2808,7 @@ async function initHost() {
                     }
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         safeSend(c, data);
                     }
                 });
@@ -2821,7 +2821,7 @@ async function initHost() {
                     }
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         safeSend(c, data);
                     }
                 });
@@ -2834,7 +2834,7 @@ async function initHost() {
                     }
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         safeSend(c, data);
                     }
                 });
@@ -2844,7 +2844,7 @@ async function initHost() {
                     stampImageOnWhiteboard(data.image, data.x, data.y, data.w, data.h, false);
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         safeSend(c, data);
                     }
                 });
@@ -2857,7 +2857,7 @@ async function initHost() {
                     }
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         safeSend(c, data);
                     }
                 });
@@ -2867,7 +2867,7 @@ async function initHost() {
                     setWbTheme(data.theme, false);
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         safeSend(c, data);
                     }
                 });
@@ -2889,7 +2889,26 @@ async function initHost() {
                     wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
                 }
                 connections.forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
+                        safeSend(c, data);
+                    }
+                });
+            } else if (data.type === 'WHITEBOARD_SYNC' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.whiteboard) return;
+                if (data.theme && typeof setWbTheme === 'function') {
+                    setWbTheme(data.theme, false);
+                }
+                if (wbCtx && data.image) {
+                    if (typeof initWbCanvasResolution === 'function') initWbCanvasResolution();
+                    const img = new Image();
+                    img.onload = () => {
+                        wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+                        wbCtx.drawImage(img, 0, 0, wbCanvas.width, wbCanvas.height);
+                    };
+                    img.src = data.image;
+                }
+                connections.forEach(c => {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.whiteboard) {
                         safeSend(c, data);
                     }
                 });
@@ -2915,9 +2934,9 @@ async function initHost() {
                 conn.profile = { name: data.name, color: data.color, avatar: data.avatar };
                 broadcastPeers();
                 appendChatMessage('System', `${data.name} joined the network`, 'system', 'var(--text-muted)');
-                Object.values(connections).forEach(c => {
-                    if (c.id !== conn.id && c.open && c.isAuthenticated) {
-                        c.send({ type: 'CHAT_MSG', sender: 'System', text: `${data.name} joined the network`, color: 'var(--text-muted)' });
+                connections.forEach(c => {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated) {
+                        safeSend(c, { type: 'CHAT_MSG', sender: 'System', text: `${data.name} joined the network`, color: 'var(--text-muted)' });
                     }
                 });
             } else if (data.type === 'REQUEST_NATIVE_VAULT_ACCESS' && conn.isAuthenticated) {
