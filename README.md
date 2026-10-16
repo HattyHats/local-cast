@@ -1,6 +1,6 @@
-# 🌐 LOCAL-CAST v3.3 // Zero-Knowledge Decentralized WebOS & Swarm Network
+# 🌐 LOCAL-CAST v3.4 // Zero-Knowledge Decentralized WebOS & Swarm Network
 
-[![Version](https://img.shields.io/badge/Version-v3.3-39ff14.svg)](https://local-cast.org)
+[![Version](https://img.shields.io/badge/Version-v3.4-39ff14.svg)](https://local-cast.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![WebRTC](https://img.shields.io/badge/WebRTC-Peer--to--Peer-00f0ff.svg)](https://webrtc.org/)
 [![Cryptography](https://img.shields.io/badge/Crypto-AES--GCM--256%20%7C%20ECDH%20P--256-39ff14.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
@@ -104,7 +104,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 
 | Component | Implementation Details |
 | :--- | :--- |
-| **Release Version** | v3.3 (P2P Mesh WebOS, Collaborative QuickPad & Voice Masking) |
+| **Release Version** | v3.4 (P2P Mesh WebOS, Hardened Multi-Device Sync & Audited Engine) |
 | **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
 | **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing |
 | **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |

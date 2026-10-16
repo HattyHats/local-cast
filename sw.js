@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v142';
+const CACHE_NAME = 'localcast-v144';
 const ASSETS = [
     './',
     './index.html',
@@ -24,8 +24,11 @@ const ASSETS = [
 self.addEventListener('install', (e) => {
     self.skipWaiting();
     e.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(ASSETS).catch(err => console.warn('SW pre-cache error:', err));
+        caches.open(CACHE_NAME).then(async (cache) => {
+            const localAssets = ASSETS.filter(a => a.startsWith('.'));
+            const cdnAssets = ASSETS.filter(a => !a.startsWith('.'));
+            await cache.addAll(localAssets).catch(err => console.warn('SW local pre-cache error:', err));
+            return Promise.allSettled(cdnAssets.map(url => cache.add(url)));
         })
     );
 });
@@ -83,8 +86,12 @@ self.addEventListener('fetch', (e) => {
                 cache.put(e.request, resClone);
             });
             return response;
-        }).catch(() => {
-            return caches.match(e.request, { ignoreSearch: true });
+        }).catch(async () => {
+            const cached = await caches.match(e.request, { ignoreSearch: true });
+            if (cached) return cached;
+            if (e.request.mode === 'navigate') {
+                return caches.match('./index.html');
+            }
         })
     );
 });

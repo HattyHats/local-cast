@@ -78,6 +78,7 @@ if (btnAirgap) {
                         const data = JSON.parse(decodedText);
                         if (data.action === 'airgap_connect' && data.peerId) {
                             html5QrcodeScanner.clear();
+                            html5QrcodeScanner = null;
                             airgapModal.classList.add('hidden');
                             if (typeof setupClientPeer !== 'undefined') {
                                 window.location.href = window.location.origin + window.location.pathname + '?room=' + data.peerId;
@@ -95,12 +96,13 @@ const emulatorContainer = document.getElementById('emulator-container');
 const emulatorCanvas = document.getElementById('emulator-canvas');
 const emulatorRomInput = document.getElementById('emulator-rom-input');
 let nes, emuInterval, isEmulatorHost = false;
+let emuKeyListenersAttached = false;
 
 window.handleEmulatorStream = function(remoteStream) {
     document.getElementById('arcade-lobby-modal').classList.add('hidden');
     document.getElementById('arcade-modal').classList.remove('hidden');
     document.getElementById('arcade-game-title').textContent = 'SWARM EMULATOR (GUEST)';
-    document.getElementById('tic-tac-toe-board').style.display = 'none';
+    if(document.getElementById('tic-tac-toe-board')) document.getElementById('tic-tac-toe-board').classList.add('hidden');
     if(document.getElementById('pong-canvas')) document.getElementById('pong-canvas').classList.add('hidden');
     if(document.getElementById('chess-board')) document.getElementById('chess-board').classList.add('hidden');
     
@@ -130,22 +132,27 @@ window.handleEmulatorStream = function(remoteStream) {
     video.play().catch(e => console.warn("Emulator video play error:", e));
 
     // Guest sends inputs to Host
-    document.addEventListener('keydown', (e) => {
-        if (emulatorContainer.classList.contains('hidden')) return;
-        const btn = mapKeyToNes(e.key);
-        if (btn !== null && connections[0]) {
-            e.preventDefault();
-            connections[0].send({ type: 'EMU_INPUT', event: 'down', button: btn });
-        }
-    });
-    document.addEventListener('keyup', (e) => {
-        if (emulatorContainer.classList.contains('hidden')) return;
-        const btn = mapKeyToNes(e.key);
-        if (btn !== null && connections[0]) {
-            e.preventDefault();
-            connections[0].send({ type: 'EMU_INPUT', event: 'up', button: btn });
-        }
-    });
+    if (!emuKeyListenersAttached) {
+        emuKeyListenersAttached = true;
+        document.addEventListener('keydown', (e) => {
+            if (emulatorContainer.classList.contains('hidden')) return;
+            const btn = mapKeyToNes(e.key);
+            const targetConn = (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) ? hostConnection : (typeof connections !== 'undefined' ? connections[0] : null);
+            if (btn !== null && targetConn && targetConn.open) {
+                e.preventDefault();
+                targetConn.send({ type: 'EMU_INPUT', event: 'down', button: btn });
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            if (emulatorContainer.classList.contains('hidden')) return;
+            const btn = mapKeyToNes(e.key);
+            const targetConn = (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) ? hostConnection : (typeof connections !== 'undefined' ? connections[0] : null);
+            if (btn !== null && targetConn && targetConn.open) {
+                e.preventDefault();
+                targetConn.send({ type: 'EMU_INPUT', event: 'up', button: btn });
+            }
+        });
+    }
 };
 
 window.handlePluginMessage = function(data) {
@@ -165,7 +172,7 @@ document.addEventListener('click', (e) => {
             document.getElementById('arcade-lobby-modal').classList.add('hidden');
             document.getElementById('arcade-modal').classList.remove('hidden');
             document.getElementById('arcade-game-title').textContent = 'SWARM EMULATOR';
-            document.getElementById('tic-tac-toe-board').style.display = 'none';
+            if(document.getElementById('tic-tac-toe-board')) document.getElementById('tic-tac-toe-board').classList.add('hidden');
             if(document.getElementById('pong-canvas')) document.getElementById('pong-canvas').classList.add('hidden');
             if(document.getElementById('chess-board')) document.getElementById('chess-board').classList.add('hidden');
             
@@ -647,6 +654,11 @@ function initCyberspace() {
         alert("THREE.js not loaded!");
         return;
     }
+
+    if (animationId || renderer) {
+        exitCyberspace(false);
+    }
+    if (cyberspaceOverlay) cyberspaceOverlay.classList.remove('hidden');
 
     cyberspaceContainer.innerHTML = '';
     scene = new THREE.Scene();
