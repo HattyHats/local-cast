@@ -352,67 +352,68 @@ function getAvatarTexture(avatarSrc, alias, colorHex, onReady) {
     }
 
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
+    canvas.width = 512;
+    canvas.height = 512;
     const ctx = canvas.getContext('2d');
 
     function renderFallback() {
-        ctx.clearRect(0, 0, 256, 256);
+        ctx.clearRect(0, 0, 512, 512);
 
         // Circular clip
         ctx.save();
         ctx.beginPath();
-        ctx.arc(128, 128, 116, 0, Math.PI * 2);
+        ctx.arc(256, 256, 236, 0, Math.PI * 2);
         ctx.clip();
 
         // Dark gradient base
-        const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 128);
+        const grad = ctx.createRadialGradient(256, 256, 40, 256, 256, 256);
         grad.addColorStop(0, 'rgba(15, 22, 45, 0.98)');
         grad.addColorStop(1, 'rgba(5, 7, 18, 0.98)');
         ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, 256, 256);
+        ctx.fillRect(0, 0, 512, 512);
 
-        // Subtle cyber grid lines
+        // Subtle cyber grid lines behind initial
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-        ctx.lineWidth = 1;
-        for (let i = 32; i < 240; i += 28) {
-            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
+        ctx.lineWidth = 1.5;
+        for (let i = 64; i < 480; i += 56) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
         }
 
         // Monogram initial
         const initial = cleanAlias.length > 0 ? cleanAlias.charAt(0).toUpperCase() : '?';
-        ctx.font = '900 115px "Courier New", monospace, sans-serif';
+        ctx.font = '900 230px "Courier New", monospace, sans-serif';
         ctx.fillStyle = cleanColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.shadowColor = cleanColor;
-        ctx.shadowBlur = 18;
-        ctx.fillText(initial, 128, 134);
+        ctx.shadowBlur = 32;
+        ctx.fillText(initial, 256, 268);
         ctx.restore();
 
         // Glowing outer neon border
         ctx.save();
         ctx.beginPath();
-        ctx.arc(128, 128, 116, 0, Math.PI * 2);
-        ctx.lineWidth = 8;
+        ctx.arc(256, 256, 236, 0, Math.PI * 2);
+        ctx.lineWidth = 14;
         ctx.strokeStyle = cleanColor;
         ctx.shadowColor = cleanColor;
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 28;
         ctx.stroke();
 
         // Inner dashed cyber ring
         ctx.beginPath();
-        ctx.arc(128, 128, 104, 0, Math.PI * 2);
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.setLineDash([8, 10]);
+        ctx.arc(256, 256, 220, 0, Math.PI * 2);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.setLineDash([12, 14]);
         ctx.shadowBlur = 0;
         ctx.stroke();
         ctx.restore();
 
         const texture = new THREE.CanvasTexture(canvas);
-        texture.minFilter = THREE.LinearFilter;
+        texture.generateMipmaps = true;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
         texture.magFilter = THREE.LinearFilter;
         avatarCanvasCache[cacheKey] = texture;
         onReady(texture);
@@ -422,49 +423,50 @@ function getAvatarTexture(avatarSrc, alias, colorHex, onReady) {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-            ctx.clearRect(0, 0, 256, 256);
+            ctx.clearRect(0, 0, 512, 512);
 
             // Circular clip for avatar
             ctx.save();
             ctx.beginPath();
-            ctx.arc(128, 128, 116, 0, Math.PI * 2);
+            ctx.arc(256, 256, 236, 0, Math.PI * 2);
             ctx.clip();
 
             // Dark base behind image
             ctx.fillStyle = '#050712';
-            ctx.fillRect(0, 0, 256, 256);
+            ctx.fillRect(0, 0, 512, 512);
 
-            // Cover aspect-ratio scaling
+            // Cover aspect-ratio scaling for full, crisp logo visibility
             const sw = img.width;
             const sh = img.height;
             const minDim = Math.min(sw, sh);
             const sx = (sw - minDim) / 2;
             const sy = (sh - minDim) / 2;
-            ctx.drawImage(img, sx, sy, minDim, minDim, 12, 12, 232, 232);
+            ctx.drawImage(img, sx, sy, minDim, minDim, 20, 20, 472, 472);
             ctx.restore();
 
             // Glowing neon circular ring
             ctx.save();
             ctx.beginPath();
-            ctx.arc(128, 128, 116, 0, Math.PI * 2);
-            ctx.lineWidth = 8;
+            ctx.arc(256, 256, 236, 0, Math.PI * 2);
+            ctx.lineWidth = 14;
             ctx.strokeStyle = cleanColor;
             ctx.shadowColor = cleanColor;
-            ctx.shadowBlur = 20;
+            ctx.shadowBlur = 28;
             ctx.stroke();
 
             // Inner cyber dashed ring
             ctx.beginPath();
-            ctx.arc(128, 128, 108, 0, Math.PI * 2);
-            ctx.lineWidth = 2.5;
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.setLineDash([6, 8]);
+            ctx.arc(256, 256, 220, 0, Math.PI * 2);
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.setLineDash([12, 14]);
             ctx.shadowBlur = 0;
             ctx.stroke();
             ctx.restore();
 
             const texture = new THREE.CanvasTexture(canvas);
-            texture.minFilter = THREE.LinearFilter;
+            texture.generateMipmaps = true;
+            texture.minFilter = THREE.LinearMipmapLinearFilter;
             texture.magFilter = THREE.LinearFilter;
             avatarCanvasCache[cacheKey] = texture;
             onReady(texture);
@@ -482,30 +484,52 @@ function createPlanetNode(id, alias, colorHex, avatarSrc, isHostPlanet = false) 
     const group = new THREE.Group();
     group.userData = { id, name: alias, color: colorHex };
 
-    const radius = isHostPlanet ? 3.4 : 2.2;
+    const discRadius = isHostPlanet ? 3.8 : 2.6;
 
     // 1. Central Billboard Avatar Disc (Profile photo / logo)
-    const discGeo = new THREE.CircleGeometry(radius * 0.95, 32);
+    // Rendered crisply as a prominent billboard facing the camera directly
+    const discGeo = new THREE.CircleGeometry(discRadius, 48);
     const discMat = new THREE.MeshBasicMaterial({
         transparent: true,
         side: THREE.DoubleSide,
-        depthWrite: false
+        depthWrite: true,
+        depthTest: true
     });
     const avatarDisc = new THREE.Mesh(discGeo, discMat);
     avatarDisc.userData = group.userData;
+    avatarDisc.renderOrder = 10;
     group.add(avatarDisc);
 
     // 2. Translucent wireframe atmospheric shell
-    const shellGeo = new THREE.SphereGeometry(radius, 20, 20);
+    // Rendered on BackSide so the digital mesh stays BEHIND and frames the perimeter of the avatar,
+    // ensuring ZERO wireframe mesh lines cross or obscure the front of the user's logo/picture.
+    const shellRadius = discRadius * 1.32;
+    const shellGeo = new THREE.SphereGeometry(shellRadius, 18, 18);
     const shellMat = new THREE.MeshBasicMaterial({
         color: new THREE.Color(colorHex),
         wireframe: true,
         transparent: true,
-        opacity: isHostPlanet ? 0.45 : 0.35
+        opacity: isHostPlanet ? 0.35 : 0.25,
+        side: THREE.BackSide,
+        depthWrite: false
     });
     const shellMesh = new THREE.Mesh(shellGeo, shellMat);
     shellMesh.userData = group.userData;
+    shellMesh.renderOrder = 1;
     group.add(shellMesh);
+
+    // 3. Cyber Orbital Halo / Ring (spinning planetary ring framing the node)
+    const ringGeo = new THREE.RingGeometry(discRadius * 1.12, discRadius * 1.25, 48);
+    const ringMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(colorHex),
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: isHostPlanet ? 0.6 : 0.45
+    });
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+    ringMesh.rotation.x = Math.PI / 2.6;
+    ringMesh.userData = group.userData;
+    group.add(ringMesh);
 
     let currentAvatarKey = null;
 
@@ -525,6 +549,7 @@ function createPlanetNode(id, alias, colorHex, avatarSrc, isHostPlanet = false) 
         group,
         shellMesh,
         avatarDisc,
+        ringMesh,
         applyTexture,
         getAvatarKey: () => currentAvatarKey,
         dispose: () => {
@@ -532,6 +557,8 @@ function createPlanetNode(id, alias, colorHex, avatarSrc, isHostPlanet = false) 
             discMat.dispose();
             shellGeo.dispose();
             shellMat.dispose();
+            ringGeo.dispose();
+            ringMat.dispose();
         }
     };
 }
@@ -668,7 +695,7 @@ function initCyberspace() {
     camera.position.z = 40;
     camera.position.y = 15;
 
-    renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25)); // Cap resolution to save GPU
     renderer.setSize(window.innerWidth, window.innerHeight);
     cyberspaceContainer.appendChild(renderer.domElement);
@@ -767,9 +794,13 @@ function initCyberspace() {
         const interactables = [];
         if (hostPlanet) {
             interactables.push(hostPlanet.shellMesh, hostPlanet.avatarDisc);
+            if (hostPlanet.ringMesh) interactables.push(hostPlanet.ringMesh);
         }
         Object.values(peerMeshes).forEach(p => {
-            if (p.node) interactables.push(p.node.shellMesh, p.node.avatarDisc);
+            if (p.node) {
+                interactables.push(p.node.shellMesh, p.node.avatarDisc);
+                if (p.node.ringMesh) interactables.push(p.node.ringMesh);
+            }
         });
 
         const intersects = raycaster.intersectObjects(interactables);
@@ -805,6 +836,7 @@ function initCyberspace() {
             if (!isCyberspacePaused) {
                 hostPlanet.shellMesh.rotation.y += 0.008;
                 hostPlanet.shellMesh.rotation.x += 0.004;
+                if (hostPlanet.ringMesh) hostPlanet.ringMesh.rotation.z += 0.01;
             }
             hostPlanet.avatarDisc.quaternion.copy(camera.quaternion);
             updateLabel(hostMesh, hAlias, hColor);
@@ -901,6 +933,7 @@ function initCyberspace() {
             if (p.alias !== alias || p.color !== colorHex || p.avatar !== avatarSrc) {
                 p.node.applyTexture(avatarSrc, alias, colorHex);
                 p.node.shellMesh.material.color.set(colorHex);
+                if (p.node.ringMesh) p.node.ringMesh.material.color.set(colorHex);
                 p.color = colorHex;
                 p.alias = alias;
                 p.avatar = avatarSrc;
@@ -918,6 +951,7 @@ function initCyberspace() {
             if (!isCyberspacePaused) {
                 p.node.shellMesh.rotation.y += 0.012;
                 p.node.shellMesh.rotation.x += 0.006;
+                if (p.node.ringMesh) p.node.ringMesh.rotation.z += 0.015;
             }
 
             // Billboard avatar disc to face camera perfectly

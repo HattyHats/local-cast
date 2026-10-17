@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=85">
+    <link rel="stylesheet" href="style.css?v=87">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -63,7 +63,7 @@
                 <div class="logo glitch-title" data-text="LOCALCAST">
                     <span class="logo-brand">Local</span><span class="logo-accent">Cast</span>
                 </div>
-                <span class="badge-version">P2P v3.4</span>
+                <span class="badge-version">P2P v3.5</span>
             </div>
             <div class="header-actions">
                 <button id="btn-theme-toggle" class="btn-icon header-btn" title="Themes & Aesthetics">
@@ -97,6 +97,9 @@
                 </button>
                 <button id="btn-whiteboard-header" class="btn-icon header-btn hidden" title="Collaborative Whiteboard" style="border-color: #fcee0a; color: #fcee0a;">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#fcee0a" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
+                </button>
+                <button id="btn-cyberboard-header" class="btn-icon header-btn hidden" title="CyberBoard (Kanban & Data Tables)" style="border-color: #00ff88; color: #00ff88;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1"></rect><rect x="14" y="3" width="7" height="11" rx="1"></rect></svg>
                 </button>
                 <button id="btn-chat-toggle" class="btn-icon header-btn" title="Open Mesh Chat" style="position: relative;">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -154,6 +157,10 @@
                         <button id="btn-whiteboard" class="custom-btn action-btn" style="border-color: #fcee0a; color: #fcee0a;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
                             <span>Whiteboard</span>
+                        </button>
+                        <button id="btn-cyberboard-host" class="custom-btn action-btn" style="border-color: #00ff88; color: #00ff88;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1"></rect><rect x="14" y="3" width="7" height="11" rx="1"></rect></svg>
+                            <span>CyberBoard</span>
                         </button>
                         <button id="btn-screenshare-host" class="custom-btn action-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
@@ -292,6 +299,10 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
                                 Whiteboard
                             </button>
+                            <button id="btn-cyberboard-client" class="custom-btn hidden" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid #00ff88; color: #00ff88;" title="CyberBoard (Kanban & Data Tables)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><rect x="3" y="3" width="7" height="18" rx="1"></rect><rect x="14" y="3" width="7" height="11" rx="1"></rect></svg>
+                                CyberBoard
+                            </button>
                             <button id="btn-screenshare-client" class="custom-btn" style="background: transparent; padding: 0.4rem 0.8rem; font-size: 0.75rem; width: auto; border: 1px solid var(--neon-purple); color: var(--neon-purple);" title="Share Screen with Swarm">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                                 Screen Share
@@ -415,6 +426,10 @@
         <div class="context-item" id="ctx-open">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
             <span id="ctx-open-label">Open / Stream</span>
+        </div>
+        <div class="context-item hidden" id="ctx-watch-party" style="color: #ff007f;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>🍿 Watch Party</span>
         </div>
         <div class="context-item" id="ctx-download">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -738,7 +753,7 @@ Scanning active WebRTC peer connection...
                 
                 <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">⚡ Decentralized Swarm Torrents</h3>
                 <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
-                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">P2P BitTorrent-Style Chunk Mesh:</strong> Files are split into high-throughput 32 KB pieces and seeded across all peers. Guests download pieces concurrently from multiple peers (up to 8 parallel streams), drastically accelerating transfer speeds.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">P2P BitTorrent-Style Chunk Mesh:</strong> Files are split into high-throughput 32 KB pieces and seeded across all peers. Guests download pieces concurrently from the Host and other Guests simultaneously (up to 8 parallel streams) with automatic RAM Seeder caching and Host bitfield relay.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Live Bitfield Chunk Matrix:</strong> An interactive real-time visual matrix displays the state of every chunk (pending, downloading, cached) during transfers with live ETA and active source counters.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-purple">Resumable IndexedDB Cache:</strong> Chunks are saved locally to browser storage. If a connection drops, downloads resume from the last received chunk without restarting.</li>
                 </ul>
@@ -772,15 +787,17 @@ Scanning active WebRTC peer connection...
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-red">Emergency Burn Notice:</strong> The "Destroy Network" button instantly obliterates all WebRTC channels, wipes cryptographic keys from RAM, and purges IndexedDB storage with zero forensic trace.</li>
                 </ul>
 
-                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🕹️ Arcade, Audio & Collaboration</h3>
+                <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">🕹️ Arcade, Media, Code Sandbox & Collaboration</h3>
                 <ul style="margin-left: 1rem; padding-left: 1rem; margin-top: 0.5rem;">
+                    <li style="margin-bottom: 0.8rem;"><strong class="neon-green">P2P Collaborative CyberBoard (Kanban &amp; Data Tables):</strong> Real-time synchronized Kanban board (<em>To Do</em>, <em>In Progress</em>, <em>Review</em>, <em>Done</em>) and Spreadsheet Table view with priorities, assignees, tags, instant search, JSON/CSV import &amp; export, desktop drag-and-drop, touch-friendly mobile column controls, and Host Access Control.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-purple);">QuickPad + Live Code Execution Sandbox:</strong> Serverless collaborative code &amp; Markdown suite with an integrated <strong>JS Web Worker &amp; Python (Pyodide WASM)</strong> execution engine (<kbd>Ctrl+Enter</kbd> or <code style="background: #222; padding: 2px 4px; border-radius: 4px; color: var(--neon-green);">run &lt;file&gt;</code> in CLI) and optional P2P console output broadcasting.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: #ff007f;">P2P Watch Party Theater:</strong> Right-click any video or audio file to launch a synchronized theater session across the swarm with sub-second play/pause/seek/rate sync and floating real-time emoji reactions.</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">P2P Multiplayer Arcade:</strong> Real-time 60 FPS <strong style="color: #39ff14;">Cyber-Pong</strong>, <strong style="color: var(--neon-blue);">Holo-Chess</strong> (chess.js with FEN network synchronization), and classic <strong style="color: var(--neon-pink);">Neon-Tac-Toe</strong>.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-yellow">NES Retro Gaming:</strong> 8-bit ROM emulator with delta-time canvas streaming to all guests at 60 FPS over WebRTC.</li>
                     <li style="margin-bottom: 0.8rem;"><strong class="neon-blue">Radar, Whisper & Voice Calls:</strong> 2D proximity radar with latency tracking, 1-on-1 encrypted Whisper channels, and serverless P2P audio voice calls.</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-pink);">Low-Latency P2P Screen Sharing:</strong> Stream desktop, application window, or browser tab at 60 FPS over direct WebRTC media channels with optional system audio, Picture-in-Picture (PiP), and full-screen viewer with zero intermediate servers.</li>
-                    <li style="margin-bottom: 0.8rem;"><strong style="color: var(--neon-purple);">Native QuickPad Collaborative Suite:</strong> Serverless, zero-cloud peer-to-peer collaborative text workspace with multi-file tabs, live multiplayer cursors, line numbers, formatted Markdown preview, download/export, and granular Host Access Control.</li>
                     <li style="margin-bottom: 0.8rem;"><strong style="color: #00f0ff;">Swarm Jukebox:</strong> Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.</li>
-                    <li style="margin-bottom: 0.8rem;"><strong style="color: #fcee0a;">Collaborative Whiteboard (Infinite Canvas):</strong> Real-time shared canvas with multi-user vector drawing, smooth Zoom (25% to 500%) & Pan navigation (mouse wheel zoom, Spacebar hold-to-pan, on-canvas Quick Zoom HUD, and mobile pinch-to-zoom), drag-and-drop & clipboard image stamping, real-time laser pointer with solid peer nameplates, inline text typing, undo/redo history, and granular Host Access Control.</li>
+                    <li style="margin-bottom: 0.8rem;"><strong style="color: #fcee0a;">Collaborative Whiteboard (Infinite Canvas):</strong> Real-time shared canvas with multi-user vector drawing, smooth Zoom (25% to 500%) & Pan navigation, drag-and-drop & clipboard image stamping, real-time laser pointer with solid peer nameplates, inline text typing, undo/redo history, and granular Host Access Control.</li>
                 </ul>
 
                 <h3 style="color: #fff; margin-top: 1.2rem; font-family: var(--font-mono); letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">📱 Mobile PWA & Air-Gap LAN</h3>
@@ -907,6 +924,11 @@ Scanning active WebRTC peer connection...
                     <span id="sp-status-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-family: var(--font-mono); background: rgba(176, 38, 255, 0.15); color: var(--neon-purple); border: 1px solid rgba(176, 38, 255, 0.35);" title="Zero-Knowledge Local P2P AES-256 E2EE">🔒 100% P2P ENCRYPTED</span>
                 </div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <!-- Live Code Runner Button -->
+                    <button id="btn-pad-run" class="custom-btn" style="background: rgba(57, 255, 20, 0.12); border-color: var(--neon-green); color: var(--neon-green); padding: 0.3rem 0.7rem; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 5px; box-shadow: 0 0 10px rgba(57, 255, 20, 0.2);" title="Execute Code Locally in Sandbox (Ctrl+Enter / Cmd+Enter)">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" stroke="currentColor" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        <span id="pad-run-btn-text">⚡ RUN CODE</span>
+                    </button>
                     <!-- Markdown Preview Toggle -->
                     <button id="btn-pad-preview" class="custom-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.3rem 0.65rem; font-size: 0.75rem; display: flex; align-items: center; gap: 5px;" title="Toggle Formatted Markdown Preview">
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
@@ -981,6 +1003,26 @@ Scanning active WebRTC peer connection...
                     <textarea id="pad-editor" class="pad-editor" spellcheck="false" placeholder="Start typing collaboratively in real-time..."></textarea>
                 </div>
                 <div id="pad-preview-pane" class="pad-preview-pane hidden"></div>
+            </div>
+
+            <!-- LIVE EXECUTION CONSOLE DRAWER -->
+            <div id="pad-console-drawer" class="pad-console-drawer hidden">
+                <div class="pad-console-header">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: var(--neon-green); font-weight: 700; font-size: 0.75rem; letter-spacing: 1px;">⚡ SANDBOX EXECUTION CONSOLE</span>
+                        <span id="pad-console-runtime-badge" class="pad-console-badge">JS WORKER</span>
+                        <span id="pad-console-exec-time" style="font-size: 0.7rem; color: var(--text-muted);"></span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <label style="display: flex; align-items: center; gap: 4px; font-size: 0.7rem; color: var(--neon-blue); cursor: pointer;" title="Broadcast stdout/stderr to connected QuickPad collaborators">
+                            <input type="checkbox" id="pad-console-broadcast" checked style="accent-color: var(--neon-blue); cursor: pointer;">
+                            <span>SYNC OUTPUT</span>
+                        </label>
+                        <button id="btn-pad-console-clear" class="custom-btn" style="padding: 2px 8px; font-size: 0.68rem; border-color: var(--text-muted); color: var(--text-muted);" title="Clear Console">CLEAR</button>
+                        <button id="btn-pad-console-close" class="custom-btn" style="padding: 2px 8px; font-size: 0.68rem; border-color: var(--neon-red); color: var(--neon-red);" title="Close Console">✕</button>
+                    </div>
+                </div>
+                <div id="pad-console-output" class="pad-console-output"></div>
             </div>
 
             <!-- STATUS BAR -->
@@ -1326,15 +1368,46 @@ Scanning active WebRTC peer connection...
     
     <!-- MEDIA PLAYER MODAL -->
     <div id="media-modal" class="modal hidden">
-        <div class="modal-content card" style="max-width: 800px; width: 90%; background: #000; border-color: var(--neon-blue);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 id="media-title" style="color: var(--neon-blue); margin: 0; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">MEDIA PLAYER</h3>
-                <button id="btn-close-media" class="btn-icon btn-close-modal" style="color: var(--neon-red);" title="Close">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                </button>
+        <div class="modal-content card" style="max-width: 840px; width: 92%; background: #000; border-color: var(--neon-blue);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 0.5rem; flex-wrap: wrap;">
+                <h3 id="media-title" style="color: var(--neon-blue); margin: 0; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 180px;">MEDIA PLAYER</h3>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <button id="btn-watch-party-toggle" class="custom-btn" style="background: rgba(255, 0, 127, 0.14); border-color: #ff007f; color: #ff007f; padding: 0.3rem 0.75rem; font-size: 0.75rem; font-weight: 700; width: auto; display: flex; align-items: center; gap: 5px;" title="Start or Sync P2P Watch Party with Connected Peers">
+                        <span>🍿 WATCH PARTY</span>
+                    </button>
+                    <button id="btn-close-media" class="btn-icon btn-close-modal" style="color: var(--neon-red);" title="Close">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
             </div>
-            <div id="media-container" style="width: 100%; border: 1px solid var(--neon-blue); border-radius: 4px; overflow: hidden; background: #050507; position: relative;">
-                <!-- Video or Audio will be injected here -->
+            <!-- Watch Party Live Banner -->
+            <div id="watch-party-bar" class="wp-bar hidden">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span class="wp-live-dot"></span>
+                    <span style="color: #ff007f; font-weight: 700; font-size: 0.75rem; letter-spacing: 1px;">🍿 P2P WATCH PARTY LIVE</span>
+                    <span id="watch-party-sync-status" style="color: var(--text-muted); font-size: 0.72rem;">Synced across swarm</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <button id="btn-wp-resync" class="custom-btn" style="padding: 2px 8px; font-size: 0.68rem; width: auto; border-color: var(--neon-blue); color: var(--neon-blue);" title="Broadcast current playback position to all peers">⚡ FORCE SYNC</button>
+                </div>
+            </div>
+            <div id="media-stage-wrapper" style="position: relative; width: 100%;">
+                <div id="media-container" style="width: 100%; border: 1px solid var(--neon-blue); border-radius: 4px; overflow: hidden; background: #050507; position: relative;">
+                    <!-- Video or Audio will be injected here -->
+                </div>
+                <div id="watch-party-reactions-layer" class="wp-reactions-layer"></div>
+            </div>
+            <!-- Watch Party Emoji Reaction Bar -->
+            <div id="watch-party-emoji-bar" class="wp-emoji-bar hidden">
+                <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); margin-right: 4px;">REACT:</span>
+                <button class="wp-emoji-btn" data-emoji="🔥" title="Send 🔥">🔥</button>
+                <button class="wp-emoji-btn" data-emoji="😂" title="Send 😂">😂</button>
+                <button class="wp-emoji-btn" data-emoji="🤯" title="Send 🤯">🤯</button>
+                <button class="wp-emoji-btn" data-emoji="❤️" title="Send ❤️">❤️</button>
+                <button class="wp-emoji-btn" data-emoji="👏" title="Send 👏">👏</button>
+                <button class="wp-emoji-btn" data-emoji="⚡" title="Send ⚡">⚡</button>
+                <button class="wp-emoji-btn" data-emoji="🍿" title="Send 🍿">🍿</button>
+                <button class="wp-emoji-btn" data-emoji="🚀" title="Send 🚀">🚀</button>
             </div>
             <div id="stream-buffer-container" class="hidden" style="margin-top: 1rem; width: 100%;">
                 <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">
@@ -1640,6 +1713,13 @@ Scanning active WebRTC peer connection...
                             <span class="slider"></span>
                         </label>
                     </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #00ff88; font-size: 0.9rem; font-weight: 600;">CyberBoard Access</span>
+                        <label class="switch">
+                            <input type="checkbox" id="radar-perm-cyberboard">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1883,6 +1963,182 @@ Scanning active WebRTC peer connection...
         </div>
     </div>
 
+    <!-- CYBERBOARD MODAL (P2P Collaborative Kanban & Data Tables) -->
+    <div id="cyberboard-modal" class="modal hidden">
+        <div class="modal-content card cb-modal-card" style="max-width: 1260px; width: 95%; height: 88vh; display: flex; flex-direction: column; padding: 0.9rem; border-color: #00ff88; box-shadow: 0 0 50px rgba(0, 255, 136, 0.2);">
+            <!-- CyberBoard Header -->
+            <div class="cb-header-bar">
+                <div class="cb-header-left">
+                    <h2 style="margin: 0; color: #00ff88; font-size: 1.15rem; letter-spacing: 1.5px; display: flex; align-items: center; gap: 6px; font-family: var(--font-mono);">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#00ff88" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1"></rect><rect x="14" y="3" width="7" height="11" rx="1"></rect></svg>
+                        <span>CYBERBOARD</span>
+                    </h2>
+                    <span class="cb-sync-pill">⚡ P2P SYNCED</span>
+                    <!-- View Toggle: Kanban vs Table -->
+                    <div class="cb-view-switcher">
+                        <button id="btn-cb-view-kanban" class="cb-view-btn active" title="Kanban Board View">📋 KANBAN</button>
+                        <button id="btn-cb-view-table" class="cb-view-btn" title="Spreadsheet Data Table View">📊 TABLE</button>
+                    </div>
+                </div>
+                <div class="cb-header-actions">
+                    <input type="text" id="cb-search-input" class="custom-input cb-search-input" placeholder="Filter tasks, tags, assignee...">
+                    <button id="btn-cb-new-card" class="custom-btn cb-toolbar-btn" style="background: rgba(0, 255, 136, 0.15); border-color: #00ff88; color: #00ff88; font-weight: 700;">
+                        <span>+ NEW TASK</span>
+                    </button>
+                    <button id="btn-cb-export-json" class="custom-btn cb-toolbar-btn" style="border-color: var(--neon-blue); color: var(--neon-blue);" title="Export Board as JSON">JSON</button>
+                    <button id="btn-cb-export-csv" class="custom-btn cb-toolbar-btn" style="border-color: var(--neon-purple); color: var(--neon-purple);" title="Export Board as CSV Spreadsheet">CSV</button>
+                    <button id="btn-cb-import" class="custom-btn cb-toolbar-btn" style="border-color: #fcee0a; color: #fcee0a;" title="Import JSON or CSV">IMPORT</button>
+                    <input type="file" id="cb-import-input" accept=".json,.csv" style="display: none;">
+                    <!-- Host Guest Access Control -->
+                    <div id="cb-host-controls" style="position: relative; display: inline-block;">
+                        <button id="btn-cb-permissions" class="custom-btn cb-toolbar-btn" style="border-color: var(--neon-blue); color: var(--neon-blue);" title="Manage Guest CyberBoard Permissions">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                            <span>ACCESS</span> (<span id="cb-perm-count">0</span>)
+                        </button>
+                        <div id="cb-permissions-popover" class="hidden cb-permissions-popover">
+                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 8px;">
+                                <span style="font-weight: bold; font-size: 0.8rem; color: #fff;">CYBERBOARD ACCESS</span>
+                                <div style="display: flex; gap: 4px;">
+                                    <button id="btn-cb-allow-all" class="custom-btn" style="padding: 2px 6px; font-size: 0.7rem; width: auto; border-color: var(--neon-green); color: var(--neon-green);">ALL</button>
+                                    <button id="btn-cb-revoke-all" class="custom-btn" style="padding: 2px 6px; font-size: 0.7rem; width: auto; border-color: var(--neon-red); color: var(--neon-red);">NONE</button>
+                                </div>
+                            </div>
+                            <div id="cb-guest-list" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 0.8rem;"></div>
+                        </div>
+                    </div>
+                    <button id="btn-cb-clear" class="custom-btn cb-toolbar-btn" style="border-color: var(--neon-red); color: var(--neon-red);" title="Clear All Tasks from Board">CLEAR</button>
+                    <button id="btn-close-cyberboard" class="btn-icon btn-close-modal" title="Close">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- KANBAN BOARD VIEW -->
+            <div id="cb-kanban-view" class="cb-kanban-board">
+                <div class="cb-column" data-col="todo">
+                    <div class="cb-column-header" style="border-top: 3px solid var(--neon-blue);">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="color: var(--neon-blue); font-weight: 700; font-size: 0.8rem; letter-spacing: 1px;">📥 TO DO</span>
+                            <span class="cb-col-count" id="cb-count-todo">0</span>
+                        </div>
+                        <button class="cb-col-add-btn" data-col="todo" title="Add Task to To Do">+</button>
+                    </div>
+                    <div class="cb-column-cards" id="cb-cards-todo" data-col="todo"></div>
+                </div>
+                <div class="cb-column" data-col="inprogress">
+                    <div class="cb-column-header" style="border-top: 3px solid #fcee0a;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="color: #fcee0a; font-weight: 700; font-size: 0.8rem; letter-spacing: 1px;">⚡ IN PROGRESS</span>
+                            <span class="cb-col-count" id="cb-count-inprogress">0</span>
+                        </div>
+                        <button class="cb-col-add-btn" data-col="inprogress" title="Add Task to In Progress">+</button>
+                    </div>
+                    <div class="cb-column-cards" id="cb-cards-inprogress" data-col="inprogress"></div>
+                </div>
+                <div class="cb-column" data-col="review">
+                    <div class="cb-column-header" style="border-top: 3px solid var(--neon-purple);">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="color: var(--neon-purple); font-weight: 700; font-size: 0.8rem; letter-spacing: 1px;">🔍 REVIEW</span>
+                            <span class="cb-col-count" id="cb-count-review">0</span>
+                        </div>
+                        <button class="cb-col-add-btn" data-col="review" title="Add Task to Review">+</button>
+                    </div>
+                    <div class="cb-column-cards" id="cb-cards-review" data-col="review"></div>
+                </div>
+                <div class="cb-column" data-col="done">
+                    <div class="cb-column-header" style="border-top: 3px solid #00ff88;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="color: #00ff88; font-weight: 700; font-size: 0.8rem; letter-spacing: 1px;">✅ DONE</span>
+                            <span class="cb-col-count" id="cb-count-done">0</span>
+                        </div>
+                        <button class="cb-col-add-btn" data-col="done" title="Add Task to Done">+</button>
+                    </div>
+                    <div class="cb-column-cards" id="cb-cards-done" data-col="done"></div>
+                </div>
+            </div>
+
+            <!-- DATA TABLE / SPREADSHEET VIEW -->
+            <div id="cb-table-view" class="cb-table-wrapper hidden">
+                <table class="cb-data-table">
+                    <thead>
+                        <tr>
+                            <th>TASK TITLE</th>
+                            <th>STATUS</th>
+                            <th>PRIORITY</th>
+                            <th>ASSIGNEE</th>
+                            <th>TAGS</th>
+                            <th>UPDATED</th>
+                            <th style="text-align: right;">ACTIONS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cb-table-body"></tbody>
+                </table>
+            </div>
+
+            <!-- CyberBoard Footer -->
+            <div class="cb-footer">
+                <span id="cb-stats-text">0 Tasks Total</span>
+                <span class="cb-footer-hint">Drag cards, tap ◀ ▶ arrows, or click any task to edit • Live WebRTC Sync</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CYBERBOARD CARD EDITOR MODAL -->
+    <div id="cb-card-modal" class="modal hidden" style="z-index: 10012;">
+        <div class="modal-content card cb-editor-card" style="max-width: 480px; width: 92%; text-align: left; border-color: #00ff88;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 id="cb-card-modal-title" style="color: #00ff88; margin: 0; font-family: var(--font-mono); font-size: 1.05rem;">TASK DETAILS</h3>
+                <button id="btn-cb-card-cancel" class="btn-icon btn-close-modal" title="Close">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <input type="hidden" id="cb-card-id">
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div>
+                    <label style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">TASK TITLE</label>
+                    <input type="text" id="cb-card-title" class="custom-input" placeholder="e.g. Deploy Zero-Knowledge Swarm Node" style="width: 100%; box-sizing: border-box; margin-top: 4px;">
+                </div>
+                <div>
+                    <label style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">NOTES / DESCRIPTION</label>
+                    <textarea id="cb-card-desc" class="custom-input" rows="3" placeholder="Technical details, checklist, or links..." style="width: 100%; box-sizing: border-box; margin-top: 4px; resize: vertical; font-family: var(--font-mono); font-size: 0.82rem;"></textarea>
+                </div>
+                <div class="cb-editor-grid-2">
+                    <div>
+                        <label style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">COLUMN STATUS</label>
+                        <select id="cb-card-column" class="custom-input" style="width: 100%; box-sizing: border-box; margin-top: 4px; background: #0a0c14; color: #fff;">
+                            <option value="todo">📥 To Do</option>
+                            <option value="inprogress">⚡ In Progress</option>
+                            <option value="review">🔍 Review</option>
+                            <option value="done">✅ Done</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">PRIORITY</label>
+                        <select id="cb-card-priority" class="custom-input" style="width: 100%; box-sizing: border-box; margin-top: 4px; background: #0a0c14; color: #fff;">
+                            <option value="HIGH">🔴 HIGH</option>
+                            <option value="MED" selected>🟡 MED</option>
+                            <option value="LOW">🟢 LOW</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="cb-editor-grid-2">
+                    <div>
+                        <label style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">ASSIGNEE</label>
+                        <input type="text" id="cb-card-assignee" class="custom-input" placeholder="e.g. @Neo" style="width: 100%; box-sizing: border-box; margin-top: 4px;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">TAGS (COMMA SEPARATED)</label>
+                        <input type="text" id="cb-card-tags" class="custom-input" placeholder="p2p, security, ui" style="width: 100%; box-sizing: border-box; margin-top: 4px;">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.6rem; margin-top: 0.5rem;">
+                    <button id="btn-cb-card-delete" class="custom-btn hidden" style="border-color: var(--neon-red); color: var(--neon-red); width: auto; padding: 0.5rem 0.9rem;">DELETE</button>
+                    <button id="btn-cb-card-save" class="custom-btn" style="flex: 1; background: #00ff88; color: #000; border-color: #00ff88; font-weight: 700;">SAVE TASK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 3D CYBERSPACE OVERLAY -->
     <div id="cyberspace-overlay" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; background: #000;">
         <div class="cyberspace-top-bar">
@@ -1910,12 +2166,12 @@ Scanning active WebRTC peer connection...
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=100"></script>
-    <script src="plugins.js?v=9"></script>
+    <script src="app.js?v=103"></script>
+    <script src="plugins.js?v=10"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=144').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=148').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);

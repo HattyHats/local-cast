@@ -738,6 +738,10 @@ if (btnConfirmSetFolderPassword) {
         if (pass) {
             targetLockFolderNode.password = pass;
             targetLockFolderNode.isLocked = true;
+            unlockedVaults[targetLockFolderNode.id] = pass;
+            connections.forEach(c => {
+                if (c.unlockedFolders) c.unlockedFolders.delete(targetLockFolderNode.id);
+            });
             showToast(`🔒 Folder "${targetLockFolderNode.name}" locked with password`, "success");
         }
         if (setFolderPasswordModal) setFolderPasswordModal.classList.add('hidden');
@@ -2481,6 +2485,8 @@ async function initHost() {
 
     const btnCyberspaceEl = document.getElementById('btn-cyberspace');
     if (btnCyberspaceEl) btnCyberspaceEl.classList.remove('hidden');
+    const btnCbHeaderHost = document.getElementById('btn-cyberboard-header');
+    if (btnCbHeaderHost) btnCbHeaderHost.classList.remove('hidden');
 
     if (btnLock) {
         btnLock.classList.remove('hidden');
@@ -2611,7 +2617,7 @@ async function initHost() {
             conn.isAuthenticated = !hostPassword;
             connections.push(conn);
             conn.unlockedFolders = new Set();
-            conn.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false };
+            conn.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false, cyberboard: false };
 
             const handleOpen = () => {
                 sendEcdhHandshake(conn);
@@ -2620,6 +2626,7 @@ async function initHost() {
                 } else {
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                    if (typeof sendExistingSwarmBitfieldsToConn === 'function') sendExistingSwarmBitfieldsToConn(conn);
                     broadcastPeers();
                     broadcastNetworkMap();
                 }
@@ -2651,13 +2658,56 @@ async function initHost() {
             }
             if (data.type === 'SWARM_HAVE') {
                 if (!conn.isAuthenticated) return;
-                registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
+                const originPeer = data.fromPeer || conn.peer;
+                registerSwarmHave(originPeer, data.fileId, data.chunkIndex);
+                connections.forEach(c => {
+                    if (c.peer !== originPeer && c !== conn && c.open && c.isAuthenticated) {
+                        try { c.send({ type: 'SWARM_HAVE', fileId: data.fileId, chunkIndex: data.chunkIndex, fromPeer: originPeer }); } catch(e) {}
+                    }
+                });
                 return;
             }
             if (data.type === 'SWARM_HAVES') {
                 if (!conn.isAuthenticated) return;
                 if (Array.isArray(data.chunkIndices)) {
-                    registerSwarmHaves(conn.peer, data.fileId, data.chunkIndices);
+                    const originPeer = data.fromPeer || conn.peer;
+                    registerSwarmHaves(originPeer, data.fileId, data.chunkIndices);
+                    connections.forEach(c => {
+                        if (c.peer !== originPeer && c !== conn && c.open && c.isAuthenticated) {
+                            try { c.send({ type: 'SWARM_HAVES', fileId: data.fileId, chunkIndices: data.chunkIndices, totalChunks: data.totalChunks, fromPeer: originPeer }); } catch(e) {}
+                        }
+                    });
+                }
+                return;
+            }
+            if (data.type === 'SWARM_RELAY_REQUEST') {
+                if (!conn.isAuthenticated || !data.targetPeer) return;
+                const targetConn = connections.find(c => c.peer === data.targetPeer && c.open && c.isAuthenticated);
+                if (targetConn) {
+                    try {
+                        targetConn.send({
+                            type: 'SWARM_REQUEST_CHUNK',
+                            fileId: data.fileId,
+                            chunkIndex: data.chunkIndex,
+                            requesterPeer: conn.peer
+                        });
+                    } catch(e) {}
+                }
+                return;
+            }
+            if (data.type === 'SWARM_RELAY_CHUNK') {
+                if (!conn.isAuthenticated || !data.targetPeer) return;
+                const targetConn = connections.find(c => c.peer === data.targetPeer && c.open && c.isAuthenticated);
+                if (targetConn) {
+                    try {
+                        targetConn.send({
+                            type: 'SWARM_CHUNK_DATA',
+                            fileId: data.fileId,
+                            chunkIndex: data.chunkIndex,
+                            chunk: data.chunk,
+                            fromPeer: conn.peer
+                        });
+                    } catch(e) {}
                 }
                 return;
             }
@@ -2694,6 +2744,7 @@ async function initHost() {
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                    if (typeof sendExistingSwarmBitfieldsToConn === 'function') sendExistingSwarmBitfieldsToConn(conn);
                     broadcastPeers();
                     broadcastNetworkMap();
                     return;
@@ -2704,6 +2755,7 @@ async function initHost() {
                     conn.send({ type: 'AUTH_SUCCESS' });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
                     conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                    if (typeof sendExistingSwarmBitfieldsToConn === 'function') sendExistingSwarmBitfieldsToConn(conn);
                     broadcastPeers();
                     broadcastNetworkMap();
 
@@ -2852,6 +2904,37 @@ async function initHost() {
                 } else {
                     conn.send({ type: 'SCRATCHPAD_DENIED', message: 'QuickPad permission required.' });
                 }
+            } else if (data.type === 'PAD_CODE_OUTPUT' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.scratchpad) return;
+                if (typeof handleRemotePadCodeOutput === 'function') handleRemotePadCodeOutput(data);
+                connections.forEach(c => {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        safeSend(c, data);
+                    }
+                });
+            } else if ((data.type === 'WATCH_PARTY_START' || data.type === 'WATCH_PARTY_SYNC' || data.type === 'WATCH_PARTY_REACT') && conn.isAuthenticated) {
+                if (typeof handleIncomingWatchPartyMessage === 'function') {
+                    handleIncomingWatchPartyMessage(data, conn);
+                }
+                connections.forEach(c => {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated) {
+                        safeSend(c, data);
+                    }
+                });
+            } else if (data.type === 'CYBERBOARD_REQUEST_SYNC' && conn.isAuthenticated) {
+                if (conn.permissions && conn.permissions.cyberboard) {
+                    if (typeof sendCyberboardFullSync === 'function') sendCyberboardFullSync(conn);
+                } else {
+                    conn.send({ type: 'CYBERBOARD_DENIED', message: 'CyberBoard permission required.' });
+                }
+            } else if (data.type === 'CYBERBOARD_UPDATE' && conn.isAuthenticated) {
+                if (!conn.permissions || !conn.permissions.cyberboard) return;
+                if (typeof handleRemoteCyberboardUpdate === 'function') handleRemoteCyberboardUpdate(data);
+                connections.forEach(c => {
+                    if (c.peer !== conn.peer && c !== conn && c.open && c.isAuthenticated && c.permissions && c.permissions.cyberboard) {
+                        safeSend(c, data);
+                    }
+                });
             } else if (data.type === 'SCREEN_SHARE_STARTED' && conn.isAuthenticated) {
                 showToast(`📺 ${data.sharerName || 'Peer'} started sharing their screen!`, 'info');
                 connections.forEach(c => {
@@ -3068,11 +3151,15 @@ async function initHost() {
                 const node = vfs.findNode(data.folderId);
                 if (node && node.type === 'folder' && !node.isNuclear) {
                     const expectedPass = node.password || unlockedVaults[node.id];
-                    if (expectedPass && expectedPass === data.password) {
+                    const givenPass = (data.password !== undefined && data.password !== null) ? String(data.password) : '';
+                    const validPass = (expectedPass !== undefined && expectedPass !== null) ? String(expectedPass) : '';
+                    const isMatch = validPass.length > 0 && (validPass === givenPass || validPass === givenPass.trim() || validPass.trim() === givenPass.trim());
+                    if (isMatch) {
                         conn.folderAuthAttempts[data.folderId] = 0;
+                        conn.unlockedFolders = conn.unlockedFolders || new Set();
                         conn.unlockedFolders.add(node.id);
                         conn.send({ type: 'FOLDER_AUTH_SUCCESS', folderId: node.id });
-                        conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders || new Set()) });
+                        conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders) });
                     } else {
                         conn.send({ type: 'FOLDER_AUTH_FAIL', folderId: data.folderId });
                         if (node.isHoneyPot) {
@@ -3489,6 +3576,7 @@ function broadcastPeers() {
     if (countEl) countEl.textContent = `${peers.length} ${peers.length === 1 ? 'PEER' : 'PEERS'}`;
     if (typeof renderWbGuestList === 'function') renderWbGuestList();
     if (typeof renderSpGuestList === 'function') renderSpGuestList();
+    if (typeof renderCbGuestList === 'function') renderCbGuestList();
 }
 
 let broadcastTreeTimer = null;
@@ -4036,6 +4124,18 @@ function configureContextMenuForTarget(node, isHost) {
         }
     }
 
+    // 1b. Watch Party (Video / Audio files)
+    const ctxWatchPartyEl = document.getElementById('ctx-watch-party');
+    if (ctxWatchPartyEl) {
+        const lowerName = (node.name || '').toLowerCase();
+        const isPlayableMedia = isFile && (
+            (node.mime && (node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) ||
+            /\.(mp4|webm|ogg|mov|mkv|mp3|wav|m4a|flac|aac)$/i.test(lowerName)
+        );
+        ctxWatchPartyEl.classList.toggle('hidden', !isPlayableMedia);
+        ctxWatchPartyEl.style.display = isPlayableMedia ? 'flex' : 'none';
+    }
+
     // 2. Download (Files only)
     const ctxDownloadEl = document.getElementById('ctx-download');
     if (ctxDownloadEl) {
@@ -4269,13 +4369,16 @@ function renderHostExplorer() {
             item.addEventListener('dblclick', () => {
                 if (child.isNuclear && !unlockedVaults[child.id]) {
                     openNuclearModal(child);
-                } else if (child.isVault && !unlockedVaults[child.id]) {
+                } else if ((child.isVault || child.isLocked) && child.password && !unlockedVaults[child.id]) {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
                     
                     const handleUnlock = async () => {
                         const pass = vaultPasswordInput.value;
-                        if (!pass) return await cyberAlert("Password required to access this Vault", "VAULT SECURITY", true);
+                        if (!pass) return await cyberAlert("Password required to access this folder", "FOLDER LOCKED", true);
+                        if (child.password && pass !== child.password && pass.trim() !== child.password) {
+                            return await cyberAlert("Incorrect password. Access denied.", "ACCESS DENIED", true);
+                        }
                         btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
                         vaultPasswordModal.classList.add('hidden');
                         
@@ -4341,6 +4444,9 @@ function renderHostExplorer() {
                         mediaModal.classList.remove('hidden');
                     mediaTitle.innerText = child.name;
                     mediaContainer.innerHTML = '';
+                    if (typeof currentMediaNodeMeta !== 'undefined') {
+                        currentMediaNodeMeta = { id: child.id, name: child.name, mime: child.mime, size: child.size };
+                    }
                     if (btnDownloadMedia) {
                         btnDownloadMedia.href = url;
                         btnDownloadMedia.download = child.name;
@@ -4353,6 +4459,8 @@ function renderHostExplorer() {
                     } else {
                         mediaContainer.innerHTML = `<img src="${url}" style="max-width:100%; max-height:70vh; display:block; margin:0 auto;" />`;
                     }
+                    const mediaEl = (typeof getActiveMediaPlayerElement === 'function') ? getActiveMediaPlayerElement() : null;
+                    if (mediaEl && typeof bindWatchPartyMediaEvents === 'function') bindWatchPartyMediaEvents(mediaEl);
                     } catch (e) {
                         await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                     }
@@ -4473,12 +4581,20 @@ function setupSwarmPeerConnection(conn) {
             swarmConnections.push(conn);
             printCli('⚡ Swarm peer connected: ' + conn.peer, 'var(--neon-green)');
             sendEcdhHandshake(conn);
-            // Immediately broadcast local bitfields so peer knows what we have
+            // Immediately broadcast local bitfields in batched SWARM_HAVES messages
             if (typeof localFileBitfields !== 'undefined') {
                 localFileBitfields.forEach((bitfield, fileId) => {
-                    bitfield.forEach(chunkIdx => {
-                        try { conn.send({ type: 'SWARM_HAVE', fileId, chunkIndex: chunkIdx }); } catch(e) {}
-                    });
+                    const indices = Array.from(bitfield);
+                    if (indices.length > 0) {
+                        try {
+                            conn.send({
+                                type: 'SWARM_HAVES',
+                                fileId,
+                                chunkIndices: indices,
+                                fromPeer: (typeof peer !== 'undefined' && peer) ? peer.id : null
+                            });
+                        } catch(e) {}
+                    }
                 });
             }
             if (window.triggerCyberspaceBeam && peer) {
@@ -4500,12 +4616,12 @@ function setupSwarmPeerConnection(conn) {
         } else if (data.type === 'SWARM_REQUEST_CHUNK') {
             handleGuestSwarmChunkRequest(conn, data.fileId, data.chunkIndex);
         } else if (data.type === 'SWARM_CHUNK_DATA') {
-            handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, conn.peer);
+            handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, data.fromPeer || conn.peer);
         } else if (data.type === 'SWARM_HAVE') {
-            registerSwarmHave(conn.peer, data.fileId, data.chunkIndex);
+            registerSwarmHave(data.fromPeer || conn.peer, data.fileId, data.chunkIndex);
         } else if (data.type === 'SWARM_HAVES') {
             if (Array.isArray(data.chunkIndices)) {
-                registerSwarmHaves(conn.peer, data.fileId, data.chunkIndices);
+                registerSwarmHaves(data.fromPeer || conn.peer, data.fileId, data.chunkIndices);
             }
         } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
             handleArcadeNetwork(data);
@@ -4615,21 +4731,21 @@ async function initClient() {
                 });
                 return;
             } else if (data.type === 'SWARM_REQUEST_CHUNK') {
-                handleGuestSwarmChunkRequest(hostConnection, data.fileId, data.chunkIndex);
+                handleGuestSwarmChunkRequest(hostConnection, data.fileId, data.chunkIndex, data.requesterPeer);
                 return;
             } else if (data.type === 'SWARM_CHUNK_DATA') {
-                handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, hostConnection.peer);
+                handleIncomingSwarmChunk(data.fileId, data.chunkIndex, data.chunk, data.fromPeer || hostConnection.peer);
                 return;
             } else if (data.type === 'SWARM_HAVE') {
-                registerSwarmHave(hostConnection.peer, data.fileId, data.chunkIndex);
+                registerSwarmHave(data.fromPeer || hostConnection.peer, data.fileId, data.chunkIndex);
                 return;
             } else if (data.type === 'SWARM_HAVES') {
                 if (Array.isArray(data.chunkIndices)) {
-                    registerSwarmHaves(hostConnection.peer, data.fileId, data.chunkIndices);
+                    registerSwarmHaves(data.fromPeer || hostConnection.peer, data.fileId, data.chunkIndices);
                 }
                 return;
             } else if (data.type === 'SWARM_ANNOUNCE') {
-                registerSwarmAnnounce(hostConnection.peer, data.fileId, data.totalChunks, data.name, data.mime, data.size);
+                registerSwarmAnnounce(data.fromPeer || hostConnection.peer, data.fileId, data.totalChunks, data.name, data.mime, data.size);
                 return;
             } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type)) {
                 handleArcadeNetwork(data);
@@ -4660,7 +4776,7 @@ async function initClient() {
                 // Reconstruct parent links for client navigation
                 function linkParents(node, parent) {
                     node.parent = parent;
-                    if (node.isNuclear && !node.isUnlocked && typeof clientUnlockedVaults !== 'undefined') {
+                    if (!node.isUnlocked && typeof clientUnlockedVaults !== 'undefined') {
                         delete clientUnlockedVaults[node.id];
                     }
                     if (node.children) node.children.forEach(c => linkParents(c, node));
@@ -4687,7 +4803,18 @@ async function initClient() {
                     autoEnterFolderId = null;
                 } else if (clientCurrentDir) {
                     const stillExists = findInTree(clientCurrentDir.id, clientVFS);
-                    clientCurrentDir = stillExists ? stillExists : clientVFS;
+                    let isPermitted = true;
+                    if (stillExists) {
+                        let cur = stillExists;
+                        while (cur && cur.id !== 'root') {
+                            if ((cur.isLocked || cur.isVault || cur.isNuclear || cur.password || cur.hasPassword) && !cur.isUnlocked) {
+                                isPermitted = false;
+                                break;
+                            }
+                            cur = cur.parent;
+                        }
+                    }
+                    clientCurrentDir = (stillExists && isPermitted) ? stillExists : clientVFS;
                 } else {
                     clientCurrentDir = clientVFS;
                 }
@@ -4777,6 +4904,7 @@ async function initClient() {
             } else if (data.type === 'GUEST_PERMISSIONS') {
                 const prevWb = (typeof myPermissions !== 'undefined' && myPermissions) ? !!myPermissions.whiteboard : false;
                 const prevSp = (typeof myPermissions !== 'undefined' && myPermissions) ? !!myPermissions.scratchpad : false;
+                const prevCb = (typeof myPermissions !== 'undefined' && myPermissions) ? !!myPermissions.cyberboard : false;
                 myPermissions = data.permissions || {};
                 if (btnUploadFilesClient) btnUploadFilesClient.classList.toggle('hidden', !myPermissions.upload);
                 if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !myPermissions.upload);
@@ -4810,6 +4938,19 @@ async function initClient() {
                 if (!myPermissions.scratchpad && prevSp) {
                     if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
                         scratchpadModal.classList.add('hidden');
+                    }
+                }
+
+                // CyberBoard Permission Handling
+                const btnCbClient = document.getElementById('btn-cyberboard-client');
+                if (btnCbClient) btnCbClient.classList.toggle('hidden', !myPermissions.cyberboard);
+                const btnCbHeader = document.getElementById('btn-cyberboard-header');
+                if (btnCbHeader) btnCbHeader.classList.toggle('hidden', !myPermissions.cyberboard);
+
+                if (!myPermissions.cyberboard && prevCb) {
+                    const cbModal = document.getElementById('cyberboard-modal');
+                    if (cbModal && !cbModal.classList.contains('hidden')) {
+                        cbModal.classList.add('hidden');
                     }
                 }
             } else if (data.type === 'WHITEBOARD_INVITE') {
@@ -4852,6 +4993,27 @@ async function initClient() {
                     scratchpadModal.classList.add('hidden');
                 }
                 showToast("QuickPad access was revoked by Host.", "warning");
+            } else if (data.type === 'CYBERBOARD_INVITE') {
+                if (typeof myPermissions !== 'undefined') myPermissions.cyberboard = true;
+                const btnCbClient = document.getElementById('btn-cyberboard-client');
+                if (btnCbClient) btnCbClient.classList.remove('hidden');
+                const btnCbHeader = document.getElementById('btn-cyberboard-header');
+                if (btnCbHeader) btnCbHeader.classList.remove('hidden');
+                showToast("📋 CyberBoard access granted by Host!", "success");
+                cyberConfirm("The Host has invited you to the Collaborative CyberBoard (Kanban & Data Table). Would you like to open it now?", "CYBERBOARD INVITATION").then(join => {
+                    if (join && typeof openCyberboardModal === 'function') openCyberboardModal();
+                });
+            } else if (data.type === 'CYBERBOARD_REVOKED') {
+                if (typeof myPermissions !== 'undefined') myPermissions.cyberboard = false;
+                const btnCbClient = document.getElementById('btn-cyberboard-client');
+                if (btnCbClient) btnCbClient.classList.add('hidden');
+                const btnCbHeader = document.getElementById('btn-cyberboard-header');
+                if (btnCbHeader) btnCbHeader.classList.add('hidden');
+                const cbModal = document.getElementById('cyberboard-modal');
+                if (cbModal && !cbModal.classList.contains('hidden')) {
+                    cbModal.classList.add('hidden');
+                }
+                showToast("CyberBoard access was revoked by Host.", "warning");
             } else if (data.type === 'NUCLEAR_VOTE_UPDATE') {
                 if (typeof updateNuclearModalUI === 'function') {
                     updateNuclearModalUI(data.folderId, data.current, data.required);
@@ -5039,7 +5201,28 @@ async function initClient() {
                     scratchpadModal.classList.add('hidden');
                 }
                 showToast("QuickPad session was closed by the Host.", "info");
-            
+            } else if (data.type === 'PAD_CODE_OUTPUT') {
+                if (typeof handleRemotePadCodeOutput === 'function') handleRemotePadCodeOutput(data);
+            } else if (data.type === 'WATCH_PARTY_START' || data.type === 'WATCH_PARTY_SYNC' || data.type === 'WATCH_PARTY_REACT') {
+                if (typeof handleIncomingWatchPartyMessage === 'function') {
+                    handleIncomingWatchPartyMessage(data, hostConnection);
+                }
+            } else if (data.type === 'CYBERBOARD_DENIED') {
+                const cbModal = document.getElementById('cyberboard-modal');
+                if (cbModal && !cbModal.classList.contains('hidden')) {
+                    cbModal.classList.add('hidden');
+                }
+                showToast("Host has not granted CyberBoard permission.", "warning");
+            } else if (data.type === 'CYBERBOARD_SYNC' || data.type === 'CYBERBOARD_UPDATE') {
+                if (typeof handleRemoteCyberboardUpdate === 'function') {
+                    handleRemoteCyberboardUpdate(data);
+                }
+            } else if (data.type === 'CYBERBOARD_CLOSED') {
+                const cbModal = document.getElementById('cyberboard-modal');
+                if (cbModal && !cbModal.classList.contains('hidden')) {
+                    cbModal.classList.add('hidden');
+                }
+                showToast("CyberBoard session was closed by the Host.", "info");
             } else if (data.type === 'NETWORK_MAP') {
                 const map = data.peers;
                 map.forEach(peerId => {
@@ -5106,11 +5289,28 @@ async function initClient() {
                 cyberAlert("The Host denied your request to access the Native Vault.", "ACCESS DENIED", true);
                 guestOtpEntryModal.classList.add('hidden');
             } else if (data.type === 'FOLDER_AUTH_SUCCESS') {
-                folderPasswordModal.classList.add('hidden');
-                autoEnterFolderId = activeAuthFolderId;
+                if (activeAuthFolderId) {
+                    const pass = folderPasswordInput ? folderPasswordInput.value.trim() : true;
+                    if (typeof clientUnlockedVaults !== 'undefined') {
+                        clientUnlockedVaults[activeAuthFolderId] = pass || true;
+                    }
+                    autoEnterFolderId = activeAuthFolderId;
+                }
+                if (folderPasswordModal) folderPasswordModal.classList.add('hidden');
+                if (folderPasswordError) folderPasswordError.classList.add('hidden');
+                if (folderPasswordInput) folderPasswordInput.value = '';
+                showToast("Folder access granted");
                 // The updated TREE will arrive next and we can navigate in
             } else if (data.type === 'FOLDER_AUTH_FAIL') {
-                folderPasswordError.classList.remove('hidden');
+                if (folderPasswordError) {
+                    folderPasswordError.textContent = 'Access Denied: Invalid Password';
+                    folderPasswordError.classList.remove('hidden');
+                }
+                if (folderPasswordInput) {
+                    folderPasswordInput.value = '';
+                    folderPasswordInput.focus();
+                }
+                showToast("Access Denied: Invalid Password");
             } else if (data.type === 'BURN_NOTICE') {
                 isBurnSequenceActive = true;
                 playBurnAlarm();
@@ -5148,13 +5348,43 @@ async function initClient() {
         });
     }
     
-    btnSubmitFolderPassword.addEventListener('click', () => {
-        const pwd = folderPasswordInput.value;
-        if (pwd && hostConnection && hostConnection.open && activeAuthFolderId) {
-            hostConnection.send({ type: 'FOLDER_AUTH_ATTEMPT', folderId: activeAuthFolderId, password: pwd });
-        }
-    });
-    btnCancelFolderPassword.addEventListener('click', () => folderPasswordModal.classList.add('hidden'));
+    if (btnSubmitFolderPassword) {
+        btnSubmitFolderPassword.addEventListener('click', () => {
+            const pwd = folderPasswordInput ? folderPasswordInput.value : '';
+            if (!pwd) {
+                if (folderPasswordError) {
+                    folderPasswordError.textContent = 'Password is required';
+                    folderPasswordError.classList.remove('hidden');
+                }
+                return;
+            }
+            if (hostConnection && hostConnection.open && activeAuthFolderId) {
+                if (folderPasswordError) folderPasswordError.classList.add('hidden');
+                hostConnection.send({ type: 'FOLDER_AUTH_ATTEMPT', folderId: activeAuthFolderId, password: pwd });
+            }
+        });
+    }
+
+    const closeFolderPasswordModal = () => {
+        if (folderPasswordModal) folderPasswordModal.classList.add('hidden');
+        if (folderPasswordError) folderPasswordError.classList.add('hidden');
+        if (folderPasswordInput) folderPasswordInput.value = '';
+        activeAuthFolderId = null;
+    };
+
+    if (btnCancelFolderPassword) {
+        btnCancelFolderPassword.addEventListener('click', closeFolderPasswordModal);
+    }
+    if (btnCloseFolderPasswordTop) {
+        btnCloseFolderPasswordTop.addEventListener('click', closeFolderPasswordModal);
+    }
+    if (folderPasswordInput) {
+        folderPasswordInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (btnSubmitFolderPassword) btnSubmitFolderPassword.click();
+            }
+        });
+    }
 
     btnSubmitPassword.addEventListener('click', () => {
         const pwd = clientPasswordInput.value;
@@ -5212,6 +5442,9 @@ if (btnCloseMedia) {
         if (activeMediaStreamDownloader) {
             activeMediaStreamDownloader.abort();
             activeMediaStreamDownloader = null;
+        }
+        if (typeof setWatchPartyUIActive === 'function') {
+            setWatchPartyUIActive(false);
         }
         mediaModal.classList.add('hidden');
         mediaContainer.innerHTML = ''; // Stop playback
@@ -5283,7 +5516,7 @@ function renderClientExplorer() {
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
         const isFolderSecured = child.type === 'folder' && (child.isLocked || child.isVault || child.isNuclear || child.password || child.isSecured);
-        const isFolderUnlocked = isFolderSecured && (child.isUnlocked || (typeof clientUnlockedVaults !== 'undefined' && !!clientUnlockedVaults[child.id]));
+        const isFolderUnlocked = isFolderSecured && !!child.isUnlocked;
         const isFolderLocked = isFolderSecured && !isFolderUnlocked;
 
         let folderLockBadge = '';
@@ -5413,9 +5646,9 @@ function renderClientExplorer() {
                 updateBatchBar();
             }
             if (child.type === 'folder') {
-                if (child.isNuclear && !clientUnlockedVaults[child.id]) {
+                if (child.isNuclear && !child.isUnlocked) {
                     openNuclearModal(child);
-                } else if (child.isNativeRoot && !clientUnlockedVaults[child.id]) {
+                } else if (child.isNativeRoot && !child.isUnlocked) {
                     hostConnection.send({ type: 'REQUEST_NATIVE_VAULT_ACCESS' });
                     guestOtpEntryModal.classList.remove('hidden');
                     guestOtpInput.value = '';
@@ -5435,30 +5668,12 @@ function renderClientExplorer() {
                     };
                     btnSubmitGuestOtp.addEventListener('click', handleGuestOtpSubmit);
                     btnCloseGuestOtp.addEventListener('click', handleGuestOtpClose);
-                } else if (child.isVault && !clientUnlockedVaults[child.id]) {
-                    vaultPasswordModal.classList.remove('hidden');
-                    vaultPasswordInput.value = '';
-                    
-                    const handleClientVaultUnlock = async () => {
-                        const pass = vaultPasswordInput.value;
-                        if (!pass) return await cyberAlert("Password required to access this Vault", "VAULT SECURITY", true);
-                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
-                        vaultPasswordModal.classList.add('hidden');
-                        
-                        clientUnlockedVaults[child.id] = pass;
-                        clientCurrentDir = child;
-                        renderClientExplorer();
-                    };
-                    btnConfirmVaultPassword.addEventListener('click', handleClientVaultUnlock);
-                    btnCloseVaultModal.addEventListener('click', () => {
-                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
-                        vaultPasswordModal.classList.add('hidden');
-                    }, { once: true });
-                } else if (child.isLocked && !child.isUnlocked) {
+                } else if ((child.isVault || child.isLocked || child.hasPassword || child.password || child.isSecured) && !child.isUnlocked) {
                     activeAuthFolderId = child.id;
-                    folderPasswordInput.value = '';
-                    folderPasswordError.classList.add('hidden');
-                    folderPasswordModal.classList.remove('hidden');
+                    if (folderPasswordInput) folderPasswordInput.value = '';
+                    if (folderPasswordError) folderPasswordError.classList.add('hidden');
+                    if (folderPasswordModal) folderPasswordModal.classList.remove('hidden');
+                    setTimeout(() => { if (folderPasswordInput) folderPasswordInput.focus(); }, 100);
                 } else {
                     clientCurrentDir = child;
                     renderClientExplorer();
@@ -5997,6 +6212,9 @@ if (ctxOpen) {
                         mediaModal.classList.remove('hidden');
                         mediaTitle.innerText = node.name;
                         mediaContainer.innerHTML = '';
+                        if (typeof currentMediaNodeMeta !== 'undefined') {
+                            currentMediaNodeMeta = { id: node.id, name: node.name, mime: node.mime, size: node.size };
+                        }
                         if (btnDownloadMedia) {
                             btnDownloadMedia.href = url;
                             btnDownloadMedia.download = node.name;
@@ -6009,6 +6227,8 @@ if (ctxOpen) {
                         } else {
                             mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
                         }
+                        const mediaEl = (typeof getActiveMediaPlayerElement === 'function') ? getActiveMediaPlayerElement() : null;
+                        if (mediaEl && typeof bindWatchPartyMediaEvents === 'function') bindWatchPartyMediaEvents(mediaEl);
                     } catch(e) {
                         await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
                     }
@@ -6032,12 +6252,15 @@ if (ctxOpen) {
             } else if (node.type === 'folder') {
                 if (node.isNuclear && !unlockedVaults[node.id]) {
                     openNuclearModal(node);
-                } else if (node.isVault && !unlockedVaults[node.id]) {
+                } else if ((node.isVault || node.isLocked) && node.password && !unlockedVaults[node.id]) {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
                     const handleUnlock = async () => {
                         const pass = vaultPasswordInput.value;
-                        if (!pass) return await cyberAlert("Password required", "VAULT SECURITY", true);
+                        if (!pass) return await cyberAlert("Password required to access this folder", "FOLDER LOCKED", true);
+                        if (node.password && pass !== node.password && pass.trim() !== node.password) {
+                            return await cyberAlert("Incorrect password. Access denied.", "ACCESS DENIED", true);
+                        }
                         btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
                         vaultPasswordModal.classList.add('hidden');
                         unlockedVaults[node.id] = pass;
@@ -6097,30 +6320,14 @@ if (ctxOpen) {
                 }
                 previewModal.classList.remove('hidden');
             } else if (node.type === 'folder') {
-                if (node.isNuclear && !clientUnlockedVaults[node.id]) {
+                if (node.isNuclear && !node.isUnlocked) {
                     openNuclearModal(node);
-                } else if (node.isVault && !clientUnlockedVaults[node.id]) {
-                    vaultPasswordModal.classList.remove('hidden');
-                    vaultPasswordInput.value = '';
-                    const handleClientVaultUnlock = async () => {
-                        const pass = vaultPasswordInput.value;
-                        if (!pass) return await cyberAlert("Password required", "VAULT SECURITY", true);
-                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
-                        vaultPasswordModal.classList.add('hidden');
-                        clientUnlockedVaults[node.id] = pass;
-                        clientCurrentDir = node;
-                        renderClientExplorer();
-                    };
-                    btnConfirmVaultPassword.addEventListener('click', handleClientVaultUnlock);
-                    btnCloseVaultModal.addEventListener('click', () => {
-                        btnConfirmVaultPassword.removeEventListener('click', handleClientVaultUnlock);
-                        vaultPasswordModal.classList.add('hidden');
-                    }, { once: true });
-                } else if (node.isLocked && !node.isUnlocked) {
+                } else if ((node.isVault || node.isLocked || node.hasPassword || node.password || node.isSecured) && !node.isUnlocked) {
                     activeAuthFolderId = node.id;
-                    folderPasswordInput.value = '';
-                    folderPasswordError.classList.add('hidden');
-                    folderPasswordModal.classList.remove('hidden');
+                    if (folderPasswordInput) folderPasswordInput.value = '';
+                    if (folderPasswordError) folderPasswordError.classList.add('hidden');
+                    if (folderPasswordModal) folderPasswordModal.classList.remove('hidden');
+                    setTimeout(() => { if (folderPasswordInput) folderPasswordInput.focus(); }, 100);
                 } else {
                     clientCurrentDir = node;
                     renderClientExplorer();
@@ -10697,6 +10904,7 @@ const radarPermDelete = document.getElementById('radar-perm-delete');
 const radarPermEdit = document.getElementById('radar-perm-edit');
 const radarPermWhiteboard = document.getElementById('radar-perm-whiteboard');
 const radarPermScratchpad = document.getElementById('radar-perm-scratchpad');
+const radarPermCyberboard = document.getElementById('radar-perm-cyberboard');
 
 let activeNuclearFolderId = null;
 
@@ -10799,12 +11007,13 @@ function openRadarGuestModal(id, alias, color, avatar) {
 
     const conn = connections.find(c => c.peer === id);
     if (conn) {
-        if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false, whiteboard: false, scratchpad: false, chat: true };
+        if (!conn.permissions) conn.permissions = { upload: false, delete: false, edit: false, whiteboard: false, scratchpad: false, cyberboard: false, chat: true };
         if (radarPermUpload) radarPermUpload.checked = !!conn.permissions.upload;
         if (radarPermDelete) radarPermDelete.checked = !!conn.permissions.delete;
         if (radarPermEdit) radarPermEdit.checked = !!conn.permissions.edit;
         if (radarPermWhiteboard) radarPermWhiteboard.checked = !!conn.permissions.whiteboard;
         if (radarPermScratchpad) radarPermScratchpad.checked = !!conn.permissions.scratchpad;
+        if (radarPermCyberboard) radarPermCyberboard.checked = !!conn.permissions.cyberboard;
     }
     
     radarGuestModal.classList.remove('hidden');
@@ -10814,7 +11023,7 @@ if (btnCloseRadarModal) {
     btnCloseRadarModal.addEventListener('click', () => radarGuestModal.classList.add('hidden'));
 }
 
-[radarPermUpload, radarPermDelete, radarPermEdit, radarPermWhiteboard, radarPermScratchpad].forEach(checkbox => {
+[radarPermUpload, radarPermDelete, radarPermEdit, radarPermWhiteboard, radarPermScratchpad, radarPermCyberboard].forEach(checkbox => {
     if (checkbox) {
         checkbox.addEventListener('change', () => {
             if (!currentRadarGuestId) return;
@@ -10822,8 +11031,10 @@ if (btnCloseRadarModal) {
             if (conn) {
                 const prevWb = conn.permissions ? !!conn.permissions.whiteboard : false;
                 const prevSp = conn.permissions ? !!conn.permissions.scratchpad : false;
+                const prevCb = conn.permissions ? !!conn.permissions.cyberboard : false;
                 const newWb = radarPermWhiteboard ? radarPermWhiteboard.checked : false;
                 const newSp = radarPermScratchpad ? radarPermScratchpad.checked : false;
+                const newCb = radarPermCyberboard ? radarPermCyberboard.checked : false;
 
                 conn.permissions = {
                     upload: radarPermUpload ? radarPermUpload.checked : false,
@@ -10831,6 +11042,7 @@ if (btnCloseRadarModal) {
                     edit: radarPermEdit ? radarPermEdit.checked : false,
                     whiteboard: newWb,
                     scratchpad: newSp,
+                    cyberboard: newCb,
                     chat: conn.permissions ? conn.permissions.chat !== false : true
                 };
                 conn.send({ type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
@@ -10852,8 +11064,16 @@ if (btnCloseRadarModal) {
                     if (typeof onPeerDisconnectedFromPad === 'function') onPeerDisconnectedFromPad(conn.peer);
                 }
 
+                if (newCb && !prevCb) {
+                    conn.send({ type: 'CYBERBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                    if (typeof sendCyberboardFullSync === 'function') sendCyberboardFullSync(conn);
+                } else if (!newCb && prevCb) {
+                    conn.send({ type: 'CYBERBOARD_REVOKED' });
+                }
+
                 if (typeof renderWbGuestList === 'function') renderWbGuestList();
                 if (typeof renderSpGuestList === 'function') renderSpGuestList();
+                if (typeof renderCbGuestList === 'function') renderCbGuestList();
             }
         });
     }
@@ -11233,6 +11453,11 @@ if (cliTerminal) {
                         printCli('  cd <id>      - Change directory (or "cd .." to go up)');
                         printCli('  mkdir <name> - Create a new folder (Host only)');
                         printCli('  rm <id>      - Delete a file/folder (Host only)');
+                        printCli('  run <name>   - Execute a QuickPad or VFS script (.js / .py)');
+                        printCli('  js <code>    - Execute inline JavaScript in Web Worker sandbox');
+                        printCli('  py <code>    - Execute inline Python 3 in Pyodide WASM sandbox');
+                        printCli('  board        - Open P2P Collaborative CyberBoard (Kanban & Table)');
+                        printCli('  swarm        - Display P2P Swarm Torrenting bitfield & cache stats');
                         printCli('  peers        - List connected peers');
                         printCli('  kick <id>    - Kick a connected peer (Host only)');
                         printCli('  whoami       - Print user identity & peer ID');
@@ -11348,6 +11573,38 @@ if (cliTerminal) {
                                 printCli('Missing target ID.', 'var(--neon-red)');
                             }
                         }
+                    } else if (cmd === 'js') {
+                        const code = val.slice(3).trim();
+                        if (!code) {
+                            printCli('Usage: js <javascript_code>', 'var(--neon-red)');
+                        } else if (typeof executeCliCodeSnippet === 'function') {
+                            executeCliCodeSnippet('js', code);
+                        }
+                    } else if (cmd === 'py') {
+                        const code = val.slice(3).trim();
+                        if (!code) {
+                            printCli('Usage: py <python_code>', 'var(--neon-red)');
+                        } else if (typeof executeCliCodeSnippet === 'function') {
+                            executeCliCodeSnippet('py', code);
+                        }
+                    } else if (cmd === 'run') {
+                        const targetName = args.slice(1).join(' ').trim();
+                        if (!targetName) {
+                            printCli('Usage: run <filename.js | filename.py>', 'var(--neon-red)');
+                        } else if (typeof executeCliFile === 'function') {
+                            executeCliFile(targetName);
+                        }
+                    } else if (cmd === 'board' || cmd === 'cyberboard') {
+                        if (typeof openCyberboardModal === 'function') {
+                            openCyberboardModal();
+                            printCli('Opened CyberBoard.', 'var(--neon-green)');
+                        }
+                    } else if (cmd === 'swarm') {
+                        printCli('⚡ P2P SWARM TORRENT ENGINE STATUS:', 'var(--neon-blue)');
+                        printCli('  Direct Swarm Mesh Peers: ' + (typeof swarmConnections !== 'undefined' ? swarmConnections.length : 0));
+                        printCli('  Known Remote Bitfields:  ' + (typeof swarmBitfields !== 'undefined' ? swarmBitfields.size : 0));
+                        printCli('  Local Bitfields Tracked: ' + (typeof localFileBitfields !== 'undefined' ? localFileBitfields.size : 0));
+                        printCli('  RAM Seeded Files Cache:  ' + (typeof seededSwarmFiles !== 'undefined' ? seededSwarmFiles.size : 0));
                     } else {
                         printCli('Command not found: ' + cmd, 'var(--neon-red)');
                     }
@@ -12383,25 +12640,140 @@ async function handleHostSwarmChunkRequest(conn, fileId, chunkIndex) {
     }
 }
 
-async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex) {
+// In-memory LRU RAM Seeder Cache for completed guest downloads & streams (capped at ~150MB)
+const seededSwarmFiles = new Map();
+const MAX_SEEDED_SWARM_BYTES = 150 * 1024 * 1024;
+
+function cacheSeededSwarmFile(fileId, blob, meta = {}) {
+    if (!fileId || !blob) return;
+    let currentBytes = 0;
+    seededSwarmFiles.forEach(entry => { currentBytes += (entry.size || 0); });
+    while (currentBytes + blob.size > MAX_SEEDED_SWARM_BYTES && seededSwarmFiles.size > 0) {
+        const oldestKey = seededSwarmFiles.keys().next().value;
+        const removed = seededSwarmFiles.get(oldestKey);
+        currentBytes -= (removed ? removed.size : 0);
+        seededSwarmFiles.delete(oldestKey);
+    }
+    const totalChunks = meta.totalChunks || Math.max(1, Math.ceil(blob.size / CHUNK_SIZE));
+    seededSwarmFiles.set(fileId, {
+        blob,
+        name: meta.name || 'file',
+        mime: meta.mime || blob.type || 'application/octet-stream',
+        size: blob.size,
+        totalChunks,
+        timestamp: Date.now()
+    });
+    if (!localFileBitfields.has(fileId)) {
+        localFileBitfields.set(fileId, new Set());
+    }
+    const bf = localFileBitfields.get(fileId);
+    const allIndices = [];
+    for (let i = 0; i < totalChunks; i++) {
+        bf.add(i);
+        allIndices.push(i);
+    }
+    // Announce full bitfield to Host and connected swarm peers
+    const msg = {
+        type: 'SWARM_HAVES',
+        fileId,
+        chunkIndices: allIndices,
+        totalChunks,
+        fromPeer: (typeof peer !== 'undefined' && peer) ? peer.id : null
+    };
+    if (!isHost && hostConnection && hostConnection.open) {
+        try { hostConnection.send(msg); } catch (e) {}
+    }
+    if (Array.isArray(swarmConnections)) {
+        swarmConnections.forEach(c => {
+            if (c.open) {
+                try { c.send(msg); } catch (e) {}
+            }
+        });
+    }
+}
+
+function sendExistingSwarmBitfieldsToConn(conn) {
+    if (!conn || !conn.open || typeof swarmBitfields === 'undefined') return;
+    swarmBitfields.forEach((bitfield, key) => {
+        const sepIdx = key.indexOf(':');
+        if (sepIdx === -1) return;
+        const peerId = key.slice(0, sepIdx);
+        const fileId = key.slice(sepIdx + 1);
+        if (peerId === conn.peer) return;
+        // Verify peer is still connected
+        const peerStillActive = connections.some(c => c.peer === peerId && c.open && c.isAuthenticated);
+        if (!peerStillActive) return;
+        const indices = Array.from(bitfield);
+        if (indices.length > 0) {
+            try {
+                conn.send({
+                    type: 'SWARM_HAVES',
+                    fileId,
+                    chunkIndices: indices,
+                    fromPeer: peerId
+                });
+            } catch (e) {}
+        }
+    });
+}
+
+async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex, requesterPeer = null) {
     try {
         let chunkData = null;
-        if (incomingTransfers[fileId] && incomingTransfers[fileId].chunks && incomingTransfers[fileId].chunks[chunkIndex]) {
+        // 1. Check active SwarmDownloader in-memory chunks
+        if (activeSwarmDownloads.has(fileId)) {
+            const dl = activeSwarmDownloads.get(fileId);
+            if (dl && dl.chunks && dl.chunks[chunkIndex]) {
+                chunkData = dl.chunks[chunkIndex];
+            }
+        }
+        // 2. Check active Media Stream downloader in-memory chunks
+        if (!chunkData && activeMediaStreamDownloader && activeMediaStreamDownloader.fileId === fileId) {
+            if (activeMediaStreamDownloader.chunks && activeMediaStreamDownloader.chunks[chunkIndex]) {
+                chunkData = activeMediaStreamDownloader.chunks[chunkIndex];
+            }
+        }
+        // 3. Check completed RAM Seeder Cache (seededSwarmFiles)
+        if (!chunkData && seededSwarmFiles.has(fileId)) {
+            const seeded = seededSwarmFiles.get(fileId);
+            if (seeded && seeded.blob) {
+                const start = chunkIndex * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, seeded.blob.size);
+                if (start < seeded.blob.size) {
+                    chunkData = await seeded.blob.slice(start, end).arrayBuffer();
+                }
+            }
+        }
+        // 4. Check legacy incomingTransfers or IndexedDB chunk cache
+        if (!chunkData && incomingTransfers[fileId] && incomingTransfers[fileId].chunks && incomingTransfers[fileId].chunks[chunkIndex]) {
             chunkData = incomingTransfers[fileId].chunks[chunkIndex];
-        } else {
+        }
+        if (!chunkData) {
             chunkData = await getCachedChunk(fileId, chunkIndex);
         }
+
         if (chunkData && conn && conn.open) {
-            conn.send({
-                type: 'SWARM_CHUNK_DATA',
-                fileId: fileId,
-                chunkIndex: chunkIndex,
-                chunk: chunkData
-            });
+            if (requesterPeer && conn === hostConnection) {
+                conn.send({
+                    type: 'SWARM_RELAY_CHUNK',
+                    targetPeer: requesterPeer,
+                    fileId: fileId,
+                    chunkIndex: chunkIndex,
+                    chunk: chunkData
+                });
+            } else {
+                conn.send({
+                    type: 'SWARM_CHUNK_DATA',
+                    fileId: fileId,
+                    chunkIndex: chunkIndex,
+                    chunk: chunkData,
+                    fromPeer: (typeof peer !== 'undefined' && peer) ? peer.id : null
+                });
+            }
             const now = Date.now();
             if (window.triggerCyberspaceBeam && (!conn._lastBeamTime || now - conn._lastBeamTime > 250)) {
                 conn._lastBeamTime = now;
-                const to = (conn.peer === hostConnection?.peer) ? 'host' : conn.peer;
+                const to = requesterPeer || ((conn.peer === hostConnection?.peer) ? 'host' : conn.peer);
                 window.triggerCyberspaceBeam(peer.id, to, '#fcee0a');
             }
         }
@@ -12435,6 +12807,7 @@ function handleIncomingSwarmChunk(fileId, chunkIndex, chunkData, fromPeerId) {
             if (transfer.received === transfer.total) {
                 finishTransfer(fileId);
                 const blob = new Blob(transfer.chunks, { type: transfer.mime });
+                cacheSeededSwarmFile(fileId, blob, { name: transfer.name, mime: transfer.mime, totalChunks: transfer.total });
                 triggerDownload(blob, transfer.name, transfer.mime, fileId);
                 delete incomingTransfers[fileId];
             }
@@ -12457,15 +12830,35 @@ class SwarmDownloader {
 
         this.chunks = new Array(totalChunks);
         this.completedIndices = new Set();
-        this.inFlight = new Map(); // chunkIndex -> { conn, time }
+        this.inFlight = new Map(); // chunkIndex -> { conn, peerKey, time }
         this.pendingQueue = [];
         this.aborted = false;
         this.isDone = false;
         this.pumpInterval = null;
-        this.maxConcurrent = 8;
+        this.maxConcurrent = 12;
+        this.peerStats = new Map(); // peerId -> chunkCount
+        this.meshChunksCount = 0;
+        this.hostChunksCount = 0;
     }
 
     async start() {
+        // Check if already in local RAM seeder cache
+        if (seededSwarmFiles.has(this.fileId)) {
+            const seeded = seededSwarmFiles.get(this.fileId);
+            if (seeded && seeded.blob) {
+                for (let i = 0; i < this.totalChunks; i++) {
+                    const start = i * CHUNK_SIZE;
+                    const end = Math.min(start + CHUNK_SIZE, seeded.blob.size);
+                    const buf = await seeded.blob.slice(start, end).arrayBuffer();
+                    this.chunks[i] = buf;
+                    this.completedIndices.add(i);
+                    if (this.onChunk) this.onChunk(i, buf, 'local-cache');
+                }
+                this.finish();
+                return;
+            }
+        }
+
         try {
             const cachedMeta = await getCachedTransferMeta(this.fileId);
             if (cachedMeta && cachedMeta.receivedIndices && cachedMeta.receivedIndices.length > 0) {
@@ -12475,7 +12868,7 @@ class SwarmDownloader {
                         if (chunkData) {
                             this.chunks[idx] = chunkData;
                             this.completedIndices.add(idx);
-                            if (this.onChunk) this.onChunk(idx, chunkData);
+                            if (this.onChunk) this.onChunk(idx, chunkData, 'cache');
                         }
                     }
                 }
@@ -12515,22 +12908,39 @@ class SwarmDownloader {
             }
             this.checkTimeouts();
             this.pump();
-        }, 150);
+        }, 120);
     }
 
     getEligibleConnections(chunkIndex) {
         const eligible = [];
-        if (!isHost && hostConnection && hostConnection.open) {
-            eligible.push({ conn: hostConnection, isHost: true });
-        }
+        const directPeersAdded = new Set();
+
+        // 1. Direct WebRTC mesh peers that have this chunk
         swarmConnections.forEach(conn => {
             if (conn.open) {
                 const bitfield = swarmBitfields.get(`${conn.peer}:${this.fileId}`);
                 if (bitfield && bitfield.has(chunkIndex)) {
-                    eligible.push({ conn, isHost: false });
+                    eligible.push({ conn, peerKey: conn.peer, isHost: false, viaRelay: false });
+                    directPeersAdded.add(conn.peer);
                 }
             }
         });
+
+        // 2. Mesh peers known via swarmBitfields (relayed via Host if direct connection not yet open)
+        if (!isHost && hostConnection && hostConnection.open) {
+            swarmBitfields.forEach((bitfield, key) => {
+                if (key.endsWith(`:${this.fileId}`) && bitfield.has(chunkIndex)) {
+                    const peerId = key.slice(0, key.indexOf(':'));
+                    if (peerId && peerId !== (peer && peer.id) && peerId !== hostConnection.peer && !directPeersAdded.has(peerId)) {
+                        eligible.push({ conn: hostConnection, peerKey: peerId, isHost: false, viaRelay: true, targetPeer: peerId });
+                    }
+                }
+            });
+
+            // 3. Host source
+            eligible.push({ conn: hostConnection, peerKey: 'host', isHost: true, viaRelay: false });
+        }
+
         return eligible;
     }
 
@@ -12548,33 +12958,45 @@ class SwarmDownloader {
 
             if (eligible.length === 0) {
                 if (!isHost && hostConnection && hostConnection.open) {
-                    eligible.push({ conn: hostConnection, isHost: true });
+                    eligible.push({ conn: hostConnection, peerKey: 'host', isHost: true, viaRelay: false });
                 } else {
                     this.pendingQueue.push(chunkIndex);
                     break;
                 }
             }
 
+            // Load-balance across all available sources, slightly preferring mesh peers to offload Host
             let bestPeer = eligible[0];
-            let minLoad = Infinity;
+            let bestScore = Infinity;
             for (const item of eligible) {
                 let load = 0;
                 for (const inflight of this.inFlight.values()) {
-                    if (inflight.conn === item.conn) load++;
+                    if (inflight.peerKey === item.peerKey) load++;
                 }
-                if (load < minLoad) {
-                    minLoad = load;
+                // Give direct mesh peers a slight priority bonus (-0.35) so chunks stitch across all peers
+                const score = load + (item.isHost ? 0.35 : (item.viaRelay ? 0.15 : 0));
+                if (score < bestScore) {
+                    bestScore = score;
                     bestPeer = item;
                 }
             }
 
             try {
-                bestPeer.conn.send({
-                    type: 'SWARM_REQUEST_CHUNK',
-                    fileId: this.fileId,
-                    chunkIndex: chunkIndex
-                });
-                this.inFlight.set(chunkIndex, { conn: bestPeer.conn, time: Date.now() });
+                if (bestPeer.viaRelay && bestPeer.targetPeer) {
+                    bestPeer.conn.send({
+                        type: 'SWARM_RELAY_REQUEST',
+                        targetPeer: bestPeer.targetPeer,
+                        fileId: this.fileId,
+                        chunkIndex: chunkIndex
+                    });
+                } else {
+                    bestPeer.conn.send({
+                        type: 'SWARM_REQUEST_CHUNK',
+                        fileId: this.fileId,
+                        chunkIndex: chunkIndex
+                    });
+                }
+                this.inFlight.set(chunkIndex, { conn: bestPeer.conn, peerKey: bestPeer.peerKey, time: Date.now() });
             } catch (err) {
                 console.warn(`Failed to request chunk ${chunkIndex}:`, err);
                 this.pendingQueue.push(chunkIndex);
@@ -12585,7 +13007,7 @@ class SwarmDownloader {
 
     checkTimeouts() {
         const now = Date.now();
-        const TIMEOUT_MS = 3500;
+        const TIMEOUT_MS = 3000;
         for (const [idx, item] of this.inFlight.entries()) {
             if (now - item.time > TIMEOUT_MS) {
                 this.inFlight.delete(idx);
@@ -12596,11 +13018,29 @@ class SwarmDownloader {
         }
     }
 
+    getSwarmTelemetryLabel() {
+        const total = Math.max(1, this.hostChunksCount + this.meshChunksCount);
+        const meshPct = Math.round((this.meshChunksCount / total) * 100);
+        const sourcesCount = Math.max(1, this.peerStats.size);
+        if (this.meshChunksCount > 0) {
+            return `${sourcesCount} SOURCES • ${meshPct}% MESH P2P`;
+        }
+        return `${sourcesCount} SOURCE (DIRECT HOST)`;
+    }
+
     receiveChunk(chunkIndex, chunkData, fromPeerId) {
         if (this.aborted || this.completedIndices.has(chunkIndex)) return;
         this.inFlight.delete(chunkIndex);
         this.chunks[chunkIndex] = chunkData;
         this.completedIndices.add(chunkIndex);
+
+        const sourceKey = (!fromPeerId || (hostConnection && fromPeerId === hostConnection.peer)) ? 'host' : fromPeerId;
+        this.peerStats.set(sourceKey, (this.peerStats.get(sourceKey) || 0) + 1);
+        if (sourceKey === 'host') {
+            this.hostChunksCount++;
+        } else {
+            this.meshChunksCount++;
+        }
 
         if (!localFileBitfields.has(this.fileId)) localFileBitfields.set(this.fileId, new Set());
         localFileBitfields.get(this.fileId).add(chunkIndex);
@@ -12615,7 +13055,7 @@ class SwarmDownloader {
         broadcastSwarmHave(this.fileId, chunkIndex, this.totalChunks);
 
         if (this.onChunk) {
-            try { this.onChunk(chunkIndex, chunkData); } catch (e) { console.warn("onChunk error:", e); }
+            try { this.onChunk(chunkIndex, chunkData, sourceKey); } catch (e) { console.warn("onChunk error:", e); }
         }
         if (this.onProgress) {
             try { this.onProgress(this.completedIndices.size, this.totalChunks); } catch (e) { console.warn("onProgress error:", e); }
@@ -12656,6 +13096,13 @@ class SwarmDownloader {
         }
 
         if (fullBlob) {
+            // Keep in RAM Seeder Cache so this guest seeds chunks to subsequent peers!
+            cacheSeededSwarmFile(this.fileId, fullBlob, {
+                name: this.fileName,
+                mime: this.fileMime,
+                size: this.fileSize,
+                totalChunks: this.totalChunks
+            });
             if (this.onComplete) {
                 try { this.onComplete(fullBlob); } catch(e) { console.error("onComplete error:", e); }
             }
@@ -12691,11 +13138,16 @@ function startSwarmDownload(fileId) {
         onChunk: (index, chunk) => {
             const pct = Math.floor((downloader.completedIndices.size / totalChunks) * 100);
             const previewPct = document.getElementById('preview-progress-text');
-            if (previewPct) previewPct.textContent = `${pct}%`;
+            if (previewPct) {
+                previewPct.textContent = `${pct}% (${downloader.getSwarmTelemetryLabel()})`;
+            }
             updateTransferProgress(fileId, chunk.byteLength, node.size, index);
         },
         onComplete: async (blob) => {
             finishTransfer(fileId);
+            if (downloader.meshChunksCount > 0) {
+                showToast(`⚡ Multi-Peer Swarm stitched ${downloader.meshChunksCount}/${totalChunks} chunks from mesh peers!`, 'success');
+            }
             if (node.isEncrypted) {
                 const pass = (clientCurrentDir && clientUnlockedVaults[clientCurrentDir.id]) || clientUnlockedVaults[fileId];
                 if (pass) {
@@ -12737,11 +13189,14 @@ function startSwarmDownload(fileId) {
 // MODULE 4: STREAMING VIDEO/AUDIO TORRENT PLAYER
 // =========================================================================
 
+let currentMediaNodeMeta = null;
+
 async function startMediaStream(fileId, name, mime, size) {
     previewModal.classList.add('hidden');
     mediaModal.classList.remove('hidden');
     mediaTitle.innerText = name;
     mediaContainer.innerHTML = '';
+    currentMediaNodeMeta = { id: fileId, name, mime, size };
 
     const bufferContainer = document.getElementById('stream-buffer-container');
     const bufferDetail = document.getElementById('stream-buffer-detail');
@@ -12767,8 +13222,8 @@ async function startMediaStream(fileId, name, mime, size) {
     let receivedCount = 0;
 
     const lowerName = name.toLowerCase();
-    const isVideo = (mime && mime.startsWith('video/')) || lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg');
-    const isAudio = (mime && mime.startsWith('audio/')) || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a');
+    const isVideo = (mime && mime.startsWith('video/')) || lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') || lowerName.endsWith('.mov');
+    const isAudio = (mime && mime.startsWith('audio/')) || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a') || lowerName.endsWith('.flac');
 
     if (isVideo) {
         mediaContainer.innerHTML = `<video id="active-stream-media" controls autoplay playsinline style="width:100%; max-height:70vh; display:block; background:#000;"></video>`;
@@ -12778,6 +13233,10 @@ async function startMediaStream(fileId, name, mime, size) {
         mediaElement = document.getElementById('active-stream-media');
     } else {
         mediaContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--neon-blue);">STREAMING PREVIEW...</div>`;
+    }
+
+    if (mediaElement && typeof bindWatchPartyMediaEvents === 'function') {
+        bindWatchPartyMediaEvents(mediaElement);
     }
 
     if (activeMediaStreamDownloader) {
@@ -12799,7 +13258,9 @@ async function startMediaStream(fileId, name, mime, size) {
             const pct = Math.floor((receivedCount / totalChunks) * 100);
             if (bufferFill) bufferFill.style.width = `${pct}%`;
             if (bufferPct) bufferPct.textContent = `${pct}%`;
-            if (bufferDetail) bufferDetail.textContent = `BUFFERED ${receivedCount}/${totalChunks} CHUNKS (${pct}%)`;
+            if (bufferDetail) {
+                bufferDetail.textContent = `BUFFERED ${receivedCount}/${totalChunks} CHUNKS • ${downloader.getSwarmTelemetryLabel()}`;
+            }
 
             // Start playback as soon as initial sequential buffer arrives (e.g. first 4 chunks or 10%)
             if (!playbackStarted && (receivedCount >= Math.min(4, totalChunks) || pct >= 10)) {
@@ -12814,10 +13275,14 @@ async function startMediaStream(fileId, name, mime, size) {
                     const partialUrl = URL.createObjectURL(partialBlob);
                     if (mediaElement) {
                         mediaElement.src = partialUrl;
-                        mediaElement.play().catch(e => console.log("Stream play awaiting user gesture:", e));
+                        if (typeof applyPendingWatchPartyState === 'function') {
+                            applyPendingWatchPartyState(mediaElement);
+                        } else {
+                            mediaElement.play().catch(e => console.log("Stream play awaiting user gesture:", e));
+                        }
                     }
                     if (bufferDetail) {
-                        bufferDetail.textContent = '⚡ LIVE STREAM PLAYBACK ACTIVE';
+                        bufferDetail.textContent = `⚡ LIVE STREAM ACTIVE • ${downloader.getSwarmTelemetryLabel()}`;
                         bufferDetail.style.color = 'var(--neon-green)';
                     }
                 }
@@ -12826,20 +13291,28 @@ async function startMediaStream(fileId, name, mime, size) {
         onComplete: (fullBlob) => {
             const fullUrl = URL.createObjectURL(fullBlob);
             if (bufferDetail) {
-                bufferDetail.textContent = '⚡ STREAM FULLY BUFFERED (COMPLETE)';
+                bufferDetail.textContent = `⚡ STREAM COMPLETE (${downloader.getSwarmTelemetryLabel()})`;
                 bufferDetail.style.color = 'var(--neon-green)';
             }
             if (bufferFill) bufferFill.style.width = '100%';
             if (mediaElement) {
                 if (!playbackStarted) {
                     mediaElement.src = fullUrl;
-                    mediaElement.play().catch(e => console.log("Playback play error:", e));
+                    if (typeof applyPendingWatchPartyState === 'function') {
+                        applyPendingWatchPartyState(mediaElement);
+                    } else {
+                        mediaElement.play().catch(e => console.log("Playback play error:", e));
+                    }
                 } else {
                     const curTime = mediaElement.currentTime;
                     const wasPaused = mediaElement.paused;
+                    const curRate = mediaElement.playbackRate || 1;
                     mediaElement.src = fullUrl;
                     mediaElement.onloadedmetadata = () => {
-                        try { mediaElement.currentTime = curTime; } catch(e) {}
+                        try {
+                            mediaElement.currentTime = curTime;
+                            mediaElement.playbackRate = curRate;
+                        } catch(e) {}
                         if (!wasPaused) mediaElement.play().catch(e => console.log("Stream play error:", e));
                     };
                 }
@@ -12866,6 +13339,1276 @@ async function startMediaStream(fileId, name, mime, size) {
     downloader.start();
 }
 
+
+// =========================================================================
+// FEATURE 1: LIVE IN-BROWSER CODE RUNNER (QUICKPAD & HACKER CLI)
+// =========================================================================
+
+const btnPadRun = document.getElementById('btn-pad-run');
+const padConsoleDrawer = document.getElementById('pad-console-drawer');
+const padConsoleOutput = document.getElementById('pad-console-output');
+const padConsoleRuntimeBadge = document.getElementById('pad-console-runtime-badge');
+const padConsoleExecTime = document.getElementById('pad-console-exec-time');
+const padConsoleBroadcast = document.getElementById('pad-console-broadcast');
+const btnPadConsoleClear = document.getElementById('btn-pad-console-clear');
+const btnPadConsoleClose = document.getElementById('btn-pad-console-close');
+
+let pyodideInstance = null;
+let pyodideLoadingPromise = null;
+let activeJsWorker = null;
+
+function appendPadConsoleLine(text, level = 'log', metaPrefix = '') {
+    if (!padConsoleOutput) return;
+    if (padConsoleDrawer && padConsoleDrawer.classList.contains('hidden')) {
+        padConsoleDrawer.classList.remove('hidden');
+    }
+    const line = document.createElement('div');
+    line.className = `pad-console-line ${level}`;
+    const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    line.textContent = `[${timestamp}]${metaPrefix ? ' ' + metaPrefix : ''} ${text}`;
+    padConsoleOutput.appendChild(line);
+    padConsoleOutput.scrollTop = padConsoleOutput.scrollHeight;
+}
+
+function broadcastPadCodeOutput(fileName, runtime, lines, execMs) {
+    if (!padConsoleBroadcast || !padConsoleBroadcast.checked) return;
+    const senderName = (typeof getMyAlias === 'function') ? getMyAlias() : (isHost ? 'Host' : guestAlias);
+    const payload = {
+        type: 'PAD_CODE_OUTPUT',
+        sender: senderName,
+        fileName,
+        runtime,
+        lines,
+        execMs
+    };
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                safeSend(c, payload);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        safeSend(hostConnection, payload);
+    }
+}
+
+function handleRemotePadCodeOutput(data) {
+    if (!data || !Array.isArray(data.lines)) return;
+    if (padConsoleDrawer && padConsoleDrawer.classList.contains('hidden')) {
+        padConsoleDrawer.classList.remove('hidden');
+    }
+    if (padConsoleRuntimeBadge && data.runtime) {
+        padConsoleRuntimeBadge.textContent = `${data.runtime} • ${data.sender || 'PEER'}`;
+    }
+    if (padConsoleExecTime && typeof data.execMs === 'number') {
+        padConsoleExecTime.textContent = `(${data.execMs}ms by ${data.sender || 'Peer'})`;
+    }
+    appendPadConsoleLine(`⚡ ${data.sender || 'Peer'} executed ${data.fileName || 'script'} (${data.runtime || 'SANDBOX'}):`, 'remote');
+    data.lines.forEach(item => {
+        appendPadConsoleLine(item.text, item.level === 'error' ? 'error' : (item.level === 'warn' ? 'warn' : 'remote'), `[${data.sender || 'Peer'}]`);
+    });
+}
+
+function runJavaScriptInWorker(code, timeoutMs = 5000) {
+    return new Promise((resolve) => {
+        if (activeJsWorker) {
+            try { activeJsWorker.terminate(); } catch (e) {}
+            activeJsWorker = null;
+        }
+        const startTime = performance.now();
+        const logs = [];
+        const workerSrc = `
+            const formatVal = (v) => {
+                if (v === undefined) return 'undefined';
+                if (v === null) return 'null';
+                if (typeof v === 'object') {
+                    try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
+                }
+                return String(v);
+            };
+            const sendLog = (level, args) => {
+                self.postMessage({ type: 'log', level, text: args.map(formatVal).join(' ') });
+            };
+            console.log = (...args) => sendLog('log', args);
+            console.info = (...args) => sendLog('log', args);
+            console.warn = (...args) => sendLog('warn', args);
+            console.error = (...args) => sendLog('error', args);
+
+            self.onmessage = async (e) => {
+                try {
+                    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+                    const fn = new AsyncFunction(e.data.code);
+                    const result = await fn();
+                    if (result !== undefined) {
+                        sendLog('log', ['↵ Return:', result]);
+                    }
+                    self.postMessage({ type: 'done' });
+                } catch (err) {
+                    sendLog('error', [err && err.stack ? err.stack : String(err)]);
+                    self.postMessage({ type: 'done' });
+                }
+            };
+        `;
+        const blob = new Blob([workerSrc], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(blob);
+        const worker = new Worker(workerUrl);
+        activeJsWorker = worker;
+
+        const watchdog = setTimeout(() => {
+            try { worker.terminate(); } catch (e) {}
+            URL.revokeObjectURL(workerUrl);
+            activeJsWorker = null;
+            logs.push({ level: 'error', text: `⏱️ Execution terminated: Exceeded ${timeoutMs / 1000}s sandbox timeout (infinite loop protection).` });
+            resolve({ logs, execMs: Math.round(performance.now() - startTime) });
+        }, timeoutMs);
+
+        worker.onmessage = (e) => {
+            const msg = e.data;
+            if (msg.type === 'log') {
+                logs.push({ level: msg.level, text: msg.text });
+            } else if (msg.type === 'done') {
+                clearTimeout(watchdog);
+                try { worker.terminate(); } catch (err) {}
+                URL.revokeObjectURL(workerUrl);
+                activeJsWorker = null;
+                resolve({ logs, execMs: Math.round(performance.now() - startTime) });
+            }
+        };
+
+        worker.onerror = (err) => {
+            clearTimeout(watchdog);
+            try { worker.terminate(); } catch (e) {}
+            URL.revokeObjectURL(workerUrl);
+            activeJsWorker = null;
+            logs.push({ level: 'error', text: err.message || 'Worker runtime error' });
+            resolve({ logs, execMs: Math.round(performance.now() - startTime) });
+        };
+
+        worker.postMessage({ code });
+    });
+}
+
+async function ensurePyodideLoaded(onStatus) {
+    if (pyodideInstance) return pyodideInstance;
+    if (pyodideLoadingPromise) return pyodideLoadingPromise;
+
+    pyodideLoadingPromise = (async () => {
+        if (onStatus) onStatus('Booting Python 3 WebAssembly runtime (Pyodide)...');
+        if (typeof window.loadPyodide !== 'function') {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js';
+                script.onload = resolve;
+                script.onerror = () => reject(new Error('Failed to load Pyodide WASM from CDN. Check internet connection.'));
+                document.head.appendChild(script);
+            });
+        }
+        pyodideInstance = await window.loadPyodide({
+            indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'
+        });
+        return pyodideInstance;
+    })();
+
+    try {
+        return await pyodideLoadingPromise;
+    } catch (err) {
+        pyodideLoadingPromise = null;
+        throw err;
+    }
+}
+
+async function runPythonInWasm(code, onStatus) {
+    const startTime = performance.now();
+    const logs = [];
+    try {
+        const pyodide = await ensurePyodideLoaded(onStatus);
+        pyodide.setStdout({
+            batched: (str) => logs.push({ level: 'log', text: str })
+        });
+        pyodide.setStderr({
+            batched: (str) => logs.push({ level: 'error', text: str })
+        });
+        const result = await pyodide.runPythonAsync(code);
+        if (result !== undefined && result !== null) {
+            logs.push({ level: 'log', text: `↵ Return: ${String(result)}` });
+        }
+    } catch (err) {
+        logs.push({ level: 'error', text: err.message || String(err) });
+    }
+    return { logs, execMs: Math.round(performance.now() - startTime) };
+}
+
+async function runActivePadCode() {
+    if (typeof getActivePadFile !== 'function') return;
+    const activeFile = getActivePadFile();
+    const code = padEditor ? padEditor.value : (activeFile ? activeFile.content : '');
+    const fileName = (activeFile && activeFile.name) ? activeFile.name : 'main.js';
+    const lower = fileName.toLowerCase();
+
+    if (padConsoleDrawer) padConsoleDrawer.classList.remove('hidden');
+
+    // Detect language from extension or shebang/heuristics
+    const isPython = lower.endsWith('.py') || code.trim().startsWith('#!/usr/bin/env python') || /^def\s+\w+\s*\(|^import\s+\w+|^from\s+\w+\s+import/m.test(code);
+    const isHtml = lower.endsWith('.html') || lower.endsWith('.htm');
+
+    if (isHtml) {
+        if (padConsoleRuntimeBadge) padConsoleRuntimeBadge.textContent = 'HTML SANDBOX';
+        appendPadConsoleLine(`Rendering live HTML preview for ${fileName}...`, 'system');
+        if (padPreviewPane) {
+            padPreviewPane.classList.remove('hidden');
+            padPreviewPane.innerHTML = `<iframe sandbox="allow-scripts" style="width:100%; height:100%; border:none; background:#fff; border-radius:4px;" srcdoc="${code.replace(/"/g, '&quot;')}"></iframe>`;
+        }
+        return;
+    }
+
+    if (isPython) {
+        if (padConsoleRuntimeBadge) padConsoleRuntimeBadge.textContent = 'PYTHON 3 WASM';
+        appendPadConsoleLine(`▶ Running ${fileName} in Python 3 WASM...`, 'system');
+        const { logs, execMs } = await runPythonInWasm(code, (statusMsg) => {
+            appendPadConsoleLine(statusMsg, 'system');
+        });
+        if (padConsoleExecTime) padConsoleExecTime.textContent = `(${execMs}ms)`;
+        if (logs.length === 0) {
+            appendPadConsoleLine('✓ Execution finished (no stdout output).', 'system');
+        } else {
+            logs.forEach(item => appendPadConsoleLine(item.text, item.level));
+        }
+        broadcastPadCodeOutput(fileName, 'PYTHON 3 WASM', logs.length ? logs : [{ level: 'log', text: '(Completed with no output)' }], execMs);
+    } else {
+        if (padConsoleRuntimeBadge) padConsoleRuntimeBadge.textContent = 'JS WORKER SANDBOX';
+        appendPadConsoleLine(`▶ Running ${fileName} in isolated JS Web Worker...`, 'system');
+        const { logs, execMs } = await runJavaScriptInWorker(code, 5000);
+        if (padConsoleExecTime) padConsoleExecTime.textContent = `(${execMs}ms)`;
+        if (logs.length === 0) {
+            appendPadConsoleLine('✓ Execution finished (no console output).', 'system');
+        } else {
+            logs.forEach(item => appendPadConsoleLine(item.text, item.level));
+        }
+        broadcastPadCodeOutput(fileName, 'JS WORKER', logs.length ? logs : [{ level: 'log', text: '(Completed with no output)' }], execMs);
+    }
+}
+
+if (btnPadRun) {
+    btnPadRun.addEventListener('click', () => runActivePadCode());
+}
+if (btnPadConsoleClear) {
+    btnPadConsoleClear.addEventListener('click', () => {
+        if (padConsoleOutput) padConsoleOutput.innerHTML = '';
+    });
+}
+if (btnPadConsoleClose) {
+    btnPadConsoleClose.addEventListener('click', () => {
+        if (padConsoleDrawer) padConsoleDrawer.classList.add('hidden');
+    });
+}
+if (padEditor) {
+    padEditor.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            runActivePadCode();
+        }
+    });
+}
+
+async function executeCliCodeSnippet(lang, code) {
+    if (lang === 'py') {
+        printCli('⚡ Executing Python 3 (Pyodide WASM)...', 'var(--neon-blue)');
+        const { logs, execMs } = await runPythonInWasm(code, (msg) => printCli('  ' + msg, 'var(--text-muted)'));
+        logs.forEach(l => printCli('  ' + l.text, l.level === 'error' ? 'var(--neon-red)' : 'var(--neon-green)'));
+        printCli(`✓ Done in ${execMs}ms`, 'var(--text-muted)');
+    } else {
+        printCli('⚡ Executing JavaScript (Isolated Web Worker)...', 'var(--neon-blue)');
+        const { logs, execMs } = await runJavaScriptInWorker(code, 5000);
+        logs.forEach(l => printCli('  ' + l.text, l.level === 'error' ? 'var(--neon-red)' : 'var(--neon-green)'));
+        printCli(`✓ Done in ${execMs}ms`, 'var(--text-muted)');
+    }
+}
+
+async function executeCliFile(targetName) {
+    // 1. Check QuickPad tabs first
+    if (typeof nativePadState !== 'undefined' && Array.isArray(nativePadState.files)) {
+        const padFile = nativePadState.files.find(f => f.name.toLowerCase() === targetName.toLowerCase() || f.id === targetName);
+        if (padFile) {
+            const isPy = padFile.name.toLowerCase().endsWith('.py');
+            await executeCliCodeSnippet(isPy ? 'py' : 'js', padFile.content || '');
+            return;
+        }
+    }
+    // 2. Check Host VFS if Host
+    if (isHost && vfs) {
+        const curDir = vfs.findNode(cliCurrentDirId) || vfs.root;
+        const match = (curDir.children || []).find(n => n.type === 'file' && (n.name.toLowerCase() === targetName.toLowerCase() || n.id === targetName)) || vfs.findNode(targetName);
+        if (match && match.type === 'file') {
+            const blob = await getDecryptedFileObj(match);
+            const text = await blob.text();
+            const isPy = match.name.toLowerCase().endsWith('.py');
+            await executeCliCodeSnippet(isPy ? 'py' : 'js', text);
+            return;
+        }
+    }
+    printCli(`File "${targetName}" not found in QuickPad or current directory.`, 'var(--neon-red)');
+}
+
+
+// =========================================================================
+// FEATURE 2: P2P WATCH PARTY (SYNCHRONIZED MEDIA THEATER & LIVE REACTIONS)
+// =========================================================================
+
+const ctxWatchParty = document.getElementById('ctx-watch-party');
+const btnWatchPartyToggle = document.getElementById('btn-watch-party-toggle');
+const watchPartyBar = document.getElementById('watch-party-bar');
+const watchPartySyncStatus = document.getElementById('watch-party-sync-status');
+const btnWpResync = document.getElementById('btn-wp-resync');
+const watchPartyReactionsLayer = document.getElementById('watch-party-reactions-layer');
+const watchPartyEmojiBar = document.getElementById('watch-party-emoji-bar');
+
+let isWatchPartyActive = false;
+let watchPartyFileId = null;
+let _wpSuppressEvents = false;
+let _wpSuppressTimer = null;
+let pendingWatchPartySync = null;
+
+function setWatchPartyUIActive(active, statusText = 'Synced across swarm') {
+    isWatchPartyActive = !!active;
+    if (watchPartyBar) watchPartyBar.classList.toggle('hidden', !active);
+    if (watchPartyEmojiBar) watchPartyEmojiBar.classList.toggle('hidden', !active);
+    if (watchPartySyncStatus && statusText) watchPartySyncStatus.textContent = statusText;
+    if (btnWatchPartyToggle) {
+        btnWatchPartyToggle.innerHTML = active ? '<span>🍿 PARTY LIVE</span>' : '<span>🍿 WATCH PARTY</span>';
+        btnWatchPartyToggle.style.background = active ? 'rgba(255, 0, 127, 0.3)' : 'rgba(255, 0, 127, 0.14)';
+        btnWatchPartyToggle.style.boxShadow = active ? '0 0 14px rgba(255, 0, 127, 0.5)' : 'none';
+    }
+}
+
+function getActiveMediaPlayerElement() {
+    if (!mediaContainer) return null;
+    return mediaContainer.querySelector('video, audio');
+}
+
+function broadcastWatchPartyPacket(packet) {
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated) {
+                safeSend(c, packet);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        safeSend(hostConnection, packet);
+    }
+}
+
+function bindWatchPartyMediaEvents(mediaEl) {
+    if (!mediaEl || mediaEl._wpBound) return;
+    mediaEl._wpBound = true;
+
+    const sendSyncState = (action) => {
+        if (!isWatchPartyActive || _wpSuppressEvents || !watchPartyFileId) return;
+        const senderName = (typeof getMyAlias === 'function') ? getMyAlias() : (isHost ? 'Host' : guestAlias);
+        broadcastWatchPartyPacket({
+            type: 'WATCH_PARTY_SYNC',
+            fileId: watchPartyFileId,
+            action,
+            currentTime: mediaEl.currentTime || 0,
+            paused: mediaEl.paused,
+            playbackRate: mediaEl.playbackRate || 1,
+            sender: senderName
+        });
+        if (watchPartySyncStatus) {
+            watchPartySyncStatus.textContent = `You ${action} @ ${ formatDurationTime(mediaEl.currentTime || 0) }`;
+        }
+    };
+
+    mediaEl.addEventListener('play', () => sendSyncState('played'));
+    mediaEl.addEventListener('pause', () => sendSyncState('paused'));
+    mediaEl.addEventListener('seeked', () => sendSyncState('seeked'));
+    mediaEl.addEventListener('ratechange', () => sendSyncState('changed speed'));
+}
+
+function formatDurationTime(seconds) {
+    const s = Math.max(0, Math.floor(seconds || 0));
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+}
+
+function applyPendingWatchPartyState(mediaEl) {
+    if (!mediaEl || !pendingWatchPartySync) return;
+    const st = pendingWatchPartySync;
+    pendingWatchPartySync = null;
+    _wpSuppressEvents = true;
+    if (_wpSuppressTimer) clearTimeout(_wpSuppressTimer);
+    try {
+        if (typeof st.currentTime === 'number' && !isNaN(st.currentTime)) {
+            mediaEl.currentTime = st.currentTime;
+        }
+        if (typeof st.playbackRate === 'number') {
+            mediaEl.playbackRate = st.playbackRate;
+        }
+        if (st.paused) {
+            mediaEl.pause();
+        } else {
+            mediaEl.play().catch(e => console.log("Watch Party autoplay awaiting user interaction:", e));
+        }
+    } catch (e) {}
+    _wpSuppressTimer = setTimeout(() => { _wpSuppressEvents = false; }, 350);
+}
+
+async function startWatchPartyForNode(node) {
+    if (!node || node.type !== 'file') return;
+    watchPartyFileId = node.id;
+    currentMediaNodeMeta = { id: node.id, name: node.name, mime: node.mime, size: node.size };
+
+    if (isHost) {
+        try {
+            const decryptedObj = await getDecryptedFileObj(node);
+            const url = URL.createObjectURL(decryptedObj);
+            mediaModal.classList.remove('hidden');
+            mediaTitle.innerText = node.name;
+            mediaContainer.innerHTML = '';
+            const bufferContainer = document.getElementById('stream-buffer-container');
+            if (bufferContainer) bufferContainer.classList.add('hidden');
+            if (btnDownloadMedia) {
+                btnDownloadMedia.href = url;
+                btnDownloadMedia.download = node.name;
+                btnDownloadMedia.style.display = 'block';
+            }
+            const lowerName = (node.name || '').toLowerCase();
+            if ((node.mime && node.mime.startsWith('video/')) || /\.(mp4|webm|ogg|mov|mkv)$/i.test(lowerName)) {
+                mediaContainer.innerHTML = `<video id="active-stream-media" src="${url}" controls autoplay playsinline style="width:100%; max-height:70vh; display:block; background:#000;"></video>`;
+            } else {
+                mediaContainer.innerHTML = `<div style="padding: 2rem; text-align: center;"><div style="font-family: var(--font-mono); color: #ff007f; margin-bottom: 1rem;">🍿 P2P WATCH PARTY AUDIO</div><audio id="active-stream-media" src="${url}" controls autoplay style="width:100%;"></audio></div>`;
+            }
+            const mediaEl = getActiveMediaPlayerElement();
+            if (mediaEl) bindWatchPartyMediaEvents(mediaEl);
+        } catch (e) {
+            cyberAlert("Failed to open media for Watch Party: " + e.message, "WATCH PARTY ERROR", true);
+            return;
+        }
+    } else {
+        await startMediaStream(node.id, node.name, node.mime || 'video/mp4', node.size || 0);
+    }
+
+    setWatchPartyUIActive(true, 'Broadcasting Watch Party to swarm...');
+    const senderName = (typeof getMyAlias === 'function') ? getMyAlias() : (isHost ? 'Host' : guestAlias);
+    const mediaEl = getActiveMediaPlayerElement();
+    broadcastWatchPartyPacket({
+        type: 'WATCH_PARTY_START',
+        fileId: node.id,
+        fileName: node.name,
+        fileMime: node.mime || 'video/mp4',
+        fileSize: node.size || 0,
+        currentTime: mediaEl ? (mediaEl.currentTime || 0) : 0,
+        paused: mediaEl ? mediaEl.paused : false,
+        playbackRate: mediaEl ? (mediaEl.playbackRate || 1) : 1,
+        starterName: senderName
+    });
+    showToast(`🍿 Watch Party started for "${node.name}"!`, 'success');
+}
+
+function spawnWatchPartyReaction(emoji, senderName) {
+    if (!watchPartyReactionsLayer) return;
+    const el = document.createElement('div');
+    el.className = 'wp-floating-emoji';
+    const leftPct = 12 + Math.floor(Math.random() * 76);
+    el.style.left = `${leftPct}%`;
+    el.innerHTML = `<span class="wp-emoji-glyph">${emoji}</span><span class="wp-emoji-sender">${senderName || 'Peer'}</span>`;
+    watchPartyReactionsLayer.appendChild(el);
+    setTimeout(() => {
+        if (el.parentNode) el.parentNode.removeChild(el);
+    }, 2700);
+}
+
+async function handleIncomingWatchPartyMessage(data) {
+    if (!data) return;
+    if (data.type === 'WATCH_PARTY_REACT') {
+        if (!mediaModal.classList.contains('hidden')) {
+            spawnWatchPartyReaction(data.emoji || '🍿', data.sender || 'Peer');
+        }
+        return;
+    }
+
+    if (data.type === 'WATCH_PARTY_START') {
+        const starter = data.starterName || 'Peer';
+        const fileName = data.fileName || 'Media Stream';
+        showToast(`🍿 ${starter} started a Watch Party: "${fileName}"!`, 'info');
+
+        const alreadyWatchingSame = !mediaModal.classList.contains('hidden') && watchPartyFileId === data.fileId;
+        if (!alreadyWatchingSame) {
+            const join = await cyberConfirm(`🍿 ${starter} invited the swarm to a synchronized Watch Party for "${fileName}". Join theater now?`, 'P2P WATCH PARTY');
+            if (!join) return;
+        }
+
+        watchPartyFileId = data.fileId;
+        pendingWatchPartySync = {
+            currentTime: data.currentTime || 0,
+            paused: !!data.paused,
+            playbackRate: data.playbackRate || 1
+        };
+        setWatchPartyUIActive(true, `Synced with ${starter}`);
+
+        if (isHost) {
+            const node = vfs.findNode(data.fileId);
+            if (node && node.type === 'file') {
+                const decryptedObj = await getDecryptedFileObj(node);
+                const url = URL.createObjectURL(decryptedObj);
+                mediaModal.classList.remove('hidden');
+                mediaTitle.innerText = node.name;
+                mediaContainer.innerHTML = '';
+                const lowerName = (node.name || '').toLowerCase();
+                if ((node.mime && node.mime.startsWith('video/')) || /\.(mp4|webm|ogg|mov|mkv)$/i.test(lowerName)) {
+                    mediaContainer.innerHTML = `<video id="active-stream-media" src="${url}" controls autoplay playsinline style="width:100%; max-height:70vh; display:block; background:#000;"></video>`;
+                } else {
+                    mediaContainer.innerHTML = `<div style="padding: 2rem; text-align: center;"><audio id="active-stream-media" src="${url}" controls autoplay style="width:100%;"></audio></div>`;
+                }
+                const mediaEl = getActiveMediaPlayerElement();
+                if (mediaEl) {
+                    bindWatchPartyMediaEvents(mediaEl);
+                    mediaEl.onloadedmetadata = () => applyPendingWatchPartyState(mediaEl);
+                }
+            }
+        } else {
+            await startMediaStream(data.fileId, data.fileName, data.fileMime, data.fileSize);
+            setWatchPartyUIActive(true, `Synced with ${starter}`);
+        }
+        return;
+    }
+
+    if (data.type === 'WATCH_PARTY_SYNC') {
+        if (mediaModal.classList.contains('hidden')) return;
+        if (watchPartyFileId && data.fileId && watchPartyFileId !== data.fileId) return;
+        watchPartyFileId = data.fileId || watchPartyFileId;
+        if (!isWatchPartyActive) setWatchPartyUIActive(true);
+
+        const mediaEl = getActiveMediaPlayerElement();
+        if (!mediaEl) {
+            pendingWatchPartySync = data;
+            return;
+        }
+        bindWatchPartyMediaEvents(mediaEl);
+        _wpSuppressEvents = true;
+        if (_wpSuppressTimer) clearTimeout(_wpSuppressTimer);
+
+        try {
+            if (typeof data.currentTime === 'number' && Math.abs((mediaEl.currentTime || 0) - data.currentTime) > 0.65) {
+                mediaEl.currentTime = data.currentTime;
+            }
+            if (typeof data.playbackRate === 'number' && mediaEl.playbackRate !== data.playbackRate) {
+                mediaEl.playbackRate = data.playbackRate;
+            }
+            if (data.paused && !mediaEl.paused) {
+                mediaEl.pause();
+            } else if (!data.paused && mediaEl.paused) {
+                mediaEl.play().catch(e => console.log("Watch Party sync play blocked by browser:", e));
+            }
+        } catch (e) {}
+
+        if (watchPartySyncStatus) {
+            watchPartySyncStatus.textContent = `${data.sender || 'Peer'} ${data.action || 'synced'} @ ${formatDurationTime(data.currentTime || 0)}`;
+        }
+        _wpSuppressTimer = setTimeout(() => { _wpSuppressEvents = false; }, 350);
+    }
+}
+
+if (ctxWatchParty) {
+    ctxWatchParty.addEventListener('click', async () => {
+        contextMenu.classList.add('hidden');
+        if (!contextTargetId) return;
+        const node = isHost ? vfs.findNode(contextTargetId) : findClientNode(clientVFS, contextTargetId);
+        if (node && node.type === 'file') {
+            await startWatchPartyForNode(node);
+        }
+    });
+}
+
+if (btnWatchPartyToggle) {
+    btnWatchPartyToggle.addEventListener('click', () => {
+        if (isWatchPartyActive) {
+            setWatchPartyUIActive(false);
+            showToast('Left Watch Party sync mode (playing locally).', 'info');
+            return;
+        }
+        const mediaEl = getActiveMediaPlayerElement();
+        if (mediaEl) bindWatchPartyMediaEvents(mediaEl);
+        const nodeId = (currentMediaNodeMeta && currentMediaNodeMeta.id) || activePreviewFileId || 'live_media';
+        const nodeName = (currentMediaNodeMeta && currentMediaNodeMeta.name) || (mediaTitle ? mediaTitle.innerText : 'Media');
+        const nodeMime = (currentMediaNodeMeta && currentMediaNodeMeta.mime) || 'video/mp4';
+        const nodeSize = (currentMediaNodeMeta && currentMediaNodeMeta.size) || 0;
+        watchPartyFileId = nodeId;
+        setWatchPartyUIActive(true, 'Synced across swarm');
+        const senderName = (typeof getMyAlias === 'function') ? getMyAlias() : (isHost ? 'Host' : guestAlias);
+        broadcastWatchPartyPacket({
+            type: 'WATCH_PARTY_START',
+            fileId: nodeId,
+            fileName: nodeName,
+            fileMime: nodeMime,
+            fileSize: nodeSize,
+            currentTime: mediaEl ? (mediaEl.currentTime || 0) : 0,
+            paused: mediaEl ? mediaEl.paused : false,
+            playbackRate: mediaEl ? (mediaEl.playbackRate || 1) : 1,
+            starterName: senderName
+        });
+        showToast('🍿 Watch Party broadcast sent to all peers!', 'success');
+    });
+}
+
+if (btnWpResync) {
+    btnWpResync.addEventListener('click', () => {
+        const mediaEl = getActiveMediaPlayerElement();
+        if (!mediaEl || !watchPartyFileId) return;
+        const senderName = (typeof getMyAlias === 'function') ? getMyAlias() : (isHost ? 'Host' : guestAlias);
+        broadcastWatchPartyPacket({
+            type: 'WATCH_PARTY_SYNC',
+            fileId: watchPartyFileId,
+            action: 'force-synced',
+            currentTime: mediaEl.currentTime || 0,
+            paused: mediaEl.paused,
+            playbackRate: mediaEl.playbackRate || 1,
+            sender: senderName
+        });
+        showToast('⚡ Broadcasted current playback timestamp to all peers!', 'info');
+    });
+}
+
+document.querySelectorAll('.wp-emoji-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const emoji = btn.getAttribute('data-emoji') || '🍿';
+        const senderName = (typeof getMyAlias === 'function') ? getMyAlias() : (isHost ? 'Host' : guestAlias);
+        spawnWatchPartyReaction(emoji, senderName);
+        broadcastWatchPartyPacket({
+            type: 'WATCH_PARTY_REACT',
+            emoji,
+            sender: senderName
+        });
+    });
+});
+
+
+// =========================================================================
+// FEATURE 4: P2P COLLABORATIVE CYBERBOARD (KANBAN & DATA TABLES)
+// =========================================================================
+
+const cyberboardModal = document.getElementById('cyberboard-modal');
+const btnCyberboardHeader = document.getElementById('btn-cyberboard-header');
+const btnCyberboardHost = document.getElementById('btn-cyberboard-host');
+const btnCyberboardClient = document.getElementById('btn-cyberboard-client');
+const btnCloseCyberboard = document.getElementById('btn-close-cyberboard');
+const btnCbViewKanban = document.getElementById('btn-cb-view-kanban');
+const btnCbViewTable = document.getElementById('btn-cb-view-table');
+const cbKanbanView = document.getElementById('cb-kanban-view');
+const cbTableView = document.getElementById('cb-table-view');
+const cbTableBody = document.getElementById('cb-table-body');
+const cbSearchInput = document.getElementById('cb-search-input');
+const btnCbNewCard = document.getElementById('btn-cb-new-card');
+const btnCbExportJson = document.getElementById('btn-cb-export-json');
+const btnCbExportCsv = document.getElementById('btn-cb-export-csv');
+const btnCbImport = document.getElementById('btn-cb-import');
+const cbImportInput = document.getElementById('cb-import-input');
+const btnCbClear = document.getElementById('btn-cb-clear');
+const cbStatsText = document.getElementById('cb-stats-text');
+
+// CyberBoard Host Guest Access Controls
+const cbHostControls = document.getElementById('cb-host-controls');
+const btnCbPermissions = document.getElementById('btn-cb-permissions');
+const cbPermCount = document.getElementById('cb-perm-count');
+const cbPermissionsPopover = document.getElementById('cb-permissions-popover');
+const btnCbAllowAll = document.getElementById('btn-cb-allow-all');
+const btnCbRevokeAll = document.getElementById('btn-cb-revoke-all');
+const cbGuestList = document.getElementById('cb-guest-list');
+
+// Card Editor Modal Elements
+const cbCardModal = document.getElementById('cb-card-modal');
+const cbCardIdInput = document.getElementById('cb-card-id');
+const cbCardTitleInput = document.getElementById('cb-card-title');
+const cbCardDescInput = document.getElementById('cb-card-desc');
+const cbCardColumnSelect = document.getElementById('cb-card-column');
+const cbCardPrioritySelect = document.getElementById('cb-card-priority');
+const cbCardAssigneeInput = document.getElementById('cb-card-assignee');
+const cbCardTagsInput = document.getElementById('cb-card-tags');
+const btnCbCardSave = document.getElementById('btn-cb-card-save');
+const btnCbCardDelete = document.getElementById('btn-cb-card-delete');
+const btnCbCardCancel = document.getElementById('btn-cb-card-cancel');
+
+const CYBERBOARD_STORAGE_KEY = 'localcast_cyberboard_v2';
+let cyberboardViewMode = 'kanban'; // 'kanban' | 'table'
+let draggedCbCardId = null;
+
+function getDefaultCyberboardCards() {
+    return [];
+}
+
+let cyberboardState = {
+    cards: getDefaultCyberboardCards(),
+    rev: 1
+};
+
+function loadCyberboardState() {
+    try {
+        // Purge legacy v1 storage that contained test starter cards
+        localStorage.removeItem('localcast_cyberboard_v1');
+        const raw = localStorage.getItem(CYBERBOARD_STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && Array.isArray(parsed.cards)) {
+                const legacyStarterIds = new Set(['cb_1', 'cb_2', 'cb_3', 'cb_4']);
+                parsed.cards = parsed.cards.filter(c => c && !legacyStarterIds.has(c.id));
+                cyberboardState = parsed;
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load CyberBoard state:', e);
+    }
+}
+loadCyberboardState();
+
+function saveCyberboardState() {
+    try {
+        localStorage.setItem(CYBERBOARD_STORAGE_KEY, JSON.stringify(cyberboardState));
+    } catch (e) {}
+}
+
+function sendCyberboardFullSync(conn) {
+    if (!conn || !conn.open) return;
+    safeSend(conn, {
+        type: 'CYBERBOARD_SYNC',
+        cards: cyberboardState.cards,
+        rev: cyberboardState.rev
+    });
+}
+
+function broadcastCyberboardUpdate() {
+    cyberboardState.rev = (cyberboardState.rev || 0) + 1;
+    saveCyberboardState();
+    const packet = {
+        type: 'CYBERBOARD_UPDATE',
+        cards: cyberboardState.cards,
+        rev: cyberboardState.rev
+    };
+    if (isHost) {
+        connections.forEach(c => {
+            if (c.open && c.isAuthenticated && c.permissions && c.permissions.cyberboard) {
+                safeSend(c, packet);
+            }
+        });
+    } else if (hostConnection && hostConnection.open) {
+        safeSend(hostConnection, packet);
+    }
+}
+
+function handleRemoteCyberboardUpdate(data) {
+    if (!data || !Array.isArray(data.cards)) return;
+    cyberboardState.cards = data.cards;
+    cyberboardState.rev = data.rev || (cyberboardState.rev + 1);
+    saveCyberboardState();
+    renderCyberboard();
+}
+
+function renderCyberboard() {
+    const query = (cbSearchInput ? cbSearchInput.value : '').trim().toLowerCase();
+    const filtered = cyberboardState.cards.filter(card => {
+        if (!query) return true;
+        const hay = `${card.title || ''} ${card.desc || ''} ${card.assignee || ''} ${(card.tags || []).join(' ')} ${card.priority || ''}`.toLowerCase();
+        return hay.includes(query);
+    });
+
+    const cols = ['todo', 'inprogress', 'review', 'done'];
+    cols.forEach((col, colIdx) => {
+        const container = document.getElementById(`cb-cards-${col}`);
+        const countBadge = document.getElementById(`cb-count-${col}`);
+        const colCards = filtered.filter(c => c.column === col);
+        if (countBadge) countBadge.textContent = String(colCards.length);
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (colCards.length === 0) {
+            const emptyEl = document.createElement('div');
+            emptyEl.className = 'cb-empty-col';
+            emptyEl.innerHTML = query
+                ? `<span>No matching tasks</span>`
+                : `<span>No tasks yet</span><small>Tap <b>+</b> to add task</small>`;
+            if (!query) {
+                emptyEl.addEventListener('click', () => openCbCardEditor(null, col));
+            }
+            container.appendChild(emptyEl);
+            return;
+        }
+
+        colCards.forEach(card => {
+            const cardEl = document.createElement('div');
+            cardEl.className = 'cb-card';
+            cardEl.draggable = true;
+            cardEl.dataset.id = card.id;
+
+            const prio = (card.priority || 'MED').toUpperCase();
+            const tagsHtml = (card.tags || []).filter(Boolean).map(t => `<span class="cb-tag-chip">#${escapeHtmlSafe(t)}</span>`).join('');
+            const assigneeHtml = card.assignee ? `<span class="cb-assignee-pill">${escapeHtmlSafe(card.assignee)}</span>` : '';
+            const prevCol = colIdx > 0 ? cols[colIdx - 1] : null;
+            const nextCol = colIdx < cols.length - 1 ? cols[colIdx + 1] : null;
+
+            cardEl.innerHTML = `
+                <div class="cb-card-top">
+                    <span class="cb-priority-badge cb-priority-${prio}">${prio}</span>
+                    ${assigneeHtml}
+                </div>
+                <div class="cb-card-title">${escapeHtmlSafe(card.title || 'Untitled Task')}</div>
+                ${card.desc ? `<div class="cb-card-desc">${escapeHtmlSafe(card.desc)}</div>` : ''}
+                <div class="cb-card-meta">
+                    <div class="cb-card-tags-wrap">${tagsHtml}</div>
+                    <div class="cb-card-move-btns">
+                        ${prevCol ? `<button type="button" class="cb-step-btn cb-step-prev" title="Move to previous column">◀</button>` : ''}
+                        ${nextCol ? `<button type="button" class="cb-step-btn cb-step-next" title="Move to next column">▶</button>` : ''}
+                    </div>
+                </div>
+            `;
+
+            const prevBtn = cardEl.querySelector('.cb-step-prev');
+            const nextBtn = cardEl.querySelector('.cb-step-next');
+            if (prevBtn && prevCol) {
+                prevBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    card.column = prevCol;
+                    card.updatedAt = Date.now();
+                    renderCyberboard();
+                    broadcastCyberboardUpdate();
+                });
+            }
+            if (nextBtn && nextCol) {
+                nextBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    card.column = nextCol;
+                    card.updatedAt = Date.now();
+                    renderCyberboard();
+                    broadcastCyberboardUpdate();
+                });
+            }
+
+            cardEl.addEventListener('dragstart', (e) => {
+                draggedCbCardId = card.id;
+                cardEl.classList.add('cb-card-dragging');
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', card.id);
+                }
+            });
+            cardEl.addEventListener('dragend', () => {
+                draggedCbCardId = null;
+                cardEl.classList.remove('cb-card-dragging');
+                document.querySelectorAll('.cb-column').forEach(c => c.classList.remove('cb-column-dragover'));
+            });
+            cardEl.addEventListener('click', () => openCbCardEditor(card.id));
+
+            container.appendChild(cardEl);
+        });
+    });
+
+    // Render Spreadsheet Table View
+    if (cbTableBody) {
+        cbTableBody.innerHTML = '';
+        if (filtered.length === 0) {
+            const emptyTr = document.createElement('tr');
+            emptyTr.innerHTML = `<td colspan="7" class="cb-empty-table">${query ? 'No tasks match your filter.' : 'No tasks on the board yet — tap <b>+ NEW TASK</b> above to create one.'}</td>`;
+            cbTableBody.appendChild(emptyTr);
+        }
+        filtered.forEach(card => {
+            const tr = document.createElement('tr');
+            const updatedStr = card.updatedAt ? new Date(card.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+            const tagsStr = (card.tags || []).join(', ');
+            tr.innerHTML = `
+                <td style="font-weight:700; color:#fff; cursor:pointer;" class="cb-table-title-cell">${escapeHtmlSafe(card.title || 'Untitled')}</td>
+                <td>
+                    <select class="custom-input cb-inline-status" style="padding:2px 6px; font-size:0.72rem; background:#0a0c14; color:#fff; width:auto; margin:0;">
+                        <option value="todo" ${card.column === 'todo' ? 'selected' : ''}>📥 To Do</option>
+                        <option value="inprogress" ${card.column === 'inprogress' ? 'selected' : ''}>⚡ In Progress</option>
+                        <option value="review" ${card.column === 'review' ? 'selected' : ''}>🔍 Review</option>
+                        <option value="done" ${card.column === 'done' ? 'selected' : ''}>✅ Done</option>
+                    </select>
+                </td>
+                <td>
+                    <select class="custom-input cb-inline-prio" style="padding:2px 6px; font-size:0.72rem; background:#0a0c14; color:#fff; width:auto; margin:0;">
+                        <option value="HIGH" ${card.priority === 'HIGH' ? 'selected' : ''}>🔴 HIGH</option>
+                        <option value="MED" ${(!card.priority || card.priority === 'MED') ? 'selected' : ''}>🟡 MED</option>
+                        <option value="LOW" ${card.priority === 'LOW' ? 'selected' : ''}>🟢 LOW</option>
+                    </select>
+                </td>
+                <td style="color:var(--neon-purple);">${escapeHtmlSafe(card.assignee || '-')}</td>
+                <td style="color:var(--neon-blue);">${escapeHtmlSafe(tagsStr || '-')}</td>
+                <td style="color:var(--text-muted);">${updatedStr}</td>
+                <td style="text-align:right; white-space:nowrap;">
+                    <button class="custom-btn cb-row-edit" style="padding:2px 8px; font-size:0.68rem; width:auto; border-color:var(--neon-blue); color:var(--neon-blue);">EDIT</button>
+                    <button class="custom-btn cb-row-del" style="padding:2px 8px; font-size:0.68rem; width:auto; border-color:var(--neon-red); color:var(--neon-red); margin-left:4px;">✕</button>
+                </td>
+            `;
+
+            const titleCell = tr.querySelector('.cb-table-title-cell');
+            const editBtn = tr.querySelector('.cb-row-edit');
+            const delBtn = tr.querySelector('.cb-row-del');
+            const statusSelect = tr.querySelector('.cb-inline-status');
+            const prioSelect = tr.querySelector('.cb-inline-prio');
+
+            if (titleCell) titleCell.addEventListener('click', () => openCbCardEditor(card.id));
+            if (editBtn) editBtn.addEventListener('click', () => openCbCardEditor(card.id));
+            if (delBtn) {
+                delBtn.addEventListener('click', () => {
+                    cyberboardState.cards = cyberboardState.cards.filter(c => c.id !== card.id);
+                    renderCyberboard();
+                    broadcastCyberboardUpdate();
+                });
+            }
+            if (statusSelect) {
+                statusSelect.addEventListener('change', () => {
+                    card.column = statusSelect.value;
+                    card.updatedAt = Date.now();
+                    renderCyberboard();
+                    broadcastCyberboardUpdate();
+                });
+            }
+            if (prioSelect) {
+                prioSelect.addEventListener('change', () => {
+                    card.priority = prioSelect.value;
+                    card.updatedAt = Date.now();
+                    renderCyberboard();
+                    broadcastCyberboardUpdate();
+                });
+            }
+            cbTableBody.appendChild(tr);
+        });
+    }
+
+    if (cbStatsText) {
+        const doneCount = cyberboardState.cards.filter(c => c.column === 'done').length;
+        cbStatsText.textContent = `${cyberboardState.cards.length} Tasks Total • ${doneCount} Completed`;
+    }
+}
+
+function escapeHtmlSafe(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function openCyberboardModal() {
+    if (!cyberboardModal) return;
+    if (!isHost && (!myPermissions || !myPermissions.cyberboard)) {
+        showToast("Host has not granted CyberBoard access.", "warning");
+        return;
+    }
+    if (cbHostControls) cbHostControls.style.display = isHost ? 'inline-block' : 'none';
+    if (btnCbClear) btnCbClear.style.display = isHost ? 'inline-block' : 'none';
+    if (isHost) renderCbGuestList();
+    else if (hostConnection && hostConnection.open) {
+        safeSend(hostConnection, { type: 'CYBERBOARD_REQUEST_SYNC' });
+    }
+    renderCyberboard();
+    cyberboardModal.classList.remove('hidden');
+}
+
+function openCbCardEditor(cardId = null, defaultCol = 'todo') {
+    if (!cbCardModal) return;
+    const existing = cardId ? cyberboardState.cards.find(c => c.id === cardId) : null;
+    if (cbCardIdInput) cbCardIdInput.value = existing ? existing.id : '';
+    if (cbCardTitleInput) cbCardTitleInput.value = existing ? (existing.title || '') : '';
+    if (cbCardDescInput) cbCardDescInput.value = existing ? (existing.desc || '') : '';
+    if (cbCardColumnSelect) cbCardColumnSelect.value = existing ? (existing.column || 'todo') : defaultCol;
+    if (cbCardPrioritySelect) cbCardPrioritySelect.value = existing ? (existing.priority || 'MED') : 'MED';
+    if (cbCardAssigneeInput) cbCardAssigneeInput.value = existing ? (existing.assignee || '') : '';
+    if (cbCardTagsInput) cbCardTagsInput.value = existing && Array.isArray(existing.tags) ? existing.tags.join(', ') : '';
+    if (btnCbCardDelete) btnCbCardDelete.classList.toggle('hidden', !existing);
+    cbCardModal.classList.remove('hidden');
+    setTimeout(() => { if (cbCardTitleInput) cbCardTitleInput.focus(); }, 60);
+}
+
+if (btnCbCardSave) {
+    btnCbCardSave.addEventListener('click', () => {
+        const title = (cbCardTitleInput ? cbCardTitleInput.value : '').trim();
+        if (!title) {
+            showToast('Please enter a task title.', 'warning');
+            return;
+        }
+        const id = cbCardIdInput && cbCardIdInput.value ? cbCardIdInput.value : ('cb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
+        const desc = (cbCardDescInput ? cbCardDescInput.value : '').trim();
+        const column = cbCardColumnSelect ? cbCardColumnSelect.value : 'todo';
+        const priority = cbCardPrioritySelect ? cbCardPrioritySelect.value : 'MED';
+        const assignee = (cbCardAssigneeInput ? cbCardAssigneeInput.value : '').trim();
+        const tags = (cbCardTagsInput ? cbCardTagsInput.value : '').split(',').map(s => s.trim()).filter(Boolean);
+
+        const existingIdx = cyberboardState.cards.findIndex(c => c.id === id);
+        const cardObj = { id, title, desc, column, priority, assignee, tags, updatedAt: Date.now() };
+        if (existingIdx >= 0) {
+            cyberboardState.cards[existingIdx] = cardObj;
+        } else {
+            cyberboardState.cards.push(cardObj);
+        }
+        if (cbCardModal) cbCardModal.classList.add('hidden');
+        renderCyberboard();
+        broadcastCyberboardUpdate();
+    });
+}
+
+if (btnCbCardDelete) {
+    btnCbCardDelete.addEventListener('click', () => {
+        const id = cbCardIdInput ? cbCardIdInput.value : '';
+        if (id) {
+            cyberboardState.cards = cyberboardState.cards.filter(c => c.id !== id);
+            if (cbCardModal) cbCardModal.classList.add('hidden');
+            renderCyberboard();
+            broadcastCyberboardUpdate();
+        }
+    });
+}
+
+if (btnCbCardCancel) {
+    btnCbCardCancel.addEventListener('click', () => {
+        if (cbCardModal) cbCardModal.classList.add('hidden');
+    });
+}
+
+// Column drag & drop and quick '+' buttons
+document.querySelectorAll('.cb-column').forEach(colEl => {
+    const targetCol = colEl.getAttribute('data-col');
+    colEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        colEl.classList.add('cb-column-dragover');
+    });
+    colEl.addEventListener('dragleave', () => {
+        colEl.classList.remove('cb-column-dragover');
+    });
+    colEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        colEl.classList.remove('cb-column-dragover');
+        const cardId = draggedCbCardId || (e.dataTransfer ? e.dataTransfer.getData('text/plain') : null);
+        if (!cardId || !targetCol) return;
+        const card = cyberboardState.cards.find(c => c.id === cardId);
+        if (card && card.column !== targetCol) {
+            card.column = targetCol;
+            card.updatedAt = Date.now();
+            renderCyberboard();
+            broadcastCyberboardUpdate();
+        }
+    });
+});
+
+document.querySelectorAll('.cb-col-add-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const col = btn.getAttribute('data-col') || 'todo';
+        openCbCardEditor(null, col);
+    });
+});
+
+if (btnCyberboardHost) btnCyberboardHost.addEventListener('click', openCyberboardModal);
+if (btnCyberboardHeader) btnCyberboardHeader.addEventListener('click', openCyberboardModal);
+if (btnCyberboardClient) btnCyberboardClient.addEventListener('click', openCyberboardModal);
+if (btnCloseCyberboard) {
+    btnCloseCyberboard.addEventListener('click', () => {
+        if (cyberboardModal) cyberboardModal.classList.add('hidden');
+    });
+}
+if (btnCbNewCard) {
+    btnCbNewCard.addEventListener('click', () => openCbCardEditor(null, 'todo'));
+}
+if (cbSearchInput) {
+    cbSearchInput.addEventListener('input', () => renderCyberboard());
+}
+if (btnCbViewKanban && btnCbViewTable) {
+    btnCbViewKanban.addEventListener('click', () => {
+        cyberboardViewMode = 'kanban';
+        btnCbViewKanban.classList.add('active');
+        btnCbViewTable.classList.remove('active');
+        if (cbKanbanView) cbKanbanView.classList.remove('hidden');
+        if (cbTableView) cbTableView.classList.add('hidden');
+    });
+    btnCbViewTable.addEventListener('click', () => {
+        cyberboardViewMode = 'table';
+        btnCbViewTable.classList.add('active');
+        btnCbViewKanban.classList.remove('active');
+        if (cbTableView) cbTableView.classList.remove('hidden');
+        if (cbKanbanView) cbKanbanView.classList.add('hidden');
+    });
+}
+
+// Export JSON & CSV and Import
+if (btnCbExportJson) {
+    btnCbExportJson.addEventListener('click', () => {
+        const blob = new Blob([JSON.stringify(cyberboardState.cards, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cyberboard_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Exported CyberBoard as JSON!', 'success');
+    });
+}
+
+if (btnCbExportCsv) {
+    btnCbExportCsv.addEventListener('click', () => {
+        const headers = ['id', 'title', 'desc', 'column', 'priority', 'assignee', 'tags', 'updatedAt'];
+        const csvRows = [headers.join(',')];
+        cyberboardState.cards.forEach(c => {
+            const row = [
+                c.id,
+                `"${String(c.title || '').replace(/"/g, '""')}"`,
+                `"${String(c.desc || '').replace(/"/g, '""')}"`,
+                c.column || 'todo',
+                c.priority || 'MED',
+                `"${String(c.assignee || '').replace(/"/g, '""')}"`,
+                `"${(c.tags || []).join(';')}"`,
+                c.updatedAt || Date.now()
+            ];
+            csvRows.push(row.join(','));
+        });
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cyberboard_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Exported CyberBoard as CSV Spreadsheet!', 'success');
+    });
+}
+
+if (btnCbImport && cbImportInput) {
+    btnCbImport.addEventListener('click', () => cbImportInput.click());
+    cbImportInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            if (file.name.toLowerCase().endsWith('.json')) {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed)) {
+                    cyberboardState.cards = parsed;
+                    renderCyberboard();
+                    broadcastCyberboardUpdate();
+                    showToast(`Imported ${parsed.length} tasks from JSON!`, 'success');
+                }
+            } else {
+                const lines = text.split(/\r?\n/).filter(l => l.trim());
+                if (lines.length > 1) {
+                    const imported = [];
+                    for (let i = 1; i < lines.length; i++) {
+                        const cols = lines[i].split(',');
+                        if (cols.length >= 2) {
+                            imported.push({
+                                id: cols[0] || ('cb_' + Date.now() + '_' + i),
+                                title: (cols[1] || '').replace(/^"|"$/g, ''),
+                                desc: (cols[2] || '').replace(/^"|"$/g, ''),
+                                column: cols[3] || 'todo',
+                                priority: cols[4] || 'MED',
+                                assignee: (cols[5] || '').replace(/^"|"$/g, ''),
+                                tags: (cols[6] || '').replace(/^"|"$/g, '').split(';').filter(Boolean),
+                                updatedAt: Date.now()
+                            });
+                        }
+                    }
+                    cyberboardState.cards = imported;
+                    renderCyberboard();
+                    broadcastCyberboardUpdate();
+                    showToast(`Imported ${imported.length} tasks from CSV!`, 'success');
+                }
+            }
+        } catch (err) {
+            showToast('Import error: ' + err.message, 'error');
+        }
+        cbImportInput.value = '';
+    });
+}
+
+if (btnCbClear) {
+    btnCbClear.addEventListener('click', async () => {
+        if (cyberboardState.cards.length === 0) {
+            showToast('CyberBoard is already empty.', 'info');
+            return;
+        }
+        const ok = await cyberConfirm('Clear all tasks from CyberBoard for all connected peers?', 'CLEAR CYBERBOARD');
+        if (!ok) return;
+        cyberboardState.cards = [];
+        renderCyberboard();
+        broadcastCyberboardUpdate();
+        showToast('CyberBoard cleared.', 'info');
+    });
+}
+
+// Host Guest Access Popover for CyberBoard
+function renderCbGuestList() {
+    if (!isHost || !cbGuestList) return;
+    const authed = connections.filter(c => c.open && c.isAuthenticated);
+    const allowedCount = authed.filter(c => c.permissions && c.permissions.cyberboard).length;
+    if (cbPermCount) cbPermCount.textContent = `${allowedCount}/${authed.length}`;
+    cbGuestList.innerHTML = '';
+    if (authed.length === 0) {
+        cbGuestList.innerHTML = `<div style="color:var(--text-muted); text-align:center; padding:8px;">No guests connected</div>`;
+        return;
+    }
+    authed.forEach(conn => {
+        if (!conn.permissions) conn.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false, cyberboard: false };
+        const name = (conn.profile && conn.profile.name) || conn.guestAlias || ('Guest_' + conn.peer.substring(0, 4));
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 0;';
+        row.innerHTML = `
+            <span style="color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px;">${escapeHtmlSafe(name)}</span>
+            <label class="switch" style="transform:scale(0.85);">
+                <input type="checkbox" ${conn.permissions.cyberboard ? 'checked' : ''}>
+                <span class="slider"></span>
+            </label>
+        `;
+        const cb = row.querySelector('input');
+        cb.addEventListener('change', () => {
+            const granted = cb.checked;
+            conn.permissions.cyberboard = granted;
+            safeSend(conn, { type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+            if (granted) {
+                safeSend(conn, { type: 'CYBERBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                sendCyberboardFullSync(conn);
+            } else {
+                safeSend(conn, { type: 'CYBERBOARD_REVOKED' });
+            }
+            renderCbGuestList();
+        });
+        cbGuestList.appendChild(row);
+    });
+}
+
+if (btnCbPermissions && cbPermissionsPopover) {
+    btnCbPermissions.addEventListener('click', (e) => {
+        e.stopPropagation();
+        renderCbGuestList();
+        cbPermissionsPopover.classList.toggle('hidden');
+    });
+}
+if (btnCbAllowAll) {
+    btnCbAllowAll.addEventListener('click', () => {
+        connections.forEach(conn => {
+            if (conn.open && conn.isAuthenticated) {
+                if (!conn.permissions) conn.permissions = {};
+                const wasAllowed = !!conn.permissions.cyberboard;
+                conn.permissions.cyberboard = true;
+                safeSend(conn, { type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                if (!wasAllowed) {
+                    safeSend(conn, { type: 'CYBERBOARD_INVITE', hostName: (typeof getMyAlias === 'function' ? getMyAlias() : 'Host') });
+                    sendCyberboardFullSync(conn);
+                }
+            }
+        });
+        renderCbGuestList();
+        showToast('Granted CyberBoard access to all connected guests!', 'success');
+    });
+}
+if (btnCbRevokeAll) {
+    btnCbRevokeAll.addEventListener('click', () => {
+        connections.forEach(conn => {
+            if (conn.open && conn.isAuthenticated && conn.permissions && conn.permissions.cyberboard) {
+                conn.permissions.cyberboard = false;
+                safeSend(conn, { type: 'GUEST_PERMISSIONS', permissions: conn.permissions });
+                safeSend(conn, { type: 'CYBERBOARD_REVOKED' });
+            }
+        });
+        renderCbGuestList();
+        showToast('Revoked CyberBoard access from all guests.', 'warning');
+    });
+}
+
 // Logo click resets to fresh Host mode if in client or query session
 document.querySelectorAll('.logo-container').forEach(el => {
     el.style.cursor = 'pointer';
@@ -12883,5 +14626,3 @@ window.addEventListener('beforeunload', () => {
         try { peer.destroy(); } catch(e) {}
     }
 });
-
-

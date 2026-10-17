@@ -1,6 +1,6 @@
-# 🌐 LOCAL-CAST v3.4 // Zero-Knowledge Decentralized WebOS & Swarm Network
+# 🌐 LOCAL-CAST v3.5 // Zero-Knowledge Decentralized WebOS & Swarm Network
 
-[![Version](https://img.shields.io/badge/Version-v3.4-39ff14.svg)](https://local-cast.org)
+[![Version](https://img.shields.io/badge/Version-v3.5-39ff14.svg)](https://local-cast.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![WebRTC](https://img.shields.io/badge/WebRTC-Peer--to--Peer-00f0ff.svg)](https://webrtc.org/)
 [![Cryptography](https://img.shields.io/badge/Crypto-AES--GCM--256%20%7C%20ECDH%20P--256-39ff14.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
@@ -9,9 +9,9 @@
 [![PWA](https://img.shields.io/badge/PWA-Installable%20%26%20Share%20Target-yellow.svg)](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)
 [![WebGL](https://img.shields.io/badge/3D%20Engine-Three.js-00f0ff.svg)](https://threejs.org/)
 
-**Local-Cast** is a serverless, zero-knowledge, browser-native operating system engineered for decentralized file sharing, swarm torrent distribution, multi-sig secure vaults, real-time gaming, low-latency screen sharing, and 3D spatial cyberspace telemetry. 
+**Local-Cast** is a serverless, zero-knowledge, browser-native operating system engineered for decentralized file sharing, swarm torrent distribution, multi-sig secure vaults, real-time code execution, collaborative project boards, synchronized media watch parties, multiplayer gaming, low-latency screen sharing, and 3D spatial cyberspace telemetry. 
 
-Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaStreams, Web Crypto API, WebAuthn, IndexedDB, Three.js, and PWA Service Workers), Local-Cast requires **no accounts**, **no central servers**, **no cloud databases**, and **no third-party telemetry**. Your data lives solely in your browser's RAM and local storage, moving peer-to-peer over direct, hardware-accelerated encrypted tunnels.
+Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaStreams, Web Crypto API, WebAuthn, Web Workers, WebAssembly, IndexedDB, Three.js, and PWA Service Workers), Local-Cast requires **no accounts**, **no central servers**, **no cloud databases**, and **no third-party telemetry**. Your data lives solely in your browser's RAM and local storage, moving peer-to-peer over direct, hardware-accelerated encrypted tunnels.
 
 ---
 
@@ -19,11 +19,10 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 
 ### 🚀 1. Decentralized Swarm Torrents (P2P BitTorrent Mesh)
 * **High-Throughput 32 KB Chunking:** Files are automatically divided into optimal 32 KB pieces (`32 * 1024` bytes), engineered specifically to stay safely under WebRTC SCTP packet boundaries without fragmentation.
-* **Parallel Multi-Peer Downloads:** Up to 8 concurrent chunk requests are fetched across connected swarm peers simultaneously, multiplying transfer throughput as more peers join the room.
+* **True Multi-Peer Chunk Stitching & RAM Seeder Cache (v3.5):** Up to 8 concurrent chunk requests are fetched across the Host and connected Guest peers simultaneously. When any Guest finishes downloading a file, it automatically caches the assembled file in a bounded 250 MB LRU RAM Seeder Cache (`completedSwarmBlobs`) and advertises full bitfield availability (`SWARM_BITFIELD`) to both direct mesh peers and via Host relay—multiplying room bandwidth as more peers join.
 * **Live Bitfield Chunk Matrix:** A real-time visual grid displays the exact status of every individual chunk (`pending`, `downloading`, `cached`) as it streams across the mesh.
 * **Resumable IndexedDB Cache:** Chunks are saved locally in an indexed database (`swarmChunks`). If a connection is interrupted, transfers resume instantly from the last received chunk without restarting.
-* **Auto-Seeding & Bitfield Advertising:** Any peer who holds complete or partial files automatically advertises availability (`SWARM_HAVE`) and seeds to other peers across the network.
-* **Real-Time Swarm Telemetry:** Live active peer source counters, dynamic ETA calculations, and download speed rate trackers.
+* **Real-Time Swarm Telemetry:** Live active peer source counters (`⚡ N Swarm Sources`), dynamic ETA calculations, and download speed rate trackers.
 
 ### 🔐 2. Multi-Sig "Nuclear" Vaults & Zero-Knowledge Security
 * **Consensus Voting Protocol:** Mark confidential folders as "Nuclear Vaults". Unlocking requires dynamic cryptographic authorization and a synchronized quorum vote from connected peers.
@@ -45,7 +44,16 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 * **Dead Drops (Invisible Folders):** Conceal sensitive folders from guest view completely. Reveal them exclusively in the Host terminal with `/deaddrop`.
 * **Emergency Burn Notice ("Destroy Network"):** One-click panic button that severs all WebRTC channels, wipes cryptographic keys from RAM, and purges IndexedDB storage with zero forensic traces.
 
-### 🕹️ 5. P2P Swarm Arcade & Collaboration
+### 🕹️ 5. P2P Swarm Arcade, Watch Party Theater, CyberBoard & Code Sandbox
+* **P2P Collaborative CyberBoard — Kanban & Data Tables (v3.5):**
+  * Dual-view workspace combining a 4-column **Kanban Board** (`📥 To Do`, `⚡ In Progress`, `🔍 Review`, `✅ Done`) and an interactive **Spreadsheet Data Table** view.
+  * Supports priority badges (`HIGH`, `MED`, `LOW`), `@Assignee` pills, custom `#tags`, instant search filtering, desktop drag-and-drop, touch-friendly mobile `◀` / `▶` column controls, one-click **JSON / CSV Export & Import**, and granular **Host Guest Access Control**.
+* **QuickPad + Live Code Execution Sandbox (v3.5):**
+  * Built directly into Local-Cast with 100% serverless, zero-cloud WebRTC synchronization, multi-tab file management, live multiplayer cursors, line numbers, and Markdown live preview.
+  * **In-Browser JS & Python WASM Runner:** Execute JavaScript/TypeScript inside an isolated Web Worker (with 8s infinite-loop protection) or Python (`.py`) via on-demand **Pyodide WebAssembly** directly from QuickPad (`⚡ RUN CODE` / <kbd>Ctrl+Enter</kbd>) or from the CLI Terminal (`run <filename>`), with optional P2P console output broadcasting to collaborators.
+* **P2P Watch Party Theater & Live Reactions (v3.5):**
+  * Right-click any video or audio file (`🍿 Start Watch Party`) or click `🍿 WATCH PARTY` inside the Media Player to open the media across all connected peers simultaneously.
+  * Synchronizes Play, Pause, Seek (with 0.65s drift tolerance), and Playback Speed (`0.5x`–`2x`) across the swarm, complete with a `⚡ RESYNC ALL` button and floating real-time emoji reactions (`🔥`, `😂`, `🤯`, `❤️`, `👏`, `🍿`, `🚀`, `💀`).
 * **Real-Time Multiplayer Gaming:** 60 FPS low-latency <strong style="color: #39ff14;">Cyber-Pong</strong> (synchronized paddle physics), <strong style="color: #00f0ff;">Holo-Chess</strong> (powered by chess.js with full FEN network synchronization), and classic <strong style="color: #ff007f;">Neon-Tac-Toe</strong>.
 * **Retro NES 8-bit Emulator:** Play classic ROMs in-browser with delta-time canvas streaming broadcasted to all connected guests at 60 FPS over WebRTC.
 * **Collaborative P2P Whiteboard (Infinite Canvas):** 
@@ -55,7 +63,6 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
   * **Persistent Laser Beacons & Text Annotations:** Real-time pointer trails with solid peer nameplate badges and inline vector text placement.
   * **Host Access Control:** Granular individual guest switches, one-click "Allow All", admission dialogs, and instant canvas state synchronization.
 * **Low-Latency P2P Screen Sharing:** Broadcast your desktop, application window, or browser tab directly to connected peers over hardware-accelerated WebRTC media streams at up to 60 FPS. Supports Picture-in-Picture (PiP), full-screen viewer, and optional system audio with zero intermediary servers.
-* **Native QuickPad Real-Time Collaborative Suite:** Built directly into Local-Cast with 100% serverless, zero-cloud peer-to-peer WebRTC synchronization. Features multi-tab file management (`main.txt`, `notes.md`, code snippets), live multiplayer cursors with peer nameplates, pixel-accurate line-number gutter, auto-indentation & Tab formatting, formatted Markdown live preview, rock-solid presence tracking that never disconnects, Host lock/read-only controls, file downloads, and granular Host Access Control.
 * **Swarm Jukebox:** Synchronized room-wide audio streaming of MP3/WAV tracks broadcast directly across the mesh.
 
 ### 🗂️ 6. Multi-File Selection & Batch Operations
@@ -104,13 +111,16 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 
 | Component | Implementation Details |
 | :--- | :--- |
-| **Release Version** | v3.4 (P2P Mesh WebOS, Hardened Multi-Device Sync & Audited Engine) |
+| **Release Version** | v3.5 (Multi-Source Swarm Seeding, Live Code Sandbox, P2P Watch Party & CyberBoard) |
 | **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
-| **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing |
+| **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing & Host bitfield relay |
 | **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |
 | **P2P Flow Control** | Event-driven `bufferedamountlow` threshold gating (512 KB pipelined buffer window) + coalesced 100ms `SWARM_HAVES` |
+| **Swarm Seeder Cache** | 250 MB LRU in-memory Blob cache (`completedSwarmBlobs`) + IndexedDB `swarmChunks` store |
+| **Code Execution Sandbox** | Isolated Web Worker (JS/TS with 8s watchdog) + Pyodide v0.25.0 WebAssembly (Python) |
+| **Collaborative Workspace** | QuickPad (multi-tab editor + live cursors), CyberBoard (Kanban + Spreadsheet Table), Infinite Whiteboard |
 | **Storage Serialization** | Debounced IndexedDB persistence (250ms) and coalesced tree broadcasts (150ms) |
-| **Parallel Concurrency** | Up to 8 concurrent chunk request streams per download |
+| **Parallel Concurrency** | Up to 8 concurrent chunk request streams per download across multiple peers |
 | **Folder Upload Engine** | Native recursive folder upload (`webkitdirectory`) with full directory tree preservation |
 | **Resumable Transfers** | Bitfield chunk piece caching with automatic resume recovery |
 | **Symmetric Encryption** | AES-GCM-256 (hardware-accelerated Web Crypto API) |
@@ -122,7 +132,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 | **Batch File Engine** | Multi-node VFS transaction engine with JSZip batch archive packaging |
 | **Local Storage Engine** | IndexedDB (`localcast_db` for files/folders, `swarmChunks` for torrent pieces) |
 | **3D Cyberspace Engine** | Three.js WebGL with dynamic hardware-tier DPR scaling & Proximity Radar dual-mode switching |
-| **Multiplayer Sync** | FEN notation (Chess), 60 FPS delta-time state packets (Pong), canvas streaming (NES) |
+| **Multiplayer Sync** | Watch Party Theater (0.65s drift sync + emoji reactions), FEN notation (Chess), 60 FPS delta-time (Pong), canvas stream (NES) |
 | **Offline Discovery** | Base64-encoded SDP/ICE cryptographic QR-code handshake |
 
 ---
