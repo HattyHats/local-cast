@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=87">
+    <link rel="stylesheet" href="style.css?v=90">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -128,8 +128,8 @@
                 <div class="card action-card">
                     <h2>SERVER ACTIONS</h2>
                     <div class="action-buttons">
-                        <button id="btn-share-server" class="custom-btn action-btn btn-share-action" style="background: rgba(0, 240, 255, 0.1); border-color: var(--neon-blue); color: var(--neon-blue); font-weight: 700; display: flex; align-items: center; justify-content: flex-start; gap: 0.4rem; box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                        <button id="btn-share-server" class="custom-btn action-btn btn-share-action" style="background: rgba(0, 240, 255, 0.1); border-color: var(--neon-blue); color: var(--neon-blue); font-weight: 700; box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="18" cy="5" r="3"></circle>
                                 <circle cx="6" cy="12" r="3"></circle>
                                 <circle cx="18" cy="19" r="3"></circle>
@@ -186,7 +186,7 @@
                 <!-- Session Telemetry Card -->
                 <div class="card" id="session-telemetry-card">
                     <h2>SESSION TELEMETRY</h2>
-                    <div style="display: flex; flex-direction: column; gap: 0.45rem; font-family: var(--font-mono); font-size: 0.74rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.32rem; font-family: var(--font-mono); font-size: 0.69rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span style="color: var(--text-muted);">ROLE:</span>
                             <span style="color: var(--neon-green); font-weight: bold;">HOST / SEEDER</span>
@@ -203,9 +203,9 @@
                             <span style="color: var(--text-muted);">SWARM TORRENT:</span>
                             <span style="color: var(--neon-green);">ACTIVE</span>
                         </div>
-                        <div style="margin-top: 0.25rem; padding-top: 0.4rem; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-                            <button id="btn-open-privacy-inspector" class="custom-btn" style="width: 100%; font-size: 0.68rem; padding: 0.38rem 0.45rem; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--neon-green); color: var(--neon-green); background: rgba(57, 255, 20, 0.08); border-radius: 4px; cursor: pointer; box-shadow: 0 0 8px rgba(57, 255, 20, 0.15);" title="Inspect direct P2P transport & verify zero-server privacy">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 12px; height: 12px;">
+                        <div style="margin-top: 0.18rem; padding-top: 0.3rem; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+                            <button id="btn-open-privacy-inspector" class="custom-btn" style="width: 100%; font-size: 0.62rem; padding: 0.28rem 0.38rem; display: flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--neon-green); color: var(--neon-green); background: rgba(57, 255, 20, 0.08); border-radius: 4px; cursor: pointer; box-shadow: 0 0 8px rgba(57, 255, 20, 0.15);" title="Inspect direct P2P transport & verify zero-server privacy">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 11px; height: 11px;">
                                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                                     <path d="M9 12l2 2 4-4"></path>
                                 </svg>
@@ -213,6 +213,11 @@
                             </button>
                         </div>
                     </div>
+                </div>
+
+                <!-- TinyAdz Sidebar Ad Slot (Host) -->
+                <div class="card ad-card" id="host-sidebar-ad" style="padding: 0.5rem; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80px;">
+                    <div ta-ad-container="" style="width: 100%;"></div>
                 </div>
 
             </div>
@@ -320,6 +325,11 @@
                 </div>
                 <div class="file-grid" id="client-file-grid">
                     <!-- Injected via JS -->
+                </div>
+
+                <!-- TinyAdz Inline Ad Slot (Client Explorer) -->
+                <div class="ad-card-wrapper">
+                    <div ta-ad-container="" style="width: 100%; max-width: 900px;"></div>
                 </div>
                 
                 <div id="client-downloading" class="download-overlay hidden">
@@ -2171,7 +2181,7 @@ Scanning active WebRTC peer connection...
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=148').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=151').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
@@ -2184,5 +2194,8 @@ Scanning active WebRTC peer connection...
             }
         }
     </script>
+
+    <!-- TinyAdz Corner & Inline Ads Integration -->
+    <script src="https://cdn.apitiny.net/scripts/v2.0/main.js" data-site-id="6ad549d983f2058a67c6a721" data-test-mode="false" async></script>
 </body>
 </html>
