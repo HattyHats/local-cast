@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=90">
+    <link rel="stylesheet" href="style.css?v=91">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -216,7 +216,7 @@
                 </div>
 
                 <!-- TinyAdz Sidebar Ad Slot (Host) -->
-                <div class="card ad-card" id="host-sidebar-ad" style="padding: 0.5rem; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80px;">
+                <div class="card ad-card" id="host-sidebar-ad" style="display: none; padding: 0.5rem; text-align: center;">
                     <div ta-ad-container="" style="width: 100%;"></div>
                 </div>
 
@@ -328,7 +328,7 @@
                 </div>
 
                 <!-- TinyAdz Inline Ad Slot (Client Explorer) -->
-                <div class="ad-card-wrapper">
+                <div class="ad-card-wrapper" style="display: none;">
                     <div ta-ad-container="" style="width: 100%; max-width: 900px;"></div>
                 </div>
                 
@@ -2181,7 +2181,7 @@ Scanning active WebRTC peer connection...
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=151').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=152').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
@@ -2196,6 +2196,34 @@ Scanning active WebRTC peer connection...
     </script>
 
     <!-- TinyAdz Corner & Inline Ads Integration -->
+    <script>
+        (function() {
+            function observeAdContainers() {
+                const targets = [
+                    document.getElementById('host-sidebar-ad'),
+                    ...document.querySelectorAll('.ad-card-wrapper')
+                ].filter(Boolean);
+
+                targets.forEach(container => {
+                    const check = () => {
+                        const hasAd = container.querySelector('iframe, [ta-ad-container] > *');
+                        if (hasAd) {
+                            container.style.display = 'flex';
+                        } else {
+                            container.style.display = 'none';
+                        }
+                    };
+                    check();
+                    new MutationObserver(check).observe(container, { childList: true, subtree: true });
+                });
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', observeAdContainers);
+            } else {
+                observeAdContainers();
+            }
+        })();
+    </script>
     <script src="https://cdn.apitiny.net/scripts/v2.0/main.js" data-site-id="6ad549d983f2058a67c6a721" data-test-mode="false" async></script>
 </body>
 </html>
