@@ -5,8 +5,8 @@
     "description": "A serverless, browser-based local network media streaming hub.",
     "start_url": "./index.html",
     "display": "standalone",
-    "background_color": "#050507",
-    "theme_color": "#0a0a0c",
+    "background_color": "#07090e",
+    "theme_color": "#07090e",
     "icons": [
         {
             "src": "icon-192.png",

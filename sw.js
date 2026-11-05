@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v153';
+const CACHE_NAME = 'localcast-v155';
 const ASSETS = [
     './',
     './index.html',
@@ -76,6 +76,25 @@ self.addEventListener('fetch', (e) => {
         return;
     }
 
+    if (isCdn) {
+        e.respondWith(
+            caches.match(e.request).then((cached) => {
+                if (cached) return cached;
+                return fetch(e.request).then((response) => {
+                    if (!response || response.status !== 200 || (response.type !== 'basic' && response.type !== 'cors')) {
+                        return response;
+                    }
+                    const resClone = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(e.request, resClone);
+                    });
+                    return response;
+                }).catch(() => new Response('', { status: 503, statusText: 'Offline' }));
+            })
+        );
+        return;
+    }
+
     e.respondWith(
         fetch(e.request).then((response) => {
             if (!response || response.status !== 200 || (response.type !== 'basic' && response.type !== 'cors')) {
@@ -90,8 +109,10 @@ self.addEventListener('fetch', (e) => {
             const cached = await caches.match(e.request, { ignoreSearch: true });
             if (cached) return cached;
             if (e.request.mode === 'navigate') {
-                return caches.match('./index.html');
+                const navFallback = await caches.match('./index.html');
+                if (navFallback) return navFallback;
             }
+            return new Response('Offline', { status: 503, statusText: 'Offline' });
         })
     );
 });

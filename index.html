@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Local-Cast // Serverless P2P Mesh</title>
-    <link rel="stylesheet" href="style.css?v=92">
+    <link rel="stylesheet" href="style.css?v=94">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -218,7 +218,7 @@
                 <!-- AADS AD UNIT (Host Sidebar) -->
                 <div class="card ad-card" id="host-sidebar-ad" style="padding: 0.45rem 0.35rem; text-align: center; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90px;">
                     <!-- BEGIN AADS AD UNIT 2459133 -->
-                    <div id="frame" style="width: 100%; margin: auto; position: relative; z-index: 99998;">
+                    <div id="frame" style="width: 100%; margin: auto; position: relative; z-index: 1;">
                         <iframe data-aa='2459133' src='https://acceptable.a-ads.com/2459133/?size=Adaptive'
                                 style='border:0; padding:0; width:100%; height:90px; overflow:hidden; display: block; margin: auto;'></iframe>
                     </div>
@@ -424,8 +424,8 @@
                     <div class="loader" style="margin: 0 auto;"></div>
                     <p id="preview-progress-text" style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.8rem;">0%</p>
                 </div>
-                <a id="btn-download-direct" class="custom-btn hidden" style="display: none; background: var(--neon-blue); color: #000; text-decoration: none; width: 100%; box-sizing: border-box; text-align: center; margin-top: 1rem;">SAVE FILE TO DEVICE</a>
-                <button id="btn-stream-direct" class="custom-btn hidden" style="display: none; background: transparent; border-color: var(--neon-purple); color: var(--neon-purple); width: 100%; box-sizing: border-box; text-align: center; margin-top: 1rem;">STREAM MEDIA</button>
+                <a id="btn-download-direct" class="custom-btn hidden" style="background: var(--neon-blue); color: #000; text-decoration: none; width: 100%; box-sizing: border-box; text-align: center; margin-top: 1rem;">SAVE FILE TO DEVICE</a>
+                <button id="btn-stream-direct" class="custom-btn hidden" style="background: transparent; border-color: var(--neon-purple); color: var(--neon-purple); width: 100%; box-sizing: border-box; text-align: center; margin-top: 1rem;">STREAM MEDIA</button>
 
             </div>
         </div>
@@ -827,13 +827,13 @@ Scanning active WebRTC peer connection...
                 <p style="margin-top: 1.5rem; font-style: italic;">To invite guests, they just need to scan your QR code or navigate to the connection URL. Stay secure.</p>
             </div>
             <div class="modal-actions" style="margin-top: 1.5rem;">
-                <button class="btn" id="btn-close-info" style="width: 100%; border-color: var(--neon-blue); color: var(--neon-blue);">ACKNOWLEDGE</button>
+                <button class="custom-btn" id="btn-close-info" style="width: 100%; border-color: var(--neon-blue); color: var(--neon-blue);">ACKNOWLEDGE</button>
             </div>
         </div>
     </div>
 
             <!-- HONEYPOT LOCKDOWN OVERLAY -->
-    <div id="lockdown-overlay" class="modal hidden" style="z-index: 10000; background: rgba(255, 0, 0, 0.9); flex-direction: column; text-align: center; justify-content: center; align-items: center;">
+    <div id="lockdown-overlay" class="modal hidden" style="z-index: 100060; background: rgba(255, 0, 0, 0.9); flex-direction: column; text-align: center; justify-content: center; align-items: center;">
         <h1 style="color: #fff; font-size: 4rem; text-shadow: 0 0 20px #000; animation: glitch-anim 0.2s infinite; font-family: var(--font-mono);">INTRUSION DETECTED</h1>
         <h2 style="color: #000; font-size: 2rem; margin-top: 2rem; background: #fff; padding: 10px 20px;">NETWORK LOCKDOWN INITIATED</h2>
         <p style="color: #fff; margin-top: 2rem; font-size: 1.2rem;">CONNECTION TERMINATED BY HOST.</p>
@@ -864,7 +864,8 @@ Scanning active WebRTC peer connection...
 
     <!-- PROFILE MODAL (GUEST 1-CLICK ONBOARDING) -->
     <div id="profile-modal" class="modal hidden">
-        <div class="modal-content card" style="max-width: 420px; width: 92%; text-align: center; border-color: var(--neon-blue); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(0, 240, 255, 0.25);">
+        <div class="modal-content card" style="position: relative; max-width: 420px; width: 92%; text-align: center; border-color: var(--neon-blue); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(0, 240, 255, 0.25);">
+            <button id="btn-close-profile" class="btn-icon btn-close-modal hidden" title="Close" style="position: absolute; top: 12px; right: 12px;">✕</button>
             <div style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 12px; background: rgba(0, 240, 255, 0.1); border: 1px solid rgba(0, 240, 255, 0.3); font-size: 0.72rem; color: var(--neon-blue); font-family: var(--font-mono); margin-bottom: 0.75rem;">
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                 <span>INSTANT 1-CLICK JOIN</span>
@@ -1928,7 +1929,7 @@ Scanning active WebRTC peer connection...
     </div>
 
     <!-- ACTIVE TRANSFER DASHBOARD -->
-    <div id="transfer-dashboard" class="hidden" style="position: fixed; bottom: 20px; right: 20px; width: 350px; background: rgba(10, 11, 16, 0.95); border: 1px solid var(--border-color); border-radius: 8px; z-index: 9000; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px); display: flex; flex-direction: column; overflow: hidden; font-family: var(--font-mono);">
+    <div id="transfer-dashboard" class="hidden" style="position: fixed; bottom: 20px; right: 20px; width: 350px; max-width: calc(100vw - 24px); background: rgba(10, 11, 16, 0.95); border: 1px solid var(--border-color); border-radius: 8px; z-index: 9000; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px); display: flex; flex-direction: column; overflow: hidden; font-family: var(--font-mono);">
         <div style="background: rgba(255,255,255,0.05); padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
             <span style="color: #fff; font-size: 0.8rem; font-weight: bold; letter-spacing: 1px;">NETWORK TRAFFIC</span>
             <button id="btn-minimize-transfers" class="btn-icon" style="width: 24px; height: 24px;" title="Minimize">
@@ -2177,12 +2178,12 @@ Scanning active WebRTC peer connection...
     </div>
 
     <!-- SCRIPTS -->
-    <script src="app.js?v=103"></script>
-    <script src="plugins.js?v=10"></script>
+    <script src="app.js?v=104"></script>
+    <script src="plugins.js?v=11"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=153').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=155').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
@@ -2195,5 +2196,7 @@ Scanning active WebRTC peer connection...
             }
         }
     </script>
+    <!-- TinyAdz Corner Ad -->
+    <script src="https://cdn.apitiny.net/scripts/v2.0/main.js" data-site-id="6ad549d983f2058a67c6a721" data-test-mode="false" async></script>
 </body>
 </html>

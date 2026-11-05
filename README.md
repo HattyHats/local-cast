@@ -18,8 +18,8 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 ## ⚡ Core Architectural Capabilities
 
 ### 🚀 1. Decentralized Swarm Torrents (P2P BitTorrent Mesh)
-* **High-Throughput 32 KB Chunking:** Files are automatically divided into optimal 32 KB pieces (`32 * 1024` bytes), engineered specifically to stay safely under WebRTC SCTP packet boundaries without fragmentation.
-* **True Multi-Peer Chunk Stitching & RAM Seeder Cache (v3.5):** Up to 8 concurrent chunk requests are fetched across the Host and connected Guest peers simultaneously. When any Guest finishes downloading a file, it automatically caches the assembled file in a bounded 250 MB LRU RAM Seeder Cache (`completedSwarmBlobs`) and advertises full bitfield availability (`SWARM_BITFIELD`) to both direct mesh peers and via Host relay—multiplying room bandwidth as more peers join.
+* **High-Throughput 16 KB Chunking:** Files are automatically divided into optimal 16 KB pieces (`16 * 1024` bytes), engineered specifically to stay safely under WebRTC SCTP packet boundaries without fragmentation.
+* **True Multi-Peer Chunk Stitching & RAM Seeder Cache (v3.5):** Up to 12 concurrent chunk requests are fetched across the Host and connected Guest peers simultaneously. When any Guest finishes downloading a file, it automatically caches the assembled file in a bounded 150 MB LRU RAM Seeder Cache (`seededSwarmFiles`) and advertises full bitfield availability (`SWARM_HAVES`) to both direct mesh peers and via Host relay—multiplying room bandwidth as more peers join.
 * **Live Bitfield Chunk Matrix:** A real-time visual grid displays the exact status of every individual chunk (`pending`, `downloading`, `cached`) as it streams across the mesh.
 * **Resumable IndexedDB Cache:** Chunks are saved locally in an indexed database (`swarmChunks`). If a connection is interrupted, transfers resume instantly from the last received chunk without restarting.
 * **Real-Time Swarm Telemetry:** Live active peer source counters (`⚡ N Swarm Sources`), dynamic ETA calculations, and download speed rate trackers.
@@ -114,13 +114,13 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 | **Release Version** | v3.5 (Multi-Source Swarm Seeding, Live Code Sandbox, P2P Watch Party & CyberBoard) |
 | **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
 | **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing & Host bitfield relay |
-| **Chunk Size** | 32 KB (`32768` bytes) optimized for WebRTC MTU boundaries |
-| **P2P Flow Control** | Event-driven `bufferedamountlow` threshold gating (512 KB pipelined buffer window) + coalesced 100ms `SWARM_HAVES` |
-| **Swarm Seeder Cache** | 250 MB LRU in-memory Blob cache (`completedSwarmBlobs`) + IndexedDB `swarmChunks` store |
-| **Code Execution Sandbox** | Isolated Web Worker (JS/TS with 8s watchdog) + Pyodide v0.25.0 WebAssembly (Python) |
+| **Chunk Size** | 16 KB (`16384` bytes) optimized for WebRTC MTU boundaries |
+| **P2P Flow Control** | Event-driven `bufferedamountlow` threshold gating (2 MB pipelined buffer window) + coalesced 100ms `SWARM_HAVES` |
+| **Swarm Seeder Cache** | 150 MB LRU in-memory Blob cache (`seededSwarmFiles`) + IndexedDB `localforage` chunk store |
+| **Code Execution Sandbox** | Isolated Web Worker (JS/TS with 5s watchdog) + Pyodide v0.25.0 WebAssembly (Python) |
 | **Collaborative Workspace** | QuickPad (multi-tab editor + live cursors), CyberBoard (Kanban + Spreadsheet Table), Infinite Whiteboard |
 | **Storage Serialization** | Debounced IndexedDB persistence (250ms) and coalesced tree broadcasts (150ms) |
-| **Parallel Concurrency** | Up to 8 concurrent chunk request streams per download across multiple peers |
+| **Parallel Concurrency** | Up to 12 concurrent chunk request streams per download across multiple peers |
 | **Folder Upload Engine** | Native recursive folder upload (`webkitdirectory`) with full directory tree preservation |
 | **Resumable Transfers** | Bitfield chunk piece caching with automatic resume recovery |
 | **Symmetric Encryption** | AES-GCM-256 (hardware-accelerated Web Crypto API) |

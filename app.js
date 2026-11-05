@@ -103,8 +103,16 @@ function playCyberChime(freq = 880, type = 'sine', duration = 0.25) {
     } catch (e) {}
 }
 
+let cyberDialogChain = Promise.resolve();
+
+function enqueueCyberDialog(executor) {
+    const next = cyberDialogChain.then(() => new Promise(executor));
+    cyberDialogChain = next.catch(() => {});
+    return next;
+}
+
 function cyberAlert(message, title = 'SECURITY NOTICE', isDanger = false) {
-    return new Promise((resolve) => {
+    return enqueueCyberDialog((resolve) => {
         if (!cyberDialogModal) {
             showToast(message);
             return resolve();
@@ -141,7 +149,7 @@ function cyberAlert(message, title = 'SECURITY NOTICE', isDanger = false) {
 }
 
 function cyberConfirm(message, title = 'SECURITY CONFIRMATION', isDanger = false) {
-    return new Promise((resolve) => {
+    return enqueueCyberDialog((resolve) => {
         if (!cyberDialogModal) {
             return resolve(window.confirm(message));
         }
@@ -184,7 +192,7 @@ function cyberConfirm(message, title = 'SECURITY CONFIRMATION', isDanger = false
 }
 
 function cyberPrompt(message, defaultValue = '', title = 'INPUT REQUIRED') {
-    return new Promise((resolve) => {
+    return enqueueCyberDialog((resolve) => {
         if (!cyberDialogModal) {
             return resolve(window.prompt(message, defaultValue));
         }
@@ -838,7 +846,7 @@ async function getDecryptedFileObj(child) {
     while (current && current.id !== 'root') {
         if (current.isVault) {
             vaultId = current.id;
-            password = unlockedVaults[current.id];
+            password = unlockedVaults[current.id] || current.password;
             break;
         }
         current = current.parent;
@@ -1232,6 +1240,11 @@ function startBurnCountdown(seconds) {
                 connections.forEach(c => {
                     try { c.send({ type: 'SERVER_BURNED' }); } catch (e) {}
                 });
+                if (typeof swarmConnections !== 'undefined' && swarmConnections instanceof Map) {
+                    swarmConnections.forEach(sc => {
+                        try { sc.send({ type: 'SERVER_BURNED' }); } catch (e) {}
+                    });
+                }
                 await new Promise(r => setTimeout(r, 250));
             }
             triggerBurnSequence();
@@ -1271,6 +1284,14 @@ function triggerBurnSequence() {
     } catch (e) {}
 
     try {
+        if (typeof saveVFSTimer !== 'undefined' && saveVFSTimer) {
+            clearTimeout(saveVFSTimer);
+            saveVFSTimer = null;
+        }
+        if (typeof broadcastTreeTimer !== 'undefined' && broadcastTreeTimer) {
+            clearTimeout(broadcastTreeTimer);
+            broadcastTreeTimer = null;
+        }
         vfs = new VirtualFileSystem();
     } catch (e) {}
 
@@ -1389,7 +1410,7 @@ async function scanNativeVault(handle, parentNode) {
     for await (const entry of handle.values()) {
         if (entry.kind === 'file') {
             if (entry.name.endsWith('.loc')) {
-                const originalName = entry.name.replace('.loc', '');
+                const originalName = entry.name.replace(/\.loc$/, '');
                 const fileHandle = entry;
                 const file = await fileHandle.getFile();
                 parentNode.children.push({
@@ -2188,8 +2209,17 @@ function endCommLink() {
 }
 
 async function handleIncomingCall(call) {
+    if (typeof isHost !== 'undefined' && isHost) {
+        const isAuthPeer = Array.isArray(connections) && connections.some(c => c.peer === call.peer && c.isAuthenticated);
+        if (!isAuthPeer) {
+            try { call.close(); } catch (e) {}
+            return;
+        }
+    }
+
     if (call.metadata && call.metadata.type === 'SCREEN_SHARE') {
         call.answer();
+        let streamRelayed = false;
 
         const attachStream = (remoteStream) => {
             if (!remoteStream) return;
@@ -2204,7 +2234,8 @@ async function handleIncomingCall(call) {
 
         call.on('stream', (remoteStream) => {
             attachStream(remoteStream);
-            if (typeof isHost !== 'undefined' && isHost) {
+            if (typeof isHost !== 'undefined' && isHost && !streamRelayed) {
+                streamRelayed = true;
                 connections.filter(c => c.open && c.isAuthenticated && c.peer !== call.peer).forEach(c => {
                     const relayCall = peer.call(c.peer, remoteStream, {
                         metadata: { type: 'SCREEN_SHARE', sharerName: call.metadata.sharerName, sharerId: call.metadata.sharerId }
@@ -2218,6 +2249,17 @@ async function handleIncomingCall(call) {
         });
         call.on('close', () => {
             if (typeof closeScreenShareViewer === 'function') closeScreenShareViewer();
+            if (typeof isHost !== 'undefined' && isHost && !isScreenSharing && typeof activeScreenCalls !== 'undefined') {
+                Object.values(activeScreenCalls).forEach(rc => {
+                    try { rc.close(); } catch (e) {}
+                });
+                activeScreenCalls = {};
+                connections.forEach(c => {
+                    if (c.open && c.isAuthenticated && c.peer !== call.peer) {
+                        safeSend(c, { type: 'SCREEN_SHARE_STOPPED' });
+                    }
+                });
+            }
             showToast("Screen stream ended by presenter.", "info");
         });
         call.on('error', (err) => {
@@ -2236,7 +2278,7 @@ async function handleIncomingCall(call) {
         return;
     }
 
-    if (inIntercom) {
+    if (inIntercom && call.metadata && call.metadata.type === 'INTERCOM') {
         if (localAudioStream) {
             call.answer(localAudioStream);
             call.on('stream', (remoteStream) => playAudioStream(remoteStream, call.peer));
@@ -2560,9 +2602,17 @@ async function initHost() {
             if (isServerBurned) return;
             clearTimeout(hostOpenTimeout);
             console.error("PeerJS Host Error:", err);
-            if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'network' || err.type === 'socket-closed') {
+            if (err.type === 'unavailable-id') {
                 updateStatus('RETRYING...', 'offline');
                 setTimeout(() => setupHostPeer(), 1000);
+            } else if (err.type === 'server-error' || err.type === 'socket-error' || err.type === 'network' || err.type === 'socket-closed') {
+                if (peer && !peer.destroyed && peer.id && typeof peer.reconnect === 'function' && peer.disconnected) {
+                    updateStatus('RECONNECTING...', 'offline');
+                    try { peer.reconnect(); } catch(e) { setTimeout(() => setupHostPeer(), 1500); }
+                } else if (!peer || !peer.open) {
+                    updateStatus('RETRYING...', 'offline');
+                    setTimeout(() => setupHostPeer(), 1500);
+                }
             } else if (err.type === 'peer-unavailable') {
                 // Ignore transient peer disconnect
             } else {
@@ -2573,6 +2623,13 @@ async function initHost() {
                         setupHostPeer();
                     }
                 }, 3000);
+            }
+        });
+
+        peer.on('disconnected', () => {
+            if (isServerBurned) return;
+            if (peer && !peer.destroyed && typeof peer.reconnect === 'function') {
+                try { peer.reconnect(); } catch(e) {}
             }
         });
 
@@ -2639,6 +2696,7 @@ async function initHost() {
             }
         
         conn.on('data', (data) => {
+            if (!data || typeof data !== 'object') return;
             if (window.handlePluginMessage) window.handlePluginMessage(data);
             if (data.type === 'ECDH_KEY_EXCHANGE') {
                 handlePeerEcdhKey(conn.peer, data.publicKey).then(key => {
@@ -2658,10 +2716,12 @@ async function initHost() {
             }
             if (data.type === 'SWARM_HAVE') {
                 if (!conn.isAuthenticated) return;
-                const originPeer = data.fromPeer || conn.peer;
+                const node = vfs.findNode(data.fileId);
+                if (!node || !isNodeAuthorizedForConnection(node, conn)) return;
+                const originPeer = conn.peer;
                 registerSwarmHave(originPeer, data.fileId, data.chunkIndex);
                 connections.forEach(c => {
-                    if (c.peer !== originPeer && c !== conn && c.open && c.isAuthenticated) {
+                    if (c.peer !== originPeer && c !== conn && c.open && c.isAuthenticated && isNodeAuthorizedForConnection(node, c)) {
                         try { c.send({ type: 'SWARM_HAVE', fileId: data.fileId, chunkIndex: data.chunkIndex, fromPeer: originPeer }); } catch(e) {}
                     }
                 });
@@ -2669,11 +2729,13 @@ async function initHost() {
             }
             if (data.type === 'SWARM_HAVES') {
                 if (!conn.isAuthenticated) return;
+                const node = vfs.findNode(data.fileId);
+                if (!node || !isNodeAuthorizedForConnection(node, conn)) return;
                 if (Array.isArray(data.chunkIndices)) {
-                    const originPeer = data.fromPeer || conn.peer;
+                    const originPeer = conn.peer;
                     registerSwarmHaves(originPeer, data.fileId, data.chunkIndices);
                     connections.forEach(c => {
-                        if (c.peer !== originPeer && c !== conn && c.open && c.isAuthenticated) {
+                        if (c.peer !== originPeer && c !== conn && c.open && c.isAuthenticated && isNodeAuthorizedForConnection(node, c)) {
                             try { c.send({ type: 'SWARM_HAVES', fileId: data.fileId, chunkIndices: data.chunkIndices, totalChunks: data.totalChunks, fromPeer: originPeer }); } catch(e) {}
                         }
                     });
@@ -2682,8 +2744,10 @@ async function initHost() {
             }
             if (data.type === 'SWARM_RELAY_REQUEST') {
                 if (!conn.isAuthenticated || !data.targetPeer) return;
+                const node = vfs.findNode(data.fileId);
+                if (!node || !isNodeAuthorizedForConnection(node, conn)) return;
                 const targetConn = connections.find(c => c.peer === data.targetPeer && c.open && c.isAuthenticated);
-                if (targetConn) {
+                if (targetConn && isNodeAuthorizedForConnection(node, targetConn)) {
                     try {
                         targetConn.send({
                             type: 'SWARM_REQUEST_CHUNK',
@@ -2697,8 +2761,10 @@ async function initHost() {
             }
             if (data.type === 'SWARM_RELAY_CHUNK') {
                 if (!conn.isAuthenticated || !data.targetPeer) return;
+                const node = vfs.findNode(data.fileId);
+                if (!node || !isNodeAuthorizedForConnection(node, conn)) return;
                 const targetConn = connections.find(c => c.peer === data.targetPeer && c.open && c.isAuthenticated);
-                if (targetConn) {
+                if (targetConn && isNodeAuthorizedForConnection(node, targetConn)) {
                     try {
                         targetConn.send({
                             type: 'SWARM_CHUNK_DATA',
@@ -2727,7 +2793,15 @@ async function initHost() {
                     if (isProtected) {
                         conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires host authentication.' });
                     } else {
-                        sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
+                        sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv }).then(() => {
+                            if (node.isBurn && node.parent) {
+                                node.parent.children = node.parent.children.filter(c => c.id !== node.id);
+                                saveVFSToDB();
+                                renderHostExplorer();
+                                broadcastTree();
+                                showToast(`🔥 Burn Protocol Activated: ${node.name} has self-destructed.`);
+                            }
+                        });
                     }
                 } else {
                     conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File not found or access denied.' });
@@ -2781,25 +2855,33 @@ async function initHost() {
                 }
                 return;
             } else if (data.type === 'WHISPER_RELAY' && conn.isAuthenticated) {
+                data.fromId = conn.peer;
+                if (conn.profile) {
+                    data.fromAlias = conn.profile.name || data.fromAlias;
+                    data.fromColor = conn.profile.color || data.fromColor;
+                }
                 if (data.targetId === (peer ? peer.id : null)) {
                     handleWhisper(data);
                 } else {
-                    const target = connections.find(c => c.peer === data.targetId);
+                    const target = connections.find(c => c.peer === data.targetId && c.open && c.isAuthenticated);
                     if (target) {
-                        safeSend(target, { type: 'WHISPER', fromId: data.fromId, fromAlias: data.fromAlias, fromColor: data.fromColor, msg: data.msg });
+                        safeSend(target, { type: 'WHISPER', fromId: conn.peer, fromAlias: data.fromAlias, fromColor: data.fromColor, msg: data.msg });
                     }
                 }
             } else if (data.type === 'ARCADE_RELAY' && conn.isAuthenticated) {
+                if (!data.data || typeof data.data !== 'object' || typeof data.data.type !== 'string' || !data.data.type.startsWith('ARCADE_')) return;
+                data.data.fromId = conn.peer;
                 if (data.targetId === (peer ? peer.id : null)) {
                     // Directed at host
                     handleArcadeNetwork(data.data);
                 } else {
-                    const target = connections.find(c => c.peer === data.targetId);
+                    const target = connections.find(c => c.peer === data.targetId && c.open && c.isAuthenticated);
                     if (target) {
                         safeSend(target, data.data);
                     }
                 }
             } else if (['ARCADE_INVITE', 'ARCADE_ACCEPT', 'ARCADE_DECLINE', 'ARCADE_MOVE', 'ARCADE_RESET'].includes(data.type) && conn.isAuthenticated) {
+                data.fromId = conn.peer;
                 handleArcadeNetwork(data);
             } else if (data.type === 'CHAT_MSG' && conn.isAuthenticated) {
                 if (conn.permissions && conn.permissions.chat === false) return;
@@ -2823,8 +2905,9 @@ async function initHost() {
                 });
             } else if (data.type === 'PAD_CURSOR' && conn.isAuthenticated) {
                 if (!conn.permissions || !conn.permissions.scratchpad) return;
+                data.peerId = conn.peer;
                 if (typeof padPeerCursors !== 'undefined') {
-                    padPeerCursors[data.peerId] = {
+                    padPeerCursors[conn.peer] = {
                         pos: data.pos,
                         selEnd: data.selEnd,
                         fileId: data.fileId,
@@ -2832,7 +2915,7 @@ async function initHost() {
                         color: data.color
                     };
                     if (typeof getActivePadFile === 'function' && getActivePadFile().id === data.fileId && typeof renderPeerCursor === 'function') {
-                        renderPeerCursor(data.peerId, data.pos, data.name, data.color);
+                        renderPeerCursor(conn.peer, data.pos, data.name, data.color);
                     }
                 }
                 connections.forEach(c => {
@@ -2943,6 +3026,7 @@ async function initHost() {
                     }
                 });
             } else if (data.type === 'SCREEN_SHARE_STOPPED' && conn.isAuthenticated) {
+                if (typeof currentScreenSharerId !== 'undefined' && currentScreenSharerId && conn.peer !== currentScreenSharerId) return;
                 if (typeof closeScreenShareViewer === 'function') closeScreenShareViewer();
                 if (!isScreenSharing && typeof activeScreenCalls !== 'undefined') {
                     Object.values(activeScreenCalls).forEach(call => {
@@ -2974,7 +3058,6 @@ async function initHost() {
                 if (typeof commitShape === 'function' && wbCanvas) {
                     const w = wbCanvas.width; const h = wbCanvas.height;
                     if (w > 0 && h > 0) {
-                        if (typeof saveWbState === 'function') saveWbState(true);
                         commitShape(data.shape, data.x0 * w, data.y0 * h, data.x1 * w, data.y1 * h, data.color, data.size, data.tool, false);
                     }
                 }
@@ -2988,7 +3071,6 @@ async function initHost() {
                 if (typeof commitText === 'function' && wbCanvas) {
                     const w = wbCanvas.width; const h = wbCanvas.height;
                     if (w > 0 && h > 0) {
-                        if (typeof saveWbState === 'function') saveWbState(true);
                         commitText(data.x * w, data.y * h, data.text, data.color, data.size, false);
                     }
                 }
@@ -3084,11 +3166,11 @@ async function initHost() {
                     safeSend(conn, { type: 'WHITEBOARD_DENIED', message: 'Whiteboard permission required.' });
                 }
             } else if (data.type === 'INTERCOM_JOIN' && conn.isAuthenticated) {
-                intercomUsers.add(data.peerId);
-                const others = Array.from(intercomUsers).filter(id => id !== data.peerId);
+                intercomUsers.add(conn.peer);
+                const others = Array.from(intercomUsers).filter(id => id !== conn.peer);
                 safeSend(conn, { type: 'INTERCOM_LIST', users: others });
             } else if (data.type === 'INTERCOM_LEAVE' && conn.isAuthenticated) {
-                intercomUsers.delete(data.peerId);
+                intercomUsers.delete(conn.peer);
             } else if (data.type === 'PROFILE_UPDATE' && conn.isAuthenticated) {
                 const safeColor = typeof sanitizeCssColor === 'function' ? sanitizeCssColor(data.color) : data.color;
                 conn.profile = { name: data.name, color: safeColor, avatar: data.avatar };
@@ -3105,6 +3187,8 @@ async function initHost() {
             } else if (data.type === 'REQUEST_NATIVE_VAULT_ACCESS' && conn.isAuthenticated) {
                 requestingGuestName.textContent = conn.profile ? conn.profile.name : 'Unknown Guest';
                 hostApprovalModal.classList.remove('hidden');
+                if (window._nativeVaultApproveHandler) btnApproveVault.removeEventListener('click', window._nativeVaultApproveHandler);
+                if (window._nativeVaultDenyHandler) btnDenyVault.removeEventListener('click', window._nativeVaultDenyHandler);
                 
                 const handleApprove = () => {
                     hostApprovalModal.classList.add('hidden');
@@ -3128,13 +3212,21 @@ async function initHost() {
                     btnDenyVault.removeEventListener('click', handleDeny);
                 };
                 
+                window._nativeVaultApproveHandler = handleApprove;
+                window._nativeVaultDenyHandler = handleDeny;
                 btnApproveVault.addEventListener('click', handleApprove);
                 btnDenyVault.addEventListener('click', handleDeny);
                 
             } else if (data.type === 'SUBMIT_NATIVE_VAULT_OTP' && conn.isAuthenticated) {
-                if (data.pin === nativeVaultOTP && nativeVaultOTP !== null) {
-                    conn.unlockedFolders.add(data.folderId);
-                    conn.send({ type: 'NATIVE_VAULT_AUTH_SUCCESS', folderId: data.folderId, permission: guestNativePermissions[conn.peer] });
+                conn.nativeOtpAttempts = (conn.nativeOtpAttempts || 0) + 1;
+                if (conn.nativeOtpAttempts > 5) {
+                    conn.send({ type: 'NATIVE_VAULT_AUTH_FAIL' });
+                    return;
+                }
+                if (data.folderId === 'native_root' && data.pin === nativeVaultOTP && nativeVaultOTP !== null) {
+                    conn.nativeOtpAttempts = 0;
+                    conn.unlockedFolders.add('native_root');
+                    conn.send({ type: 'NATIVE_VAULT_AUTH_SUCCESS', folderId: 'native_root', permission: guestNativePermissions[conn.peer] });
                     conn.send({ type: 'TREE', tree: vfs.getTree(conn.unlockedFolders) });
                     nativeVaultOTP = null; 
                 } else {
@@ -3235,9 +3327,15 @@ async function initHost() {
                                     current.children.push(existing);
                                 }
                                 current = existing;
+                                if (!isNodeAuthorizedForConnection(current, conn)) {
+                                    delete incomingTransfers[data.id];
+                                    conn.send({ type: 'ALERT', message: 'Upload rejected: Subfolder is locked or unauthorized.' });
+                                    return;
+                                }
                             }
                         }
                         
+                        delete incomingTransfers[data.id];
                         (async () => {
                             let finalFileObj = fileObj;
                             let isEncrypted = false;
@@ -3258,7 +3356,6 @@ async function initHost() {
                             if (nativeNode) {
                                 if (guestNativePermissions[conn.peer] !== 'write') {
                                     conn.send({ type: 'ALERT', message: 'Upload rejected: Read-only access to Native Vault.' });
-                                    delete incomingTransfers[data.id];
                                     return;
                                 }
                                 try {
@@ -3280,7 +3377,7 @@ async function initHost() {
                             } else if (vaultNode) {
                                 try {
                                     const buffer = await fileBlob.arrayBuffer();
-                                    const pass = unlockedVaults[vaultNode.id];
+                                    const pass = unlockedVaults[vaultNode.id] || vaultNode.password;
                                     if (pass) {
                                         const encData = await encryptFile(buffer, pass);
                                         finalFileObj = new Blob([encData.encrypted], { type: 'application/octet-stream' });
@@ -3295,11 +3392,9 @@ async function initHost() {
                             saveVFSToDB();
                             renderHostExplorer();
                             broadcastTree();
+                            conn.send({ type: 'UPLOAD_COMPLETE' });
+                            notifyFileAdded(transfer.name);
                         })();
-
-                        delete incomingTransfers[data.id];
-                        conn.send({ type: 'UPLOAD_COMPLETE' });
-                        notifyFileAdded(transfer.name);
                     }
                 }
             } else if (data.type === 'BURN_CONSUMED' && conn.isAuthenticated) {
@@ -3401,14 +3496,14 @@ async function initHost() {
             } else if (data.type === 'TEXT_EDIT_SYNC' && conn.isAuthenticated) {
                 if (conn.permissions && conn.permissions.edit) {
                     const node = vfs.findNode(data.fileId);
-                    if (node && !node.isLocked && isNodeAuthorizedForConnection(node, conn)) {
+                    if (node && node.type === 'file' && !node.isLocked && isNodeAuthorizedForConnection(node, conn)) {
                         (async () => {
                             let fileBlob = new Blob([data.text], { type: 'text/plain' });
                             if (node.isEncrypted) {
                                 let vaultDir = node.parent;
                                 while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
                                 if (vaultDir && vaultDir.isVault) {
-                                    const pass = unlockedVaults[vaultDir.id];
+                                    const pass = unlockedVaults[vaultDir.id] || vaultDir.password;
                                     if (pass) {
                                         const buffer = await fileBlob.arrayBuffer();
                                         const encData = await encryptFile(buffer, pass, node.salt);
@@ -3451,6 +3546,7 @@ async function initHost() {
         const handlePeerDisconnect = () => {
             connections = connections.filter(c => c !== conn);
             if (typeof intercomUsers !== 'undefined') intercomUsers.delete(conn.peer);
+            if (typeof cleanupAudio === 'function') cleanupAudio(conn.peer);
             if (typeof peerEcdhSharedKeys !== 'undefined') peerEcdhSharedKeys.delete(conn.peer);
             if (typeof guestNativePermissions !== 'undefined') delete guestNativePermissions[conn.peer];
             if (typeof swarmBitfields !== 'undefined') {
@@ -3499,12 +3595,26 @@ function broadcastNuclearUpdate(folderId, current, required) {
 function handleNuclearVote(folderId, peerId, pin) {
     const node = vfs.findNode(folderId);
     if (!node || !node.isNuclear) return false;
+    if (peerId !== 'host') {
+        const c = connections.find(conn => conn.peer === peerId);
+        if (c) {
+            c.folderAuthAttempts = c.folderAuthAttempts || {};
+            if ((c.folderAuthAttempts[folderId] || 0) >= 5) {
+                if (c.open) c.send({ type: 'ALERT', message: '❌ Maximum Nuclear PIN attempts exceeded.' });
+                return false;
+            }
+        }
+    }
     if (node.password !== pin) {
         if (peerId === 'host') {
             showToast("❌ Incorrect Nuclear Launch Code", "error");
         } else {
             const c = connections.find(conn => conn.peer === peerId);
-            if (c && c.open) c.send({ type: 'ALERT', message: '❌ Incorrect Nuclear Launch Code. Authorization rejected.' });
+            if (c) {
+                c.folderAuthAttempts = c.folderAuthAttempts || {};
+                c.folderAuthAttempts[folderId] = (c.folderAuthAttempts[folderId] || 0) + 1;
+                if (c.open) c.send({ type: 'ALERT', message: '❌ Incorrect Nuclear Launch Code. Authorization rejected.' });
+            }
         }
         return false;
     }
@@ -4136,10 +4246,10 @@ function configureContextMenuForTarget(node, isHost) {
         ctxWatchPartyEl.style.display = isPlayableMedia ? 'flex' : 'none';
     }
 
-    // 2. Download (Files only)
+    // 2. Download (Files, or Folders on Host)
     const ctxDownloadEl = document.getElementById('ctx-download');
     if (ctxDownloadEl) {
-        ctxDownloadEl.style.display = isFile ? 'flex' : 'none';
+        ctxDownloadEl.style.display = (isFile || isHost) ? 'flex' : 'none';
     }
 
     // 3. Magic Link (Host files only)
@@ -4218,16 +4328,22 @@ function renderHostExplorer() {
     if (hostExplorerGrid) hostExplorerGrid.classList.toggle('list-view', isListView);
     renderBreadcrumbs(vfs.currentDir, hostBreadcrumbs, (node) => {
         vfs.currentDir = node;
+        lastSelectedHostIndex = -1;
         renderHostExplorer();
     });
     
     hostExplorerGrid.innerHTML = '';
-    let itemsToRender = vfs.currentDir.children;
+    let itemsToRender = (vfs.currentDir.children || []).filter(c => !c.isHidden || showDeadDrops);
     if (hostSearchQuery) {
         itemsToRender = [];
         searchVFS(vfs.root, hostSearchQuery, itemsToRender);
     }
     
+    if (itemsToRender.length === 0) {
+        hostExplorerGrid.innerHTML = `<p style="color: var(--text-muted); padding: 1rem;">${hostSearchQuery ? 'No matching files found' : 'Folder is empty'}</p>`;
+        return;
+    }
+
     if (sortSelectHost) {
         itemsToRender = sortNodes(itemsToRender, sortSelectHost.value);
     }
@@ -4239,8 +4355,16 @@ function renderHostExplorer() {
         
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
+        const isFolderSecured = child.type === 'folder' && !!(child.isLocked || child.password || child.isVault || child.isNuclear);
+        const isFolderUnlocked = isFolderSecured && !!unlockedVaults[child.id];
+        let hostLockBadge = '';
+        if (isFolderSecured) {
+            hostLockBadge = isFolderUnlocked
+                ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-green)" stroke="var(--neon-green)"></rect><path d="M17 16a2 2 0 0 1 4 0v0" stroke="var(--neon-green)"></path>'
+                : '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>';
+        }
         const icon = safeThumb ? `<div class="item-thumbnail" style="background-image: url('${safeThumb}');"></div>` : (child.type === 'folder' ? 
-            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${child.isLocked || child.password || child.isVault || child.isNuclear ? '<rect x="15" y="15" width="8" height="8" fill="var(--bg-card)" stroke="none"></rect><rect x="16" y="18" width="6" height="4" rx="1" fill="var(--neon-red)" stroke="var(--neon-red)"></rect><path d="M17 18V16a2 2 0 0 1 4 0v2" stroke="var(--neon-red)"></path>' : ''}</svg>` : 
+            `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${hostLockBadge}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
         const burnIcon = child.isBurn ? '🔥 ' : '';
@@ -4292,11 +4416,11 @@ function renderHostExplorer() {
                 return;
             }
 
-            if (e.shiftKey && lastSelectedHostIndex !== -1) {
-                const start = Math.min(lastSelectedHostIndex, curIdx);
-                const end = Math.max(lastSelectedHostIndex, curIdx);
+            if (e.shiftKey && lastSelectedHostIndex !== -1 && itemsToRender.length > 0) {
+                const start = Math.max(0, Math.min(lastSelectedHostIndex, curIdx));
+                const end = Math.min(itemsToRender.length - 1, Math.max(lastSelectedHostIndex, curIdx));
                 for (let i = start; i <= end; i++) {
-                    selectedNodes.add(itemsToRender[i].id);
+                    if (itemsToRender[i]) selectedNodes.add(itemsToRender[i].id);
                 }
                 const domItems = hostExplorerGrid.querySelectorAll('.file-item');
                 domItems.forEach((el, idx) => {
@@ -4606,6 +4730,7 @@ function setupSwarmPeerConnection(conn) {
     else conn.on('open', handleOpen);
 
     conn.on('data', (data) => {
+        if (!data || typeof data !== 'object') return;
         if (data.type === 'ECDH_KEY_EXCHANGE') {
             handlePeerEcdhKey(conn.peer, data.publicKey).then(key => {
                 if (key && !conn._ecdhSent) {
@@ -4721,6 +4846,7 @@ async function initClient() {
             });
         
         hostConnection.on('data', (data) => {
+            if (!data || typeof data !== 'object') return;
             if (window.handlePluginMessage) window.handlePluginMessage(data);
             if (data.type === 'ECDH_KEY_EXCHANGE') {
                 handlePeerEcdhKey(hostConnection.peer || roomCode, data.publicKey).then(key => {
@@ -4767,6 +4893,7 @@ async function initClient() {
                     clientPasswordInput.focus();
                 }
             } else if (data.type === 'TREE') {
+                if (!data.tree) return;
                 if (!hostConnection._profileSent) {
                     hostConnection._profileSent = true;
                     hostConnection.send({ type: 'PROFILE_UPDATE', name: guestAlias, color: guestColor, avatar: guestAvatar });
@@ -4828,8 +4955,10 @@ async function initClient() {
             } else if (data.type === 'FILE_CHUNK' || data.type === 'ZIP_CHUNK') {
                 const transfer = incomingTransfers[data.id];
                 if (transfer) {
+                    if (transfer.chunks[data.index] === undefined) {
+                        transfer.received++;
+                    }
                     transfer.chunks[data.index] = data.chunk;
-                    transfer.received++;
                     updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
                     const now = Date.now();
                     if (window.triggerCyberspaceBeam && (!transfer.lastBeamTime || now - transfer.lastBeamTime > 250)) {
@@ -4853,10 +4982,21 @@ async function initClient() {
                         clearCachedTransfer(data.id, transfer.total);
                         const blob = new Blob(transfer.chunks, { type: transfer.mime });
                         if (transfer.isEncrypted) {
-                            // Since they already unlocked the folder, they have the password!
-                            // Or they might have been sent the file directly.
-                            const pass = clientUnlockedVaults[clientCurrentDir.id];
-                            if (pass) {
+                            let pass = null;
+                            const targetNode = findClientNode(clientVFS, data.id);
+                            let curDir = targetNode ? targetNode.parent : clientCurrentDir;
+                            while (curDir) {
+                                const candidate = clientUnlockedVaults[curDir.id];
+                                if (typeof candidate === 'string' && candidate.length > 0) {
+                                    pass = candidate;
+                                    break;
+                                }
+                                curDir = curDir.parent;
+                            }
+                            if (!pass && clientCurrentDir && typeof clientUnlockedVaults[clientCurrentDir.id] === 'string') {
+                                pass = clientUnlockedVaults[clientCurrentDir.id];
+                            }
+                            if (typeof pass === 'string' && pass.length > 0) {
                                 (async () => {
                                     try {
                                         const buffer = await blob.arrayBuffer();
@@ -4870,11 +5010,15 @@ async function initClient() {
                             } else {
                                 vaultPasswordModal.classList.remove('hidden');
                                 vaultPasswordInput.value = '';
+                                if (window._activeVaultDecryptHandler) {
+                                    btnConfirmVaultPassword.removeEventListener('click', window._activeVaultDecryptHandler);
+                                }
                                 
                                 const handleClientDecrypt = async () => {
                                     const manualPass = vaultPasswordInput.value;
                                     if (!manualPass) return cyberAlert("Password required to decrypt!", "SECURITY NOTICE", true);
                                     btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
+                                    window._activeVaultDecryptHandler = null;
                                     vaultPasswordModal.classList.add('hidden');
                                     
                                     try {
@@ -4887,9 +5031,11 @@ async function initClient() {
                                     }
                                 };
                                 
+                                window._activeVaultDecryptHandler = handleClientDecrypt;
                                 btnConfirmVaultPassword.addEventListener('click', handleClientDecrypt);
                                 btnCloseVaultModal.addEventListener('click', () => {
                                     btnConfirmVaultPassword.removeEventListener('click', handleClientDecrypt);
+                                    window._activeVaultDecryptHandler = null;
                                     vaultPasswordModal.classList.add('hidden');
                                 }, { once: true });
                             }
@@ -4910,11 +5056,12 @@ async function initClient() {
                 if (btnUploadFolderClient) btnUploadFolderClient.classList.toggle('hidden', !myPermissions.upload);
                 if (btnChatToggle) btnChatToggle.classList.toggle('hidden', myPermissions.chat === false);
                 if (chatSidebar && myPermissions.chat === false) chatSidebar.classList.add('hidden');
+                if (editorTextarea && !isHost) editorTextarea.readOnly = !myPermissions.edit;
                 
                 // Hide context menu rename/delete buttons if not allowed
                 const ctxRename = document.getElementById('ctx-rename');
                 const ctxDelete = document.getElementById('ctx-delete');
-                if (ctxRename) ctxRename.style.display = myPermissions.delete ? 'flex' : 'none';
+                if (ctxRename) ctxRename.style.display = myPermissions.edit ? 'flex' : 'none';
                 if (ctxDelete) ctxDelete.style.display = myPermissions.delete ? 'flex' : 'none';
 
                 // Whiteboard Permission Handling
@@ -5092,7 +5239,7 @@ async function initClient() {
             } else if (data.type === 'INTERCOM_LIST') {
                 data.users.forEach(id => {
                     if (id !== peer.id && inIntercom) {
-                        const call = peer.call(id, localAudioStream);
+                        const call = peer.call(id, localAudioStream, { metadata: { type: 'INTERCOM' } });
                         call.on('stream', (remoteStream) => playAudioStream(remoteStream, id));
                         call.on('close', () => cleanupAudio(id));
                         activeCalls[id] = call;
@@ -5126,9 +5273,10 @@ async function initClient() {
                 }
                 showToast("Host has not granted QuickPad permission.", "warning");
             } else if (data.type === 'PAD_FULL_SYNC') {
-                if (data.files && Array.isArray(data.files)) {
+                if (data.files && Array.isArray(data.files) && data.files.length > 0) {
                     nativePadState.files = data.files;
-                    nativePadState.activeFileId = data.activeFileId || data.files[0].id;
+                    const keepExistingTab = nativePadState.activeFileId && data.files.some(f => f.id === nativePadState.activeFileId);
+                    nativePadState.activeFileId = keepExistingTab ? nativePadState.activeFileId : (data.activeFileId || data.files[0].id);
                     nativePadState.isLocked = !!data.isLocked;
                     if (data.presenceMap) {
                         padPeerPresence = data.presenceMap;
@@ -5138,7 +5286,7 @@ async function initClient() {
                         delete padPeerPresence['guest'];
                     }
                     const active = (typeof getActivePadFile === 'function') ? getActivePadFile() : data.files[0];
-                    if (padEditor) {
+                    if (padEditor && active) {
                         padEditor.value = active.content || '';
                         padEditor.readOnly = nativePadState.isLocked;
                     }
@@ -5147,6 +5295,29 @@ async function initClient() {
                     if (typeof updatePadLineNumbers === 'function') updatePadLineNumbers();
                     if (typeof updatePadStats === 'function') updatePadStats();
                     if (typeof padPreviewMode !== 'undefined' && padPreviewMode && typeof renderPadPreview === 'function') renderPadPreview();
+                    if (typeof updatePadPresenceUI === 'function') updatePadPresenceUI();
+                }
+            } else if (data.type === 'PAD_PRESENCE') {
+                if (data.peerId && typeof padPeerPresence !== 'undefined') {
+                    if (data.inPad) {
+                        padPeerPresence[data.peerId] = {
+                            name: data.name || 'Host',
+                            color: data.color || 'var(--neon-purple)',
+                            activeFileId: data.activeFileId || 'f_main',
+                            inPad: true,
+                            isHost: data.peerId === 'host' || (hostConnection && data.peerId === hostConnection.peer),
+                            lastSeen: Date.now()
+                        };
+                    } else {
+                        delete padPeerPresence[data.peerId];
+                        if (typeof removePeerCursor === 'function') removePeerCursor(data.peerId);
+                    }
+                    if (typeof updatePadPresenceUI === 'function') updatePadPresenceUI();
+                }
+            } else if (data.type === 'PAD_HEARTBEAT') {
+                if (data.peerId && typeof padPeerPresence !== 'undefined' && padPeerPresence[data.peerId]) {
+                    padPeerPresence[data.peerId].lastSeen = Date.now();
+                    if (data.activeFileId) padPeerPresence[data.peerId].activeFileId = data.activeFileId;
                     if (typeof updatePadPresenceUI === 'function') updatePadPresenceUI();
                 }
             } else if (data.type === 'PAD_EDIT') {
@@ -5316,6 +5487,8 @@ async function initClient() {
                 playBurnAlarm();
                 startBurnCountdown(data.seconds);
             } else if (data.type === 'HONEYPOT_LOCKDOWN') {
+                if (folderPasswordModal) folderPasswordModal.classList.add('hidden');
+                if (vaultPasswordModal) vaultPasswordModal.classList.add('hidden');
                 document.getElementById('lockdown-overlay').classList.remove('hidden');
             } else if (data.type === 'SERVER_BURNED') {
                 isServerBurned = true;
@@ -5340,6 +5513,9 @@ async function initClient() {
     }
 
     setupClientPeer();
+
+    if (window._clientListenersInitialized) return;
+    window._clientListenersInitialized = true;
 
     const btnSwitchToHost = document.getElementById('btn-switch-to-host');
     if (btnSwitchToHost) {
@@ -5433,7 +5609,8 @@ async function processClientFiles(files) {
         const extraData = { targetFolderId: clientCurrentDir.id, path: file.webkitRelativePath || '', thumbnail: thumbnailData };
         await sendFileInChunks(hostConnection, "upload_" + Date.now() + "_" + i, file, file.name, file.type, "CLIENT_UPLOAD_CHUNK", extraData);
     }
-    
+    if (clientFileInput) clientFileInput.value = '';
+    if (clientFolderInput) clientFolderInput.value = '';
     // Upload complete
 }
 
@@ -5445,6 +5622,17 @@ if (btnCloseMedia) {
         }
         if (typeof setWatchPartyUIActive === 'function') {
             setWatchPartyUIActive(false);
+        }
+        if (typeof watchPartyFileId !== 'undefined') {
+            watchPartyFileId = null;
+        }
+        const activeMediaEl = mediaContainer ? mediaContainer.querySelector('video, audio, img') : null;
+        if (activeMediaEl && activeMediaEl.src && activeMediaEl.src.startsWith('blob:')) {
+            try { URL.revokeObjectURL(activeMediaEl.src); } catch (e) {}
+        }
+        if (btnDownloadMedia && btnDownloadMedia.href && btnDownloadMedia.href.startsWith('blob:')) {
+            try { URL.revokeObjectURL(btnDownloadMedia.href); } catch (e) {}
+            btnDownloadMedia.removeAttribute('href');
         }
         mediaModal.classList.add('hidden');
         mediaContainer.innerHTML = ''; // Stop playback
@@ -5462,10 +5650,10 @@ btnClosePreview.addEventListener('click', () => {
     btnRequestFile.classList.remove("hidden");
     document.getElementById("preview-loader-container").classList.add("hidden");
     document.getElementById("preview-icon").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 80px; height: 80px; color: var(--neon-blue);"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
-    if (btnDownloadDirect.href) {
+    if (btnDownloadDirect.href && btnDownloadDirect.href.startsWith('blob:')) {
         URL.revokeObjectURL(btnDownloadDirect.href);
-        btnDownloadDirect.href = '';
     }
+    btnDownloadDirect.removeAttribute('href');
 });
 
 btnRequestFile.addEventListener('click', async () => {
@@ -5489,19 +5677,20 @@ function renderClientExplorer() {
     
     renderBreadcrumbs(clientCurrentDir, clientBreadcrumbs, (node) => {
         clientCurrentDir = node;
+        lastSelectedClientIndex = -1;
         renderClientExplorer();
     });
     
     clientExplorerGrid.innerHTML = '';
-    if (clientCurrentDir.children.length === 0) {
-        clientExplorerGrid.innerHTML = '<p style="color: var(--text-muted); padding: 1rem;">Folder is empty</p>';
-        return;
-    }
-    
-    let itemsToRender = clientCurrentDir.children;
+    let itemsToRender = clientCurrentDir.children || [];
     if (clientSearchQuery) {
         itemsToRender = [];
         searchVFS(clientVFS, clientSearchQuery, itemsToRender);
+    }
+    
+    if (itemsToRender.length === 0) {
+        clientExplorerGrid.innerHTML = `<p style="color: var(--text-muted); padding: 1rem;">${clientSearchQuery ? 'No matching files found' : 'Folder is empty'}</p>`;
+        return;
     }
     
     if (sortSelectClient) {
@@ -5613,11 +5802,11 @@ function renderClientExplorer() {
                 return;
             }
 
-            if (e.shiftKey && lastSelectedClientIndex !== -1) {
-                const start = Math.min(lastSelectedClientIndex, curIdx);
-                const end = Math.max(lastSelectedClientIndex, curIdx);
+            if (e.shiftKey && lastSelectedClientIndex !== -1 && itemsToRender.length > 0) {
+                const start = Math.max(0, Math.min(lastSelectedClientIndex, curIdx));
+                const end = Math.min(itemsToRender.length - 1, Math.max(lastSelectedClientIndex, curIdx));
                 for (let i = start; i <= end; i++) {
-                    clientSelectedNodes.add(itemsToRender[i].id);
+                    if (itemsToRender[i]) clientSelectedNodes.add(itemsToRender[i].id);
                 }
                 const domItems = clientExplorerGrid.querySelectorAll('.file-item');
                 domItems.forEach((el, idx) => {
@@ -6004,19 +6193,22 @@ function appendChatMessage(sender, text, type, color = 'var(--neon-blue)') {
     
     if (type !== 'self' && chatSidebar.classList.contains('hidden') && type !== 'system') {
         chatBadge.classList.remove('hidden');
-        try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
-            osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.3);
-        } catch(e) {}
+        if (localStorage.getItem('localcast_sound_muted') !== 'true') {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+                setTimeout(() => { try { audioCtx.close(); } catch (e) {} }, 400);
+            } catch(e) {}
+        }
     }
 }
 
@@ -6038,8 +6230,8 @@ btnSendChat.addEventListener('click', () => {
 });
 chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') btnSendChat.click(); });
 
-hostSearch.addEventListener('input', (e) => { hostSearchQuery = e.target.value.toLowerCase(); renderHostExplorer(); });
-clientSearch.addEventListener('input', (e) => { clientSearchQuery = e.target.value.toLowerCase(); renderClientExplorer(); });
+hostSearch.addEventListener('input', (e) => { hostSearchQuery = e.target.value.toLowerCase(); lastSelectedHostIndex = -1; renderHostExplorer(); });
+clientSearch.addEventListener('input', (e) => { clientSearchQuery = e.target.value.toLowerCase(); lastSelectedClientIndex = -1; renderClientExplorer(); });
 
 if (btnNewNote) {
     btnNewNote.addEventListener('click', () => {
@@ -6058,12 +6250,14 @@ editorTextarea.addEventListener('input', () => {
     if (!currentEditorFileId) return; // Don't sync completely new unsaved files
     const text = editorTextarea.value;
     if (isHost) {
+        const node = vfs.findNode(currentEditorFileId);
         connections.forEach(conn => {
-            if (conn.open) conn.send({ type: 'TEXT_EDIT_SYNC', fileId: currentEditorFileId, text: text });
+            if (conn.open && conn.isAuthenticated && (!node || isNodeAuthorizedForConnection(node, conn))) {
+                conn.send({ type: 'TEXT_EDIT_SYNC', fileId: currentEditorFileId, text: text });
+            }
         });
         
         // Host live saves to its own VFS instantly
-        const node = vfs.findNode(currentEditorFileId);
         if (node && !node.isLocked) {
             (async () => {
                 let fileBlob = new Blob([text], { type: 'text/plain' });
@@ -6071,7 +6265,7 @@ editorTextarea.addEventListener('input', () => {
                     let vaultDir = node.parent;
                     while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
                     if (vaultDir && vaultDir.isVault) {
-                        const pass = unlockedVaults[vaultDir.id];
+                        const pass = unlockedVaults[vaultDir.id] || vaultDir.password;
                         if (pass) {
                             const buffer = await fileBlob.arrayBuffer();
                             const encData = await encryptFile(buffer, pass, node.salt);
@@ -6106,14 +6300,15 @@ btnSaveNote.addEventListener('click', async () => {
         const node = { id, type: 'file', name, size: file.size, mime: file.type, parent: vfs.currentDir, fileObj: file };
         
         // if editing existing, overwrite
-        const existing = vfs.currentDir.children.find(c => c.name === name);
-        if (existing) {
+        const existing = (currentEditorFileId ? vfs.findNode(currentEditorFileId) : null) || vfs.currentDir.children.find(c => c.name === name && c.type === 'file');
+        if (existing && existing.type === 'file') {
+            existing.name = name;
             let finalBlob = blob;
             if (existing.isEncrypted) {
                 let vaultDir = existing.parent;
                 while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
                 if (vaultDir && vaultDir.isVault) {
-                    const pass = unlockedVaults[vaultDir.id];
+                    const pass = unlockedVaults[vaultDir.id] || vaultDir.password;
                     if (pass) {
                         const buffer = await file.arrayBuffer();
                         const encData = await encryptFile(buffer, pass, existing.salt);
@@ -6126,22 +6321,20 @@ btnSaveNote.addEventListener('click', async () => {
             existing.fileObj = new File([finalBlob], existing.name, { type: file.type });
             existing.size = finalBlob.size;
         } else {
-            if (vfs.currentDir.isVault || (vfs.currentDir.parent && vfs.currentDir.parent.isVault)) {
-                let vaultDir = vfs.currentDir;
-                while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
-                if (vaultDir && vaultDir.isVault) {
-                    const pass = unlockedVaults[vaultDir.id];
-                    if (pass) {
-                        const buffer = await file.arrayBuffer();
-                        const encData = await encryptFile(buffer, pass);
-                        const encryptedBlob = new Blob([encData.encrypted], { type: file.type });
-                        
-                        node.fileObj = new File([encryptedBlob], name, { type: file.type });
-                        node.size = encryptedBlob.size;
-                        node.isEncrypted = true;
-                        node.salt = encData.salt;
-                        node.iv = encData.iv;
-                    }
+            let vaultDir = vfs.currentDir;
+            while (vaultDir && !vaultDir.isVault && vaultDir.parent) vaultDir = vaultDir.parent;
+            if (vaultDir && vaultDir.isVault) {
+                const pass = unlockedVaults[vaultDir.id] || vaultDir.password;
+                if (pass) {
+                    const buffer = await file.arrayBuffer();
+                    const encData = await encryptFile(buffer, pass);
+                    const encryptedBlob = new Blob([encData.encrypted], { type: file.type });
+                    
+                    node.fileObj = new File([encryptedBlob], name, { type: file.type });
+                    node.size = encryptedBlob.size;
+                    node.isEncrypted = true;
+                    node.salt = encData.salt;
+                    node.iv = encData.iv;
                 }
             }
             vfs.currentDir.children.push(node);
@@ -6507,23 +6700,25 @@ const ctxBurn = document.getElementById('ctx-burn');
 if (ctxBurn) {
     ctxBurn.addEventListener('click', async () => {
         if (!contextTargetId) return;
+        const targetId = contextTargetId;
+        contextTargetId = null;
+        contextMenu.classList.add('hidden');
         
         if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
-            const node = findClientNode(clientVFS, contextTargetId);
+            const node = findClientNode(clientVFS, targetId);
             if (node && node.type === 'file') {
                 const action = node.isBurn ? "Disable" : "Enable";
                 if (await cyberConfirm(`${action} Burn-After-Reading? The file will be permanently deleted from the Host after the first guest downloads it.`, "BURN PROTOCOL")) {
-                    hostConnection.send({ type: 'CLIENT_TOGGLE_BURN', id: contextTargetId });
+                    hostConnection.send({ type: 'CLIENT_TOGGLE_BURN', id: targetId });
                     showToast(`Burn Protocol ${node.isBurn ? "Disabled" : "Enabled"}`);
                 }
             } else {
                 await cyberAlert("You can only apply Burn Protocol to files.", "NOTICE");
             }
-            contextMenu.classList.add('hidden');
             return;
         }
 
-        const node = vfs.findNode(contextTargetId);
+        const node = vfs.findNode(targetId);
         if (node && node.type === 'file') {
             if (node.isBurn) {
                 delete node.isBurn;
@@ -6534,14 +6729,11 @@ if (ctxBurn) {
                     showToast("Burn Protocol Enabled");
                 }
             }
-            contextTargetId = null;
-            contextMenu.classList.add('hidden');
             saveVFSToDB();
             renderHostExplorer();
             broadcastTree();
         } else {
             await cyberAlert("You can only apply Burn Protocol to files.", "NOTICE");
-            contextMenu.classList.add('hidden');
         }
     });
 }
@@ -6727,17 +6919,21 @@ if (btnCancelBatchMove && batchMoveModal) btnCancelBatchMove.addEventListener('c
 if (btnBatchSelectAll) {
     btnBatchSelectAll.addEventListener('click', () => {
         if (isHost) {
-            if (vfs.currentDir && vfs.currentDir.children) {
-                vfs.currentDir.children.forEach(child => selectedNodes.add(child.id));
-                document.querySelectorAll('#host-file-grid .file-item').forEach(el => el.classList.add('selected'));
-                updateBatchBar();
-            }
+            document.querySelectorAll('#host-file-grid .file-item').forEach(el => {
+                if (el.dataset.id) {
+                    selectedNodes.add(el.dataset.id);
+                    el.classList.add('selected');
+                }
+            });
+            updateBatchBar();
         } else {
-            if (clientCurrentDir && clientCurrentDir.children) {
-                clientCurrentDir.children.forEach(child => clientSelectedNodes.add(child.id));
-                document.querySelectorAll('#client-file-grid .file-item').forEach(el => el.classList.add('selected'));
-                updateBatchBar();
-            }
+            document.querySelectorAll('#client-file-grid .file-item').forEach(el => {
+                if (el.dataset.id) {
+                    clientSelectedNodes.add(el.dataset.id);
+                    el.classList.add('selected');
+                }
+            });
+            updateBatchBar();
         }
     });
 }
@@ -6797,14 +6993,20 @@ if (btnBatchDownload) {
             try {
                 const zip = new JSZip();
                 for (const f of filesToZip) {
-                    zip.file(f.name, f.fileObj);
+                    const decryptedObj = await getDecryptedFileObj(f);
+                    if (decryptedObj) zip.file(f.name, decryptedObj);
                 }
                 const blob = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
+                a.href = url;
                 a.download = `localcast-selected-${Date.now()}.zip`;
+                document.body.appendChild(a);
                 a.click();
-                URL.revokeObjectURL(a.href);
+                setTimeout(() => {
+                    if (a.parentNode) document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 10000);
                 showToast("Download started!", "success");
             } catch(e) {
                 console.error("Batch zip error:", e);
@@ -7000,17 +7202,20 @@ document.addEventListener('drop', async (e) => {
 
 ctxRename.addEventListener('click', async () => {
     if (!contextTargetId) return;
+    const targetId = contextTargetId;
+    contextTargetId = null;
+    contextMenu.classList.add('hidden');
     
     if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
-        const newName = await cyberPrompt("Enter new name:", "", "RENAME ITEM");
+        const node = findClientNode(clientVFS, targetId);
+        const newName = await cyberPrompt("Enter new name:", node ? node.name : "", "RENAME ITEM");
         if (newName && newName.trim()) {
-            hostConnection.send({ type: 'CLIENT_RENAME_NODE', id: contextTargetId, newName: newName.trim() });
-            contextMenu.classList.add('hidden');
+            hostConnection.send({ type: 'CLIENT_RENAME_NODE', id: targetId, newName: newName.trim() });
         }
         return;
     }
     
-    const node = vfs.findNode(contextTargetId);
+    const node = vfs.findNode(targetId);
     if (node) {
         const newName = await cyberPrompt("Enter new name:", node.name, "RENAME ITEM");
         if (newName && newName.trim()) {
@@ -7021,14 +7226,21 @@ ctxRename.addEventListener('click', async () => {
             showToast("Item renamed");
         }
     }
-    contextMenu.classList.add('hidden');
 });
 
 function searchVFS(dir, query, results) {
     if (!dir || !Array.isArray(dir.children)) return;
     dir.children.forEach(c => {
-        if (c && c.name && c.name.toLowerCase().includes(query)) results.push(c);
-        if (c && c.type === 'folder') searchVFS(c, query, results);
+        if (!c) return;
+        if (c.isHidden && !showDeadDrops) return;
+        if (c.name && c.name.toLowerCase().includes(query)) results.push(c);
+        if (c.type === 'folder') {
+            const isFolderSecured = !!(c.isLocked || c.isVault || c.isNuclear || c.password || c.hasPassword || c.isSecured || c.isNativeRoot);
+            const isFolderUnlocked = isHost ? !!unlockedVaults[c.id] : !!(c.isUnlocked || (typeof clientUnlockedVaults !== 'undefined' && clientUnlockedVaults[c.id]));
+            if (!isFolderSecured || isFolderUnlocked) {
+                searchVFS(c, query, results);
+            }
+        }
     });
 }
 // --- END V14 LOGIC ---
@@ -7260,10 +7472,17 @@ function updateSuggestedIdentityUI(identity) {
     }
 }
 
-function showGuestOnboardingModal() {
+function showGuestOnboardingModal(isEditing = false) {
     if (!profileModal) return;
     if (!currentSuggestedIdentity) {
         updateSuggestedIdentityUI(generateSuggestedIdentity());
+    }
+    if (isEditing && guestAlias && profileNameInput) {
+        profileNameInput.value = guestAlias;
+    }
+    const btnCloseProfile = document.getElementById('btn-close-profile');
+    if (btnCloseProfile) {
+        btnCloseProfile.classList.toggle('hidden', !isEditing && !(hostConnection && hostConnection.open));
     }
     profileModal.classList.remove('hidden');
 }
@@ -7389,9 +7608,16 @@ if (profileModal) {
         }
     });
     
+    const btnCloseProfile = document.getElementById('btn-close-profile');
+    if (btnCloseProfile) {
+        btnCloseProfile.addEventListener('click', () => {
+            profileModal.classList.add('hidden');
+        });
+    }
+
     if (btnEditProfile) {
         btnEditProfile.addEventListener('click', () => {
-            profileNameInput.value = guestAlias;
+            if (profileNameInput) profileNameInput.value = guestAlias;
             if (profileCustomFields) profileCustomFields.classList.remove('hidden');
             document.querySelectorAll('.color-swatch').forEach(s => {
                 if (s.dataset.color === guestColor) {
@@ -7402,7 +7628,7 @@ if (profileModal) {
                     s.style.borderColor = 'transparent';
                 }
             });
-            showGuestOnboardingModal();
+            showGuestOnboardingModal(true);
         });
     }
 }
@@ -7869,10 +8095,23 @@ function deletePadTab(fileId, broadcast = true) {
     if (nativePadState.files.length <= 1) return;
     const idx = nativePadState.files.findIndex(f => f.id === fileId);
     if (idx === -1) return;
+    const wasActive = (nativePadState.activeFileId === fileId);
     nativePadState.files.splice(idx, 1);
-    if (nativePadState.activeFileId === fileId) {
+    if (wasActive) {
         const nextFile = nativePadState.files[Math.max(0, idx - 1)];
-        switchPadTab(nextFile.id);
+        nativePadState.activeFileId = nextFile.id;
+        if (padEditor) {
+            padEditor.value = nextFile.content || '';
+            padEditor.readOnly = (!isHost && nativePadState.isLocked);
+        }
+        updatePadLineNumbers();
+        updatePadStats();
+        if (padPreviewMode) renderPadPreview();
+        renderPadTabs();
+        updateAllPeerCursors();
+        saveNativePadState();
+        broadcastPadPresence();
+        broadcastPadCursor();
     } else {
         renderPadTabs();
         saveNativePadState();
@@ -8264,7 +8503,7 @@ function renderMarkdownToHtml(md) {
 
     // Re-insert placeholders
     placeholders.forEach((ph, i) => {
-        html = html.replace(`@@PAD_BLOCK_${i}@@`, ph);
+        html = html.replace(`@@PAD_BLOCK_${i}@@`, () => ph);
     });
 
     return `<div class="pad-rendered-markdown"><p class="pad-md-p">${html}</p></div>`;
@@ -9293,8 +9532,14 @@ function renderLaserOverlay() {
 
         // Outer glow halo
         const grad = wbOverlayCtx.createRadialGradient(b.x, b.y, 1, b.x, b.y, 16);
-        grad.addColorStop(0, b.color);
-        grad.addColorStop(0.5, b.color);
+        const safeColor = (typeof b.color === 'string' && !b.color.startsWith('var(')) ? b.color : '#00f0ff';
+        try {
+            grad.addColorStop(0, safeColor);
+            grad.addColorStop(0.5, safeColor);
+        } catch (e) {
+            grad.addColorStop(0, '#00f0ff');
+            grad.addColorStop(0.5, '#00f0ff');
+        }
         grad.addColorStop(1, 'transparent');
         wbOverlayCtx.fillStyle = grad;
         wbOverlayCtx.beginPath();
@@ -9811,6 +10056,10 @@ if (wbCanvas) {
 
     window.stampImageOnWhiteboard = function(dataUrl, targetX, targetY, normW = null, normH = null, emit = true) {
         if (!wbCtx || !wbCanvas) return;
+        if (emit && !isHost && (!myPermissions || !myPermissions.whiteboard)) {
+            showToast("Whiteboard permission required.", "warning");
+            return;
+        }
         initWbCanvasResolution();
         const img = new Image();
         img.onload = () => {
@@ -10006,6 +10255,7 @@ const btnScreenshareClient = document.getElementById('btn-screenshare-client');
 let localScreenStream = null;
 let activeScreenCalls = {};
 let isScreenSharing = false;
+let currentScreenSharerId = null;
 
 function optimizeScreenShareCall(call) {
     if (!call) return;
@@ -10153,6 +10403,7 @@ function stopScreenSharing() {
 
 function openScreenShareViewer(stream, sharerName, sharerId, isSelf = false) {
     if (!screenshareModal || !screenshareVideo) return;
+    currentScreenSharerId = sharerId || null;
     screenshareModal.classList.remove('hidden');
 
     // Force muted & playsinline: Essential for 100% reliable autoplay across browsers
@@ -10208,6 +10459,7 @@ function openScreenShareViewer(stream, sharerName, sharerId, isSelf = false) {
 }
 
 function closeScreenShareViewer() {
+    currentScreenSharerId = null;
     if (screenshareModal) screenshareModal.classList.add('hidden');
     if (screenshareVideo) {
         screenshareVideo.pause();
@@ -10247,15 +10499,15 @@ if (screenshareVideoWrapper) {
 }
 
 if (btnScreenshareHeader) btnScreenshareHeader.addEventListener('click', () => {
-    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", peer.id, true);
+    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", (peer && peer.id) ? peer.id : 'self', true);
     else startScreenSharing();
 });
 if (btnScreenshareHost) btnScreenshareHost.addEventListener('click', () => {
-    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", peer.id, true);
+    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", (peer && peer.id) ? peer.id : 'self', true);
     else startScreenSharing();
 });
 if (btnScreenshareClient) btnScreenshareClient.addEventListener('click', () => {
-    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", peer.id, true);
+    if (isScreenSharing) openScreenShareViewer(localScreenStream, "You (Presenting)", (peer && peer.id) ? peer.id : 'self', true);
     else startScreenSharing();
 });
 if (btnScreenshareStop) btnScreenshareStop.addEventListener('click', stopScreenSharing);
@@ -10321,7 +10573,7 @@ if (btnIntercom) {
                     intercomUsers.add(peer.id);
                     intercomUsers.forEach(id => {
                         if (id !== peer.id && inIntercom) {
-                            const call = peer.call(id, localAudioStream);
+                            const call = peer.call(id, localAudioStream, { metadata: { type: 'INTERCOM' } });
                             call.on('stream', (remoteStream) => playAudioStream(remoteStream, id));
                             call.on('close', () => cleanupAudio(id));
                             activeCalls[id] = call;
@@ -10480,8 +10732,12 @@ async function updatePrivacyInspector() {
         if (pc && typeof pc.getStats === 'function') {
             try {
                 const stats = await pc.getStats();
+                let pairFoundForConn = false;
+                let dcBytesSent = 0;
+                let dcBytesRecv = 0;
                 stats.forEach(report => {
                     if (report.type === 'candidate-pair' && (report.state === 'succeeded' || report.nominated || report.selected)) {
+                        pairFoundForConn = true;
                         if (typeof report.bytesSent === 'number') totalBytesSent += report.bytesSent;
                         if (typeof report.bytesReceived === 'number') totalBytesRecv += report.bytesReceived;
                         if (typeof report.currentRoundTripTime === 'number') {
@@ -10503,10 +10759,14 @@ async function updatePrivacyInspector() {
                         if (localCand) rawDebugLines.push(`  Local: ${localCand.candidateType || 'direct'} (${localCand.protocol || 'udp'} / ${localCand.address || 'LAN'}:${localCand.port || ''})`);
                         if (remoteCand) rawDebugLines.push(`  Remote: ${remoteCand.candidateType || 'direct'} (${remoteCand.protocol || 'udp'} / ${remoteCand.address || 'LAN'}:${remoteCand.port || ''})`);
                     } else if (report.type === 'data-channel') {
-                        if (typeof report.bytesSent === 'number' && totalBytesSent === 0) totalBytesSent += report.bytesSent;
-                        if (typeof report.bytesReceived === 'number' && totalBytesRecv === 0) totalBytesRecv += report.bytesReceived;
+                        if (typeof report.bytesSent === 'number') dcBytesSent += report.bytesSent;
+                        if (typeof report.bytesReceived === 'number') dcBytesRecv += report.bytesReceived;
                     }
                 });
+                if (!pairFoundForConn) {
+                    totalBytesSent += dcBytesSent;
+                    totalBytesRecv += dcBytesRecv;
+                }
             } catch (err) {
                 rawDebugLines.push(`Error reading getStats: ${err.message}`);
             }
@@ -10628,33 +10888,36 @@ if (btnCopySafetyHash) {
 // --- THEMING ENGINE ---
 const themes = {
     synthwave: {
-        '--bg-dark': '#050507',
-        '--bg-card': '#0a0b10',
-        '--bg-card-hover': '#101218',
-        '--text-main': '#e2e8f0',
-        '--text-muted': '#64748b',
+        '--bg-dark': '#07090e',
+        '--bg-card': 'rgba(15, 23, 42, 0.72)',
+        '--bg-card-hover': 'rgba(30, 41, 59, 0.85)',
+        '--border-card': 'rgba(57, 255, 20, 0.16)',
+        '--text-main': '#f8fafc',
+        '--text-muted': '#94a3b8',
         '--neon-blue': '#00f0ff',
         '--neon-green': '#39ff14',
-        '--neon-red': '#ff003c',
+        '--neon-red': '#ff0055',
         '--border-glow': 'rgba(0, 240, 255, 0.2)'
     },
     matrix: {
         '--bg-dark': '#000000',
-        '--bg-card': '#001100',
-        '--bg-card-hover': '#002200',
+        '--bg-card': 'rgba(0, 17, 0, 0.78)',
+        '--bg-card-hover': 'rgba(0, 34, 0, 0.88)',
+        '--border-card': 'rgba(57, 255, 20, 0.25)',
         '--text-main': '#39ff14',
         '--text-muted': '#1b8a06',
         '--neon-blue': '#39ff14',
         '--neon-green': '#39ff14',
-        '--neon-red': '#39ff14',
+        '--neon-red': '#ff0055',
         '--border-glow': 'rgba(57, 255, 20, 0.2)'
     },
     nightcity: {
         '--bg-dark': '#0f0f1a',
-        '--bg-card': '#1a0b1c',
-        '--bg-card-hover': '#2a112c',
+        '--bg-card': 'rgba(26, 11, 28, 0.78)',
+        '--bg-card-hover': 'rgba(42, 17, 44, 0.88)',
+        '--border-card': 'rgba(252, 226, 5, 0.22)',
         '--text-main': '#e2e8f0',
-        '--text-muted': '#64748b',
+        '--text-muted': '#94a3b8',
         '--neon-blue': '#fce205', // Yellow
         '--neon-green': '#00f0ff',
         '--neon-red': '#ff00ff', // Pink
@@ -10662,8 +10925,9 @@ const themes = {
     },
     bloodmoon: {
         '--bg-dark': '#050000',
-        '--bg-card': '#1a0000',
-        '--bg-card-hover': '#330000',
+        '--bg-card': 'rgba(26, 0, 0, 0.78)',
+        '--bg-card-hover': 'rgba(51, 0, 0, 0.88)',
+        '--border-card': 'rgba(255, 0, 60, 0.25)',
         '--text-main': '#ffcccc',
         '--text-muted': '#cc6666',
         '--neon-blue': '#ff003c',
@@ -10721,7 +10985,7 @@ function applyBackground(bgName) {
             document.body.style.backgroundSize = '20px 20px';
         } else if (bgName === 'default') {
             document.body.style.backgroundImage = bg;
-            document.body.style.backgroundSize = '100% 100%, 50px 50px, 50px 50px';
+            document.body.style.backgroundSize = '50px 50px, 50px 50px';
         } else {
             document.body.style.backgroundImage = bg;
             document.body.style.backgroundSize = 'auto';
@@ -10873,18 +11137,18 @@ if (btnCallMute) {
 
 
 setInterval(() => {
-    const title = document.querySelector('.glitch-title');
-    if (title) {
+    document.querySelectorAll('.glitch-title').forEach(title => {
         title.style.animationPlayState = 'running';
         setTimeout(() => {
             title.style.animationPlayState = 'paused';
         }, 300); // Glitch for just 300ms
-    }
+    });
 }, 3500); // Every 3.5 seconds
 
 if (btnRadar) {
     btnRadar.addEventListener('click', () => {
         radarModal.classList.remove('hidden');
+        drawRadar();
     });
 }
 
@@ -11080,10 +11344,9 @@ if (btnCloseRadarModal) {
 });
 
 function drawRadar() {
+    if (radarModal && radarModal.classList.contains('hidden')) return;
     requestAnimationFrame(drawRadar);
     try {
-        if (radarModal && radarModal.classList.contains('hidden')) return;
-        
         const canvas = radarCanvas;
         if (!canvas || !canvas.parentElement) return;
         const pw = canvas.parentElement.clientWidth;
@@ -11097,7 +11360,7 @@ function drawRadar() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
-        const radius = Math.min(cx, cy) - 20;
+        const radius = Math.max(40, Math.min(cx, cy) - 20);
 
         ctx.strokeStyle = 'rgba(57,255,20,0.2)';
         ctx.lineWidth = 1;
@@ -11119,12 +11382,22 @@ function drawRadar() {
             return Math.abs(hash);
         }
         
+        const combinedPeers = Object.assign({}, activePeers);
+        if (!isHost && hostConnection && hostConnection.peer && !combinedPeers[hostConnection.peer]) {
+            const hInfo = window.hostPeerInfo || {};
+            combinedPeers[hostConnection.peer] = {
+                alias: hInfo.name || 'Host',
+                color: hInfo.color || '#39ff14',
+                avatar: hInfo.avatar || null
+            };
+        }
+
         radarBlips = [];
-        for (const [id, data] of Object.entries(activePeers)) {
+        for (const [id, data] of Object.entries(combinedPeers)) {
             if (id === (peer ? peer.id : null)) continue;
             const h = hashStr(id);
             const angle = (h % 360) * (Math.PI / 180);
-            const dist = 30 + (h % (radius - 50));
+            const dist = 30 + (h % Math.max(1, radius - 50));
             const x = cx + Math.cos(angle) * dist;
             const y = cy + Math.sin(angle) * dist;
             
@@ -11358,7 +11631,10 @@ if (btnCloseWhisper) {
     btnCloseWhisper.addEventListener('click', () => {
         whisperModal.classList.add('hidden');
         whisperTarget = null;
-        endCommLink();
+        const callBanner = document.getElementById('active-call-banner');
+        if (!callBanner || callBanner.classList.contains('hidden')) {
+            endCommLink();
+        }
     });
 }
 
@@ -11500,8 +11776,9 @@ if (cliTerminal) {
                         printCli('ALIAS: ' + (typeof profile !== 'undefined' && profile.name ? profile.name : (typeof guestAlias !== 'undefined' ? guestAlias : 'HOST')), 'var(--neon-purple)');
                         printCli('ID: ' + (peer ? peer.id : 'N/A'), 'var(--neon-purple)');
                     } else if (cmd === 'ls') {
-                        const currentDir = vfs.findNode(cliCurrentDirId);
-                        const children = currentDir ? currentDir.children : [];
+                        const findVfsNode = (id) => isHost ? vfs.findNode(id) : (id === 'root' ? clientVFS : findClientNode(clientVFS, id));
+                        const currentDir = findVfsNode(cliCurrentDirId);
+                        const children = (currentDir && currentDir.children) ? currentDir.children : [];
                         if (children.length === 0) {
                             printCli('  (empty directory)', 'var(--text-muted)');
                         } else {
@@ -11534,18 +11811,19 @@ if (cliTerminal) {
                             }
                         }
                     } else if (cmd === 'cd') {
+                        const findVfsNode = (id) => isHost ? vfs.findNode(id) : (id === 'root' ? clientVFS : findClientNode(clientVFS, id));
                         const targetId = args[1];
                         if (!targetId || targetId === '..') {
                             if (cliCurrentDirId === 'root') {
                                 printCli('Already at root.', 'var(--neon-red)');
                             } else {
-                                const current = vfs.findNode(cliCurrentDirId);
+                                const current = findVfsNode(cliCurrentDirId);
                                 cliCurrentDirId = (current && current.parent) ? current.parent.id : 'root';
                                 printCli('Directory changed.');
                             }
                         } else {
-                            const currentDir = vfs.findNode(cliCurrentDirId);
-                            const target = currentDir ? currentDir.children.find(n => n.id === targetId || n.name === targetId) : null;
+                            const currentDir = findVfsNode(cliCurrentDirId);
+                            const target = (currentDir && currentDir.children) ? currentDir.children.find(n => n.id === targetId || n.name === targetId) : null;
                             if (target && target.type === 'folder') {
                                 cliCurrentDirId = target.id;
                                 printCli('Changed directory to ' + target.name);
@@ -11844,7 +12122,11 @@ function openArcade(gameType, opponentId, mark, opponentAlias = 'Opponent') {
     myArcadeMark = mark;
     isArcadeActive = true;
     
-    // Hide all boards first
+    // Hide all boards first (including NES emulator if open)
+    if (typeof window.stopSwarmEmulator === 'function') window.stopSwarmEmulator();
+    const emuContainer = document.getElementById('emulator-container');
+    if (emuContainer) emuContainer.classList.add('hidden');
+    if (btnArcadeReset) btnArcadeReset.classList.remove('hidden');
     ticTacToeBoard.classList.add('hidden');
     pongCanvas.classList.add('hidden');
     chessBoardEl.classList.add('hidden');
@@ -11883,8 +12165,27 @@ function startPong() {
         score1: 0, score2: 0,
         active: true, loopId: null
     };
-    arcadeStatus.innerText = 'USE UP/DOWN ARROWS OR TOUCH';
+    arcadeStatus.innerText = 'USE UP/DOWN ARROWS, MOUSE OR TOUCH';
     
+    if (!window._pongKeyHandlerAttached) {
+        window._pongKeyHandlerAttached = true;
+        window.addEventListener('keydown', (e) => {
+            if (!pongState || !pongState.active || currentGameType !== 'pong') return;
+            if (!arcadeModal || arcadeModal.classList.contains('hidden')) return;
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                e.preventDefault();
+                if (myPongPaddle === 'host') pongState.hostPaddleY = Math.max(0, pongState.hostPaddleY - 22);
+                else pongState.guestPaddleY = Math.max(0, pongState.guestPaddleY - 22);
+                sendPongMove();
+            } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+                e.preventDefault();
+                if (myPongPaddle === 'host') pongState.hostPaddleY = Math.min(300, pongState.hostPaddleY + 22);
+                else pongState.guestPaddleY = Math.min(300, pongState.guestPaddleY + 22);
+                sendPongMove();
+            }
+        });
+    }
+
     pongCanvas.onmousemove = (e) => {
         if(!pongState.active) return;
         const rect = pongCanvas.getBoundingClientRect();
@@ -11941,7 +12242,13 @@ function pongPhysicsLoop() {
     pongState.ballY += pongState.ballVY;
     
     // Top/Bottom bounce
-    if (pongState.ballY <= 0 || pongState.ballY >= 390) pongState.ballVY *= -1;
+    if (pongState.ballY <= 0) {
+        pongState.ballY = 0;
+        pongState.ballVY = Math.abs(pongState.ballVY);
+    } else if (pongState.ballY >= 390) {
+        pongState.ballY = 390;
+        pongState.ballVY = -Math.abs(pongState.ballVY);
+    }
     
     // Paddle bounce (Host is Left, Guest is Right)
     // Left paddle
@@ -12084,6 +12391,11 @@ function handleChessClick(square) {
     if (chessGame.turn() !== myChessColor) return; // Not my turn
     
     if (selectedChessSquare) {
+        if (selectedChessSquare === square) {
+            selectedChessSquare = null;
+            renderChess();
+            return;
+        }
         // Try to move
         const move = chessGame.move({
             from: selectedChessSquare,
@@ -12097,13 +12409,17 @@ function handleChessClick(square) {
             renderChess();
             sendArcadeData({ type: 'ARCADE_MOVE', gameType: 'chess', fen: chessGame.fen() });
         } else {
-            // Invalid move or clicking another piece to select
-            selectedChessSquare = square;
+            // Only select another square if it contains one of our own pieces
+            const piece = chessGame.get(square);
+            selectedChessSquare = (piece && piece.color === myChessColor) ? square : null;
             renderChess();
         }
     } else {
-        selectedChessSquare = square;
-        renderChess();
+        const piece = chessGame.get(square);
+        if (piece && piece.color === myChessColor) {
+            selectedChessSquare = square;
+            renderChess();
+        }
     }
 }
 
@@ -12137,7 +12453,15 @@ async function handleArcadeNetwork(data) {
         showToast((data.fromAlias || 'Opponent') + " accepted!");
         openArcade(data.gameType, data.fromId, 'X', data.fromAlias || 'Opponent');
     } else if (data.type === 'ARCADE_DECLINE') {
-        await cyberAlert("Arcade match request was declined.", "ARCADE STATUS");
+        if (data.reason === 'closed') {
+            showToast((arcadeOpponentAlias || 'Opponent') + " left the Arcade match.", "info");
+            if (arcadeModal) arcadeModal.classList.add('hidden');
+            isArcadeActive = false;
+            pongState.active = false;
+            if (pongState.loopId) cancelAnimationFrame(pongState.loopId);
+        } else {
+            await cyberAlert("Arcade match request was declined.", "ARCADE STATUS");
+        }
     } else if (data.type === 'ARCADE_MOVE') {
         if (data.gameType === 'tictactoe') {
             arcadeBoard = data.board;
@@ -12158,6 +12482,7 @@ async function handleArcadeNetwork(data) {
             }
         } else if (data.gameType === 'chess') {
             if (chessGame) {
+                selectedChessSquare = null;
                 chessGame.load(data.fen);
                 renderChess();
             }
@@ -12172,6 +12497,7 @@ async function handleArcadeNetwork(data) {
             pongState.score1 = 0;
             pongState.score2 = 0;
         } else if (currentGameType === 'chess') {
+            selectedChessSquare = null;
             if (chessGame) chessGame.reset();
             renderChess();
         }
@@ -12180,11 +12506,14 @@ async function handleArcadeNetwork(data) {
 
 if (btnCloseArcade) {
     btnCloseArcade.addEventListener('click', () => {
+        if (typeof window.stopSwarmEmulator === 'function') window.stopSwarmEmulator();
+        if (isArcadeActive && arcadeOpponentId) {
+            sendArcadeData({ type: 'ARCADE_DECLINE', fromId: peer ? peer.id : null, reason: 'closed' });
+        }
         arcadeModal.classList.add('hidden');
         isArcadeActive = false;
         pongState.active = false;
         if (pongState.loopId) cancelAnimationFrame(pongState.loopId);
-        // Optionally send a surrender message
     });
 }
 
@@ -12214,6 +12543,7 @@ if (btnArcadeReset) {
             pongState.score1 = 0;
             pongState.score2 = 0;
         } else if (currentGameType === 'chess') {
+            selectedChessSquare = null;
             if (chessGame) chessGame.reset();
             renderChess();
         }
@@ -12474,8 +12804,9 @@ async function clearCachedTransfer(fileId, totalChunks = 0) {
     if (typeof localforage === 'undefined') return;
     try {
         const metaKey = `transfer_meta_${fileId}`;
+        const cachedMeta = activeTransferMetaCache.get(metaKey);
         activeTransferMetaCache.delete(metaKey);
-        const meta = await localforage.getItem(metaKey);
+        const meta = cachedMeta || await localforage.getItem(metaKey);
         const count = meta ? meta.totalChunks : totalChunks;
         for (let i = 0; i < count; i++) {
             await localforage.removeItem(`chunk_${fileId}_${i}`);
@@ -13149,7 +13480,20 @@ function startSwarmDownload(fileId) {
                 showToast(`⚡ Multi-Peer Swarm stitched ${downloader.meshChunksCount}/${totalChunks} chunks from mesh peers!`, 'success');
             }
             if (node.isEncrypted) {
-                const pass = (clientCurrentDir && clientUnlockedVaults[clientCurrentDir.id]) || clientUnlockedVaults[fileId];
+                let pass = typeof clientUnlockedVaults[fileId] === 'string' ? clientUnlockedVaults[fileId] : null;
+                if (!pass) {
+                    let cur = node.parent || clientCurrentDir;
+                    while (cur) {
+                        if (typeof clientUnlockedVaults[cur.id] === 'string' && clientUnlockedVaults[cur.id].length > 0) {
+                            pass = clientUnlockedVaults[cur.id];
+                            break;
+                        }
+                        cur = cur.parent;
+                    }
+                }
+                if (!pass) {
+                    pass = await cyberPrompt(`Enter password to decrypt "${node.name}":`, "", "VAULT DECRYPTION");
+                }
                 if (pass) {
                     try {
                         const buffer = await blob.arrayBuffer();
@@ -13158,10 +13502,7 @@ function startSwarmDownload(fileId) {
                         triggerDownload(decryptedBlob, node.name, node.mime, fileId);
                     } catch (e) {
                         cyberAlert("Decryption failed: " + e.message, "DECRYPTION ERROR", true);
-                        triggerDownload(blob, node.name, node.mime, fileId);
                     }
-                } else {
-                    triggerDownload(blob, node.name, node.mime, fileId);
                 }
             } else {
                 triggerDownload(blob, node.name, node.mime, fileId);
@@ -13218,6 +13559,7 @@ async function startMediaStream(fileId, name, mime, size) {
     const totalChunks = Math.max(1, Math.ceil(size / CHUNK_SIZE));
     let mediaElement = null;
     let playbackStarted = false;
+    let lastPartialUrl = null;
     const streamChunks = new Array(totalChunks);
     let receivedCount = 0;
 
@@ -13273,6 +13615,7 @@ async function startMediaStream(fileId, name, mime, size) {
                     }
                     const partialBlob = new Blob(consecutive, { type: mime });
                     const partialUrl = URL.createObjectURL(partialBlob);
+                    lastPartialUrl = partialUrl;
                     if (mediaElement) {
                         mediaElement.src = partialUrl;
                         if (typeof applyPendingWatchPartyState === 'function') {
@@ -13307,13 +13650,20 @@ async function startMediaStream(fileId, name, mime, size) {
                     const curTime = mediaElement.currentTime;
                     const wasPaused = mediaElement.paused;
                     const curRate = mediaElement.playbackRate || 1;
+                    _wpSuppressEvents = true;
+                    if (_wpSuppressTimer) clearTimeout(_wpSuppressTimer);
                     mediaElement.src = fullUrl;
+                    if (lastPartialUrl) {
+                        URL.revokeObjectURL(lastPartialUrl);
+                        lastPartialUrl = null;
+                    }
                     mediaElement.onloadedmetadata = () => {
                         try {
                             mediaElement.currentTime = curTime;
                             mediaElement.playbackRate = curRate;
                         } catch(e) {}
                         if (!wasPaused) mediaElement.play().catch(e => console.log("Stream play error:", e));
+                        _wpSuppressTimer = setTimeout(() => { _wpSuppressEvents = false; }, 350);
                     };
                 }
             }
@@ -13412,6 +13762,8 @@ function handleRemotePadCodeOutput(data) {
 function runJavaScriptInWorker(code, timeoutMs = 5000) {
     return new Promise((resolve) => {
         if (activeJsWorker) {
+            if (activeJsWorker._watchdog) clearTimeout(activeJsWorker._watchdog);
+            if (activeJsWorker._workerUrl) URL.revokeObjectURL(activeJsWorker._workerUrl);
             try { activeJsWorker.terminate(); } catch (e) {}
             activeJsWorker = null;
         }
@@ -13452,15 +13804,17 @@ function runJavaScriptInWorker(code, timeoutMs = 5000) {
         const blob = new Blob([workerSrc], { type: 'application/javascript' });
         const workerUrl = URL.createObjectURL(blob);
         const worker = new Worker(workerUrl);
+        worker._workerUrl = workerUrl;
         activeJsWorker = worker;
 
         const watchdog = setTimeout(() => {
             try { worker.terminate(); } catch (e) {}
             URL.revokeObjectURL(workerUrl);
-            activeJsWorker = null;
+            if (activeJsWorker === worker) activeJsWorker = null;
             logs.push({ level: 'error', text: `⏱️ Execution terminated: Exceeded ${timeoutMs / 1000}s sandbox timeout (infinite loop protection).` });
             resolve({ logs, execMs: Math.round(performance.now() - startTime) });
         }, timeoutMs);
+        worker._watchdog = watchdog;
 
         worker.onmessage = (e) => {
             const msg = e.data;
@@ -13555,8 +13909,18 @@ async function runActivePadCode() {
         if (padConsoleRuntimeBadge) padConsoleRuntimeBadge.textContent = 'HTML SANDBOX';
         appendPadConsoleLine(`Rendering live HTML preview for ${fileName}...`, 'system');
         if (padPreviewPane) {
+            padPreviewMode = true;
             padPreviewPane.classList.remove('hidden');
-            padPreviewPane.innerHTML = `<iframe sandbox="allow-scripts" style="width:100%; height:100%; border:none; background:#fff; border-radius:4px;" srcdoc="${code.replace(/"/g, '&quot;')}"></iframe>`;
+            if (btnPadPreview) {
+                btnPadPreview.style.background = 'rgba(0, 240, 255, 0.25)';
+                btnPadPreview.style.boxShadow = '0 0 10px rgba(0, 240, 255, 0.35)';
+            }
+            padPreviewPane.innerHTML = '';
+            const iframe = document.createElement('iframe');
+            iframe.setAttribute('sandbox', 'allow-scripts');
+            iframe.style.cssText = 'width:100%; height:100%; border:none; background:#fff; border-radius:4px;';
+            iframe.srcdoc = code;
+            padPreviewPane.appendChild(iframe);
         }
         return;
     }
@@ -13811,7 +14175,14 @@ function spawnWatchPartyReaction(emoji, senderName) {
     el.className = 'wp-floating-emoji';
     const leftPct = 12 + Math.floor(Math.random() * 76);
     el.style.left = `${leftPct}%`;
-    el.innerHTML = `<span class="wp-emoji-glyph">${emoji}</span><span class="wp-emoji-sender">${senderName || 'Peer'}</span>`;
+    const glyphSpan = document.createElement('span');
+    glyphSpan.className = 'wp-emoji-glyph';
+    glyphSpan.textContent = String(emoji || '🍿').slice(0, 8);
+    const senderSpan = document.createElement('span');
+    senderSpan.className = 'wp-emoji-sender';
+    senderSpan.textContent = String(senderName || 'Peer').slice(0, 32);
+    el.appendChild(glyphSpan);
+    el.appendChild(senderSpan);
     watchPartyReactionsLayer.appendChild(el);
     setTimeout(() => {
         if (el.parentNode) el.parentNode.removeChild(el);
@@ -14061,6 +14432,7 @@ function loadCyberboardState() {
 loadCyberboardState();
 
 function saveCyberboardState() {
+    if (typeof isHost !== 'undefined' && !isHost) return;
     try {
         localStorage.setItem(CYBERBOARD_STORAGE_KEY, JSON.stringify(cyberboardState));
     } catch (e) {}
@@ -14401,6 +14773,7 @@ if (btnCyberboardClient) btnCyberboardClient.addEventListener('click', openCyber
 if (btnCloseCyberboard) {
     btnCloseCyberboard.addEventListener('click', () => {
         if (cyberboardModal) cyberboardModal.classList.add('hidden');
+        if (cbPermissionsPopover) cbPermissionsPopover.classList.add('hidden');
     });
 }
 if (btnCbNewCard) {
@@ -14484,20 +14857,53 @@ if (btnCbImport && cbImportInput) {
                     showToast(`Imported ${parsed.length} tasks from JSON!`, 'success');
                 }
             } else {
+                const parseCsvRow = (line) => {
+                    const out = [];
+                    let cur = '';
+                    let inQuotes = false;
+                    for (let i = 0; i < line.length; i++) {
+                        const ch = line[i];
+                        if (inQuotes) {
+                            if (ch === '"' && line[i + 1] === '"') {
+                                cur += '"';
+                                i++;
+                            } else if (ch === '"') {
+                                inQuotes = false;
+                            } else {
+                                cur += ch;
+                            }
+                        } else {
+                            if (ch === '"') {
+                                inQuotes = true;
+                            } else if (ch === ',') {
+                                out.push(cur);
+                                cur = '';
+                            } else {
+                                cur += ch;
+                            }
+                        }
+                    }
+                    out.push(cur);
+                    return out;
+                };
+                const validCols = ['todo', 'inprogress', 'review', 'done'];
+                const validPrios = ['HIGH', 'MED', 'LOW'];
                 const lines = text.split(/\r?\n/).filter(l => l.trim());
                 if (lines.length > 1) {
                     const imported = [];
                     for (let i = 1; i < lines.length; i++) {
-                        const cols = lines[i].split(',');
+                        const cols = parseCsvRow(lines[i]);
                         if (cols.length >= 2) {
+                            const rawCol = (cols[3] || 'todo').trim().toLowerCase();
+                            const rawPrio = (cols[4] || 'MED').trim().toUpperCase();
                             imported.push({
                                 id: cols[0] || ('cb_' + Date.now() + '_' + i),
-                                title: (cols[1] || '').replace(/^"|"$/g, ''),
-                                desc: (cols[2] || '').replace(/^"|"$/g, ''),
-                                column: cols[3] || 'todo',
-                                priority: cols[4] || 'MED',
-                                assignee: (cols[5] || '').replace(/^"|"$/g, ''),
-                                tags: (cols[6] || '').replace(/^"|"$/g, '').split(';').filter(Boolean),
+                                title: cols[1] || 'Untitled',
+                                desc: cols[2] || '',
+                                column: validCols.includes(rawCol) ? rawCol : 'todo',
+                                priority: validPrios.includes(rawPrio) ? rawPrio : 'MED',
+                                assignee: cols[5] || '',
+                                tags: (cols[6] || '').split(';').map(s => s.trim()).filter(Boolean),
                                 updatedAt: Date.now()
                             });
                         }
@@ -14575,6 +14981,12 @@ if (btnCbPermissions && cbPermissionsPopover) {
         e.stopPropagation();
         renderCbGuestList();
         cbPermissionsPopover.classList.toggle('hidden');
+    });
+    cbPermissionsPopover.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', (e) => {
+        if (cbPermissionsPopover && !cbPermissionsPopover.classList.contains('hidden') && cbHostControls && !cbHostControls.contains(e.target)) {
+            cbPermissionsPopover.classList.add('hidden');
+        }
     });
 }
 if (btnCbAllowAll) {

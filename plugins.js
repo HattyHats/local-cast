@@ -48,7 +48,7 @@ if (btnAirgap) {
             // Use the Host ID or current peer ID
             const myId = (typeof peer !== 'undefined' && peer) ? peer.id : '';
             if (!myId) {
-                alert('Peer not ready!');
+                if (typeof showToast === 'function') showToast('Peer not ready!', 'error');
                 return;
             }
             
@@ -95,8 +95,32 @@ if (btnAirgap) {
 const emulatorContainer = document.getElementById('emulator-container');
 const emulatorCanvas = document.getElementById('emulator-canvas');
 const emulatorRomInput = document.getElementById('emulator-rom-input');
-let nes, emuInterval, isEmulatorHost = false;
+let nes, emuInterval, isEmulatorHost = false, isEmulating = false;
 let emuKeyListenersAttached = false;
+let hostEmuKeyListenersAttached = false;
+
+function isEmuKeyboardActive() {
+    const arcadeModal = document.getElementById('arcade-modal');
+    if (!emulatorContainer || emulatorContainer.classList.contains('hidden') || (arcadeModal && arcadeModal.classList.contains('hidden'))) return false;
+    const active = document.activeElement;
+    const tag = active ? active.tagName : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return false;
+    return true;
+}
+
+window.stopSwarmEmulator = function() {
+    isEmulating = false;
+    if (emuInterval) {
+        cancelAnimationFrame(emuInterval);
+        emuInterval = null;
+    }
+    if (emulatorContainer) emulatorContainer.classList.add('hidden');
+    const guestVid = document.getElementById('emu-guest-video');
+    if (guestVid && guestVid.srcObject) {
+        guestVid.srcObject.getTracks().forEach(t => t.stop());
+        guestVid.srcObject = null;
+    }
+};
 
 window.handleEmulatorStream = function(remoteStream) {
     document.getElementById('arcade-lobby-modal').classList.add('hidden');
@@ -120,13 +144,6 @@ window.handleEmulatorStream = function(remoteStream) {
         video.style.border = '2px solid #ff00ff';
         emulatorContainer.insertBefore(video, emulatorContainer.firstChild);
         emulatorCanvas.style.display = 'none';
-        
-        const controlsHint = document.createElement('p');
-        controlsHint.style.color = '#ff00ff';
-        controlsHint.style.textAlign = 'center';
-        controlsHint.style.marginTop = '10px';
-        controlsHint.innerText = 'Controls: Arrows/WASD to Move | Z/J/Space to Jump | X/K/Ctrl to Shoot | Enter to Start';
-        emulatorContainer.appendChild(controlsHint);
     }
     video.srcObject = remoteStream;
     video.play().catch(e => console.warn("Emulator video play error:", e));
@@ -135,7 +152,7 @@ window.handleEmulatorStream = function(remoteStream) {
     if (!emuKeyListenersAttached) {
         emuKeyListenersAttached = true;
         document.addEventListener('keydown', (e) => {
-            if (emulatorContainer.classList.contains('hidden')) return;
+            if (!isEmuKeyboardActive()) return;
             const btn = mapKeyToNes(e.key);
             const targetConn = (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) ? hostConnection : (typeof connections !== 'undefined' ? connections[0] : null);
             if (btn !== null && targetConn && targetConn.open) {
@@ -144,7 +161,7 @@ window.handleEmulatorStream = function(remoteStream) {
             }
         });
         document.addEventListener('keyup', (e) => {
-            if (emulatorContainer.classList.contains('hidden')) return;
+            if (!isEmuKeyboardActive()) return;
             const btn = mapKeyToNes(e.key);
             const targetConn = (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) ? hostConnection : (typeof connections !== 'undefined' ? connections[0] : null);
             if (btn !== null && targetConn && targetConn.open) {
@@ -181,16 +198,9 @@ document.addEventListener('click', (e) => {
                 emulatorRomInput.style.display = 'block';
                 isEmulatorHost = true;
                 
-                if (!document.getElementById('emu-host-controls-hint')) {
-                    const controlsHint = document.createElement('p');
-                    controlsHint.id = 'emu-host-controls-hint';
-                    controlsHint.style.color = '#ff00ff';
-                    controlsHint.style.textAlign = 'center';
-                    controlsHint.style.marginTop = '10px';
-                    controlsHint.innerText = 'Controls: Arrows/WASD to Move | Z/J/Space to Jump | X/K/Ctrl to Shoot | Enter to Start';
-                    emulatorContainer.appendChild(controlsHint);
-                    
+                if (!document.getElementById('emu-host-resync-btn')) {
                     const btnResync = document.createElement('button');
+                    btnResync.id = 'emu-host-resync-btn';
                     btnResync.className = 'custom-btn';
                     btnResync.style.borderColor = '#00ffff';
                     btnResync.style.color = '#00ffff';
@@ -225,7 +235,10 @@ if (emulatorRomInput) {
 }
 
 function initEmulator(romBinaryData) {
-    if (emuInterval) cancelAnimationFrame(emuInterval);
+    if (emuInterval) {
+        cancelAnimationFrame(emuInterval);
+        emuInterval = null;
+    }
     const ctx = emulatorCanvas.getContext('2d');
     const imageData = ctx.createImageData(256, 240);
     const buf = new ArrayBuffer(imageData.data.length);
@@ -233,7 +246,7 @@ function initEmulator(romBinaryData) {
     const buf32 = new Uint32Array(buf);
     
     if (typeof jsnes === 'undefined') {
-        alert("jsnes library not loaded!");
+        if (typeof showToast === 'function') showToast('jsnes library not loaded!', 'error');
         return;
     }
 
@@ -249,14 +262,17 @@ function initEmulator(romBinaryData) {
     });
 
     nes.loadROM(romBinaryData);
+    isEmulating = true;
 
     let lastTime = 0;
     const fpsInterval = 1000 / 60; // NES strict 60 FPS
 
     function frameLoop(timestamp) {
+        if (!isEmulating || !nes || !emulatorContainer || emulatorContainer.classList.contains('hidden')) {
+            emuInterval = null;
+            return;
+        }
         emuInterval = requestAnimationFrame(frameLoop);
-        
-        if (emulatorContainer.classList.contains('hidden')) return;
 
         if (!lastTime) lastTime = timestamp;
         const elapsed = timestamp - lastTime;
@@ -270,23 +286,26 @@ function initEmulator(romBinaryData) {
     }
     emuInterval = requestAnimationFrame(frameLoop);
 
-    // Host listens to its own keys
-    document.addEventListener('keydown', (e) => {
-        if (!isEmulatorHost || emulatorContainer.classList.contains('hidden')) return;
-        const btn = mapKeyToNes(e.key);
-        if (btn !== null) {
-            e.preventDefault();
-            nes.buttonDown(1, btn);
-        }
-    });
-    document.addEventListener('keyup', (e) => {
-        if (!isEmulatorHost || emulatorContainer.classList.contains('hidden')) return;
-        const btn = mapKeyToNes(e.key);
-        if (btn !== null) {
-            e.preventDefault();
-            nes.buttonUp(1, btn);
-        }
-    });
+    // Host listens to its own keys (attach once)
+    if (!hostEmuKeyListenersAttached) {
+        hostEmuKeyListenersAttached = true;
+        document.addEventListener('keydown', (e) => {
+            if (!isEmulatorHost || !isEmulating || !nes || !isEmuKeyboardActive()) return;
+            const btn = mapKeyToNes(e.key);
+            if (btn !== null) {
+                e.preventDefault();
+                nes.buttonDown(1, btn);
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            if (!isEmulatorHost || !isEmulating || !nes || !isEmuKeyboardActive()) return;
+            const btn = mapKeyToNes(e.key);
+            if (btn !== null) {
+                e.preventDefault();
+                nes.buttonUp(1, btn);
+            }
+        });
+    }
 }
 
 function mapKeyToNes(key) {
@@ -339,6 +358,9 @@ let hostMesh = null;
 let raycaster, mouse;
 let cyberspaceLabelsContainer = null;
 let isCyberspacePaused = false;
+let cyberspaceGridHelper = null;
+let cyberspaceStarsGeo = null;
+let cyberspaceStarsMat = null;
 
 const avatarCanvasCache = {};
 
@@ -608,6 +630,28 @@ function exitCyberspace(switchToRadar = false) {
         });
         peerMeshes = {};
     }
+    if (cyberspaceGridHelper) {
+        if (cyberspaceGridHelper.geometry) cyberspaceGridHelper.geometry.dispose();
+        if (cyberspaceGridHelper.material) {
+            if (Array.isArray(cyberspaceGridHelper.material)) cyberspaceGridHelper.material.forEach(m => m.dispose());
+            else cyberspaceGridHelper.material.dispose();
+        }
+        cyberspaceGridHelper = null;
+    }
+    if (cyberspaceStarsGeo) {
+        cyberspaceStarsGeo.dispose();
+        cyberspaceStarsGeo = null;
+    }
+    if (cyberspaceStarsMat) {
+        cyberspaceStarsMat.dispose();
+        cyberspaceStarsMat = null;
+    }
+    Object.keys(avatarCanvasCache).forEach(k => {
+        if (avatarCanvasCache[k] && typeof avatarCanvasCache[k].dispose === 'function') {
+            avatarCanvasCache[k].dispose();
+        }
+        delete avatarCanvasCache[k];
+    });
     if (window.cyberspaceBeams && window.cyberspaceBeams.length) {
         window.cyberspaceBeams.forEach(b => {
             if (b.mesh && b.mesh.geometry) b.mesh.geometry.dispose();
@@ -633,7 +677,10 @@ function exitCyberspace(switchToRadar = false) {
 
     if (switchToRadar) {
         const radarModal = document.getElementById('radar-modal');
-        if (radarModal) radarModal.classList.remove('hidden');
+        if (radarModal) {
+            radarModal.classList.remove('hidden');
+            if (typeof drawRadar === 'function') drawRadar();
+        }
     }
 }
 
@@ -678,7 +725,7 @@ window.addEventListener('keydown', (e) => {
 
 function initCyberspace() {
     if (typeof THREE === 'undefined') {
-        alert("THREE.js not loaded!");
+        if (typeof showToast === 'function') showToast('THREE.js not loaded!', 'error');
         return;
     }
 
@@ -711,8 +758,8 @@ function initCyberspace() {
     raycaster = new THREE.Raycaster();
     mouse = new THREE.Vector2();
 
-    const gridHelper = new THREE.GridHelper(100, 50, 0xff00ff, 0x00ffff);
-    scene.add(gridHelper);
+    cyberspaceGridHelper = new THREE.GridHelper(100, 50, 0xff00ff, 0x00ffff);
+    scene.add(cyberspaceGridHelper);
 
     // Host Celestial Body (Prime Station)
     const hostInfo = (typeof window !== 'undefined' && window.hostPeerInfo) || null;
@@ -726,15 +773,15 @@ function initCyberspace() {
     scene.add(hostMesh);
 
     // Particle Stars
-    const starsGeo = new THREE.BufferGeometry();
+    cyberspaceStarsGeo = new THREE.BufferGeometry();
     const starsCount = 500;
     const posArray = new Float32Array(starsCount * 3);
     for (let i = 0; i < starsCount * 3; i++) {
         posArray[i] = (Math.random() - 0.5) * 200;
     }
-    starsGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-    const starsMat = new THREE.PointsMaterial({ size: 0.2, color: 0xff00ff });
-    const starsMesh = new THREE.Points(starsGeo, starsMat);
+    cyberspaceStarsGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    cyberspaceStarsMat = new THREE.PointsMaterial({ size: 0.2, color: 0xff00ff });
+    const starsMesh = new THREE.Points(cyberspaceStarsGeo, cyberspaceStarsMat);
     scene.add(starsMesh);
 
     window.cyberspaceBeams = [];
@@ -861,6 +908,14 @@ function initCyberspace() {
                 color: p.color || '#00ffff',
                 avatar: p.avatar || null
             }));
+            if (myId && !peerList.some(p => p.id === myId)) {
+                peerList.unshift({
+                    id: myId,
+                    alias: (typeof guestAlias !== 'undefined' && guestAlias) ? (guestAlias + ' (YOU)') : 'YOU',
+                    color: (typeof guestColor !== 'undefined' && guestColor) ? guestColor : '#00f0ff',
+                    avatar: (typeof guestAvatar !== 'undefined' && guestAvatar) ? guestAvatar : (localStorage.getItem('localcast_avatar') || null)
+                });
+            }
         }
 
         // Clean up disconnected peers
