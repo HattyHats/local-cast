@@ -1652,10 +1652,29 @@ header .glitch-title {
         flex-shrink: 0;
         margin-bottom: 0.35rem;
     }
+    #client-ads-container {
+        display: contents;
+    }
+    #client-sidebar-ad {
+        order: 1;
+        flex-shrink: 0;
+    }
+    #client-explorer {
+        order: 2;
+        height: auto;
+        min-height: 360px;
+        flex: 1 0 auto;
+    }
+    #client-hatty-news-ad {
+        order: 3;
+        flex-shrink: 0;
+        margin-bottom: 0.35rem;
+    }
 }
 
 @media (max-width: 900px) {
-    #host-explorer {
+    #host-explorer,
+    #client-explorer {
         min-height: 320px;
     }
 }
@@ -4325,7 +4344,8 @@ button, .file-item, .custom-btn, .header-btn {
     box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
 }
 
-#host-sidebar-ad {
+#host-sidebar-ad,
+#client-sidebar-ad {
     display: flex;
     padding: 0.35rem;
     text-align: center;
@@ -4337,11 +4357,15 @@ button, .file-item, .custom-btn, .header-btn {
 
 #host-sidebar-ad:has(.affizy-ad:empty),
 #host-sidebar-ad:has(.affizy-ad[style*="display: none"]),
-#host-sidebar-ad:has(.affizy-ad[style*="display:none"]) {
+#host-sidebar-ad:has(.affizy-ad[style*="display:none"]),
+#client-sidebar-ad:has(.affizy-ad:empty),
+#client-sidebar-ad:has(.affizy-ad[style*="display: none"]),
+#client-sidebar-ad:has(.affizy-ad[style*="display:none"]) {
     display: none !important;
 }
 
-#host-sidebar-ad .affizy-ad {
+#host-sidebar-ad .affizy-ad,
+#client-sidebar-ad .affizy-ad {
     width: 100%;
     max-width: 100%;
     display: flex;
@@ -4352,15 +4376,17 @@ button, .file-item, .custom-btn, .header-btn {
 }
 
 /* ==========================================================================
-   HATTY'S NEWS SIDEBAR BANNER AD
+   HATTY'S NEWS SIDEBAR & GUEST BANNER AD
    ========================================================================== */
-#hatty-news-ad {
+#hatty-news-ad,
+#client-hatty-news-ad {
     padding: 0.3rem;
     border-color: rgba(255, 69, 0, 0.3);
     background: rgba(15, 10, 12, 0.82);
 }
 
-#hatty-news-ad:hover {
+#hatty-news-ad:hover,
+#client-hatty-news-ad:hover {
     border-color: #ff4500;
     box-shadow: 0 0 18px rgba(255, 69, 0, 0.32), var(--glass-shadow);
     transform: translateY(-1px);
@@ -4385,5 +4411,86 @@ button, .file-item, .custom-btn, .header-btn {
 .hatty-news-banner-link:hover .hatty-news-banner-img {
     transform: scale(1.015);
     filter: brightness(1.08);
+}
+
+/* Guest (#client-view) Ad Banner Dock on Desktop */
+#client-view {
+    gap: 1rem;
+    min-height: 0;
+}
+
+#client-explorer {
+    flex: 1;
+    min-height: 0;
+}
+
+.client-ads-container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 365px;
+    gap: 1.25rem;
+    flex-shrink: 0;
+    align-items: stretch;
+    width: 100%;
+}
+
+/* ==========================================================================
+   BURN / SELF-DESTRUCT PROTOCOL UI & BADGES
+   ========================================================================== */
+.burn-preset-btn {
+    padding: 0.32rem 0.2rem;
+    font-size: 0.68rem;
+    font-family: var(--font-mono);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.burn-dl-preset.active,
+.burn-dl-preset:hover {
+    background: rgba(0, 240, 255, 0.14);
+    border-color: var(--neon-blue);
+    color: var(--neon-blue);
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+}
+
+.burn-timer-preset.active,
+.burn-timer-preset:hover {
+    background: rgba(252, 238, 10, 0.14);
+    border-color: #fcee0a;
+    color: #fcee0a;
+    box-shadow: 0 0 8px rgba(252, 238, 10, 0.2);
+}
+
+.file-item.burn-armed {
+    border-color: rgba(255, 42, 109, 0.5);
+    box-shadow: inset 0 0 12px rgba(255, 42, 109, 0.08);
+}
+
+.file-item.burn-armed:hover {
+    border-color: var(--neon-red);
+    box-shadow: 0 0 14px rgba(255, 42, 109, 0.3);
+}
+
+.burn-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 3px;
+    padding: 2px 6px;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #ff6b8b;
+    background: rgba(255, 42, 109, 0.14);
+    border: 1px solid rgba(255, 42, 109, 0.4);
+    border-radius: 999px;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.3px;
 }
 

@@ -1428,9 +1428,13 @@ async function doSaveVFSToDB() {
             isEncrypted: node.isEncrypted,
             salt: node.salt,
             iv: node.iv,
-            isBurn: node.isBurn,
+            isBurn: !!(node.isBurn || node.burnMaxDownloads || node.burnExpiresAt),
+            burnMaxDownloads: node.burnMaxDownloads || null,
+            burnDownloadsCount: node.burnDownloadsCount || 0,
+            burnExpiresAt: node.burnExpiresAt || null,
             isHidden: node.isHidden,
             isHoneyPot: node.isHoneyPot,
+            baitPassword: node.baitPassword || null,
             children: node.children ? node.children.filter(c => !c.isNative).map(stripParents) : []
         };
     }
@@ -1637,7 +1641,10 @@ class VirtualFileSystem {
                 isEncrypted: !!(node.isEncrypted && !node.isNative),
                 salt: node.salt,
                 iv: node.iv,
-                isBurn: !!node.isBurn,
+                isBurn: !!(node.isBurn || node.burnMaxDownloads || node.burnExpiresAt),
+                burnMaxDownloads: node.burnMaxDownloads || null,
+                burnDownloadsCount: node.burnDownloadsCount || 0,
+                burnExpiresAt: node.burnExpiresAt || null,
                 nuclearVotesRequired: node.nuclearVotesRequired,
                 nuclearCurrentVotes: (typeof activeNuclearVotes !== 'undefined' && activeNuclearVotes[node.id]) ? activeNuclearVotes[node.id].size : 0
             };
@@ -1777,23 +1784,51 @@ if (roomCode) {
     isHost = false;
 }
 
+function syncActiveViewAds() {
+    try {
+        const isClientVisible = clientView && !clientView.classList.contains('hidden');
+        const hostAdSlot = document.querySelector('#host-sidebar-ad .affizy-ad');
+        const clientAdSlot = document.querySelector('#client-sidebar-ad .affizy-ad');
+        if (isClientVisible && clientAdSlot && hostAdSlot) {
+            if (clientAdSlot.children.length === 0 && hostAdSlot.children.length > 0) {
+                while (hostAdSlot.firstChild) {
+                    clientAdSlot.appendChild(hostAdSlot.firstChild);
+                }
+            }
+        } else if (!isClientVisible && hostAdSlot && clientAdSlot) {
+            if (hostAdSlot.children.length === 0 && clientAdSlot.children.length > 0) {
+                while (clientAdSlot.firstChild) {
+                    hostAdSlot.appendChild(clientAdSlot.firstChild);
+                }
+            }
+        }
+        requestAnimationFrame(() => {
+            window.dispatchEvent(new Event('resize'));
+        });
+    } catch (e) {}
+}
+
 function initApp() {
     try {
         if (magicPeerId && magicFileId) {
             initMagicPeer(magicPeerId, magicFileId);
         } else if (isHost) {
             hostView.classList.remove('hidden');
+            syncActiveViewAds();
             initHost().catch(err => {
                 console.error("Host init error:", err);
                 setupHostPeer();
             });
         } else {
             clientView.classList.remove('hidden');
+            syncActiveViewAds();
             initClient().catch(err => {
                 console.error("Client init error:", err);
                 setupClientPeer();
             });
         }
+        setTimeout(syncActiveViewAds, 800);
+        setTimeout(syncActiveViewAds, 2200);
     } catch(err) {
         console.error("initApp fatal error:", err);
         try {
@@ -2938,13 +2973,7 @@ async function initHost() {
                         conn.send({ type: 'MAGIC_FILE_ERROR', message: 'File is locked or requires host authentication.' });
                     } else {
                         sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'CLIENT_UPLOAD_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv }).then(() => {
-                            if (node.isBurn && node.parent) {
-                                node.parent.children = node.parent.children.filter(c => c.id !== node.id);
-                                saveVFSToDB();
-                                renderHostExplorer();
-                                broadcastTree();
-                                showToast(`🔥 Burn Protocol Activated: ${node.name} has self-destructed.`);
-                            }
+                            consumeBurnNodeOnHost(node.id);
                         });
                     }
                 } else {
@@ -3559,21 +3588,8 @@ async function initHost() {
                 }
             } else if (data.type === 'BURN_CONSUMED' && conn.isAuthenticated) {
                 const node = vfs.findNode(data.fileId);
-                if (node && node.isBurn && node.parent && isNodeAuthorizedForConnection(node, conn)) {
-                    node.parent.children = node.parent.children.filter(c => c.id !== data.fileId);
-                    saveVFSToDB();
-                    renderHostExplorer();
-                    broadcastTree();
-                    
-                    showToast(`🔥 Burn Protocol Activated: ${node.name} has self-destructed.`);
-                    
-                    // Force the screen to flash red
-                    document.body.style.transition = 'none';
-                    document.body.style.backgroundColor = 'rgba(255, 0, 0, 0.4)';
-                    setTimeout(() => {
-                        document.body.style.transition = 'background-color 2s ease-out';
-                        document.body.style.backgroundColor = '';
-                    }, 50);
+                if (node && isNodeAuthorizedForConnection(node, conn)) {
+                    consumeBurnNodeOnHost(data.fileId);
                 }
             } else if (data.type === 'CLIENT_MOVE_NODE' && conn.isAuthenticated) {
                 if (conn.permissions && (conn.permissions.delete || conn.permissions.edit)) {
@@ -3633,14 +3649,22 @@ async function initHost() {
                         }
                     }
                 }
-            } else if (data.type === 'CLIENT_TOGGLE_BURN' && conn.isAuthenticated) {
+            } else if ((data.type === 'CLIENT_TOGGLE_BURN' || data.type === 'CLIENT_SET_BURN_POLICY') && conn.isAuthenticated) {
                 if (conn.permissions && (conn.permissions.upload || conn.permissions.edit)) {
                     const node = vfs.findNode(data.id);
-                    if (node && node.type === 'file' && !node.isLocked && isNodeAuthorizedForConnection(node, conn)) {
-                        if (node.isBurn) {
-                            delete node.isBurn;
+                    if (node && node.id !== 'root' && !node.isLocked && isNodeAuthorizedForConnection(node, conn)) {
+                        if (data.type === 'CLIENT_SET_BURN_POLICY') {
+                            applyNodeBurnPolicy(node, {
+                                isBurn: !!data.isBurn,
+                                maxDownloads: Number(data.maxDownloads) || 0,
+                                timerMinutes: Number(data.timerMinutes) || 0
+                            });
                         } else {
-                            node.isBurn = true;
+                            if (node.isBurn) {
+                                applyNodeBurnPolicy(node, { isBurn: false });
+                            } else {
+                                applyNodeBurnPolicy(node, { isBurn: true, maxDownloads: 1, timerMinutes: 0 });
+                            }
                         }
                         saveVFSToDB();
                         renderHostExplorer();
@@ -4468,11 +4492,17 @@ function configureContextMenuForTarget(node, isHost) {
         }
     }
 
-    // 6. Burn Protocol (Files only; Host or guest with upload/edit)
+    // 6. Burn Protocol (Files and folders; Host or guest with upload/edit)
     const ctxBurnEl = document.getElementById('ctx-burn');
     if (ctxBurnEl) {
         const canBurn = isHost || (typeof myPermissions !== 'undefined' && myPermissions && (myPermissions.upload || myPermissions.edit));
-        ctxBurnEl.style.display = (isFile && canBurn) ? 'flex' : 'none';
+        const isEligibleNode = (isFile || isFolder) && node.id !== 'root';
+        ctxBurnEl.style.display = (isEligibleNode && canBurn) ? 'flex' : 'none';
+        const ctxBurnLabelEl = document.getElementById('ctx-burn-label');
+        if (ctxBurnLabelEl) {
+            const isArmed = !!(node.isBurn || node.burnMaxDownloads || node.burnExpiresAt);
+            ctxBurnLabelEl.textContent = isArmed ? 'Configure / Disarm Burn Protocol' : 'Burn / Self-Destruct Protocol';
+        }
     }
 
     // 7. Rename (Both files and folders; Host or guest with edit)
@@ -4558,11 +4588,14 @@ function renderHostExplorer() {
             `<svg class="item-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>${hostLockBadge}</svg>` : 
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
-        const burnIcon = child.isBurn ? '🔥 ' : '';
+        const isBurnArmed = !!(child.isBurn || child.burnMaxDownloads || child.burnExpiresAt);
+        if (isBurnArmed) item.classList.add('burn-armed');
+        const burnIcon = isBurnArmed ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
+        const burnBadgeHtml = renderBurnBadgeHtml(child);
         const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
         const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${child.id}"><div class="item-progress-fill" id="item-prog-fill-${child.id}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${child.id}">0%</span>`;
-        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${progressHtml}`;
+        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${burnBadgeHtml}${progressHtml}`;
         item.draggable = true;
         
         if (child.isHoneyPot) {
@@ -5697,6 +5730,13 @@ async function initClient() {
                 if (folderPasswordModal) folderPasswordModal.classList.add('hidden');
                 if (vaultPasswordModal) vaultPasswordModal.classList.add('hidden');
                 document.getElementById('lockdown-overlay').classList.remove('hidden');
+            } else if (data.type === 'SWARM_PURGE_FILE') {
+                if (Array.isArray(data.fileIds)) {
+                    purgeSwarmCacheForFileIds(data.fileIds);
+                }
+                if (data.nodeName) {
+                    showToast(`🔥 "${data.nodeName}" self-destructed (${data.reason || 'Burn Protocol'}).`);
+                }
             } else if (data.type === 'SERVER_BURNED') {
                 isServerBurned = true;
                 if (burnTimerInterval) {
@@ -5927,11 +5967,14 @@ function renderClientExplorer() {
             `<svg class="item-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`);
             
         const sizeText = (typeof child.size === 'number' && child.size > 0) ? `<div class="item-meta">${(child.size / 1024 / 1024).toFixed(2)} MB</div>` : '';
-        const burnIcon = child.isBurn ? '🔥 ' : '';
+        const isBurnArmed = !!(child.isBurn || child.burnMaxDownloads || child.burnExpiresAt);
+        if (isBurnArmed) item.classList.add('burn-armed');
+        const burnIcon = isBurnArmed ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
+        const burnBadgeHtml = renderBurnBadgeHtml(child);
         const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
         const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${child.id}"><div class="item-progress-fill" id="item-prog-fill-${child.id}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${child.id}">0%</span>`;
-        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}${progressHtml}`;
+        item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}${burnBadgeHtml}${progressHtml}`;
         item.draggable = true;
 
         if (clientSelectedNodes.has(child.id)) item.classList.add('selected');
@@ -6190,10 +6233,9 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
             a.href = url; a.download = name; document.body.appendChild(a); a.click();
             setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
             
-            // Check for BURN-AFTER-READING
+            // Check for BURN-AFTER-DOWNLOAD (file or ancestor folder)
             if (fileId && hostConnection && hostConnection.open) {
-                const node = findClientNode(clientVFS, fileId);
-                if (node && node.isBurn) {
+                if (hasBurnPolicyInLineage(clientVFS, fileId)) {
                     hostConnection.send({ type: 'BURN_CONSUMED', fileId: fileId });
                 }
             }
@@ -6202,8 +6244,7 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
         
         // If preview mode
         if (fileId && hostConnection && hostConnection.open) {
-            const node = findClientNode(clientVFS, fileId);
-            if (node && node.isBurn) {
+            if (hasBurnPolicyInLineage(clientVFS, fileId)) {
                 hostConnection.send({ type: 'BURN_CONSUMED', fileId: fileId });
             }
         }
@@ -6912,45 +6953,384 @@ if (ctxMultisig) {
     });
 }
 
-const ctxBurn = document.getElementById('ctx-burn');
-if (ctxBurn) {
-    ctxBurn.addEventListener('click', async () => {
-        if (!contextTargetId) return;
-        const targetId = contextTargetId;
-        contextTargetId = null;
-        contextMenu.classList.add('hidden');
-        
-        if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) {
-            const node = findClientNode(clientVFS, targetId);
-            if (node && node.type === 'file') {
-                const action = node.isBurn ? "Disable" : "Enable";
-                if (await cyberConfirm(`${action} Burn-After-Reading? The file will be permanently deleted from the Host after the first guest downloads it.`, "BURN PROTOCOL")) {
-                    hostConnection.send({ type: 'CLIENT_TOGGLE_BURN', id: targetId });
-                    showToast(`Burn Protocol ${node.isBurn ? "Disabled" : "Enabled"}`);
-                }
-            } else {
-                await cyberAlert("You can only apply Burn Protocol to files.", "NOTICE");
+// =========================================================================
+// SELF-DESTRUCTING / TIMED FILES & FOLDERS ("BURN AFTER DOWNLOAD")
+// =========================================================================
+function formatBurnRemaining(ms) {
+    if (ms <= 0) return 'EXPIRED';
+    const totalSec = Math.ceil(ms / 1000);
+    if (totalSec >= 3600) {
+        const hrs = Math.floor(totalSec / 3600);
+        const mins = Math.floor((totalSec % 3600) / 60);
+        const secs = totalSec % 60;
+        return `${hrs}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+    }
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function renderBurnBadgeHtml(node) {
+    if (!node) return '';
+    const hasDlLimit = (Number(node.burnMaxDownloads) || 0) > 0 || (node.isBurn && !node.burnExpiresAt);
+    const maxDl = (Number(node.burnMaxDownloads) || 0) > 0 ? Number(node.burnMaxDownloads) : (hasDlLimit ? 1 : 0);
+    const usedDl = Number(node.burnDownloadsCount) || 0;
+    const remDl = Math.max(0, maxDl - usedDl);
+    const hasTimer = (Number(node.burnExpiresAt) || 0) > 0;
+    if (!hasDlLimit && !hasTimer) return '';
+
+    const parts = [];
+    if (hasDlLimit) {
+        parts.push(`🔥 ${remDl}/${maxDl} DL`);
+    }
+    if (hasTimer) {
+        const remStr = formatBurnRemaining(node.burnExpiresAt - Date.now());
+        parts.push(`<span class="burn-timer-val" data-burn-expires="${node.burnExpiresAt}">⏱️ ${remStr}</span>`);
+    }
+    return `<div class="burn-status-badge" title="Burn / Self-Destruct Policy Active">${parts.join(' • ')}</div>`;
+}
+
+function hasBurnPolicyInLineage(treeRoot, targetId) {
+    if (!treeRoot || !targetId) return false;
+    function searchLineage(cur, ancestorBurn) {
+        if (!cur) return false;
+        const curArmed = ancestorBurn || !!(cur.isBurn || cur.burnMaxDownloads || cur.burnExpiresAt);
+        if (cur.id === targetId) return curArmed;
+        if (Array.isArray(cur.children)) {
+            for (const ch of cur.children) {
+                if (searchLineage(ch, curArmed)) return true;
             }
+        }
+        return false;
+    }
+    return searchLineage(treeRoot, false);
+}
+
+function applyNodeBurnPolicy(node, { isBurn = false, maxDownloads = 0, timerMinutes = 0 } = {}) {
+    if (!node) return;
+    const dlLimit = Math.max(0, Math.floor(Number(maxDownloads) || 0));
+    const mins = Math.max(0, Number(timerMinutes) || 0);
+    if (!isBurn || (dlLimit === 0 && mins === 0)) {
+        delete node.isBurn;
+        delete node.burnMaxDownloads;
+        delete node.burnDownloadsCount;
+        delete node.burnExpiresAt;
+        return;
+    }
+    node.isBurn = true;
+    node.burnMaxDownloads = dlLimit > 0 ? dlLimit : null;
+    node.burnDownloadsCount = 0;
+    node.burnExpiresAt = mins > 0 ? (Date.now() + Math.round(mins * 60 * 1000)) : null;
+}
+
+function collectSubtreeFileIds(node, out = []) {
+    if (!node) return out;
+    if (node.type === 'file') {
+        out.push({ id: node.id, size: node.size || 0 });
+    } else if (Array.isArray(node.children)) {
+        for (const ch of node.children) {
+            collectSubtreeFileIds(ch, out);
+        }
+    }
+    return out;
+}
+
+function purgeSwarmCacheForFileIds(fileItems) {
+    if (!Array.isArray(fileItems)) return;
+    for (const entry of fileItems) {
+        const fid = typeof entry === 'string' ? entry : entry.id;
+        const fsize = (typeof entry === 'object' && entry && entry.size) ? entry.size : 0;
+        if (!fid) continue;
+        try {
+            if (typeof localFileBitfields !== 'undefined' && localFileBitfields) {
+                delete localFileBitfields[fid];
+            }
+            if (typeof seededSwarmFiles !== 'undefined' && seededSwarmFiles) {
+                seededSwarmFiles.delete(fid);
+            }
+            if (typeof peerSwarmBitfields !== 'undefined' && peerSwarmBitfields) {
+                Object.keys(peerSwarmBitfields).forEach(p => {
+                    if (peerSwarmBitfields[p]) delete peerSwarmBitfields[p][fid];
+                });
+            }
+            if (typeof clearCachedTransfer === 'function') {
+                const totalChunks = fsize > 0 ? Math.max(1, Math.ceil(fsize / CHUNK_SIZE)) : 64;
+                clearCachedTransfer(fid, totalChunks);
+            }
+        } catch (e) {}
+    }
+}
+
+function executeNodeSelfDestruct(node, reason = 'Burn policy triggered') {
+    if (!isHost || !node || !node.parent || node.id === 'root') return false;
+    const fileItems = collectSubtreeFileIds(node);
+    const fileIds = fileItems.map(f => f.id);
+    purgeSwarmCacheForFileIds(fileItems);
+
+    node.parent.children = (node.parent.children || []).filter(c => c.id !== node.id);
+    selectedNodes.delete(node.id);
+    fileIds.forEach(fid => selectedNodes.delete(fid));
+
+    // If Host was viewing inside a self-destructed folder, return to parent or root
+    let curDir = vfs.currentDir;
+    while (curDir) {
+        if (curDir.id === node.id) {
+            vfs.currentDir = node.parent || vfs.root;
+            break;
+        }
+        curDir = curDir.parent;
+    }
+
+    saveVFSToDB();
+    renderHostExplorer();
+    broadcastTree();
+
+    const purgePayload = { type: 'SWARM_PURGE_FILE', fileIds, nodeName: node.name, reason };
+    if (Array.isArray(connections)) {
+        connections.forEach(c => {
+            if (c && c.open && c.isAuthenticated) safeSend(c, purgePayload);
+        });
+    }
+
+    showToast(`🔥 Burn Protocol Activated: "${node.name}" self-destructed (${reason}).`);
+    try {
+        document.body.style.transition = 'none';
+        document.body.style.backgroundColor = 'rgba(255, 42, 109, 0.32)';
+        setTimeout(() => {
+            document.body.style.transition = 'background-color 1.5s ease-out';
+            document.body.style.backgroundColor = '';
+        }, 50);
+    } catch (e) {}
+    return true;
+}
+
+function consumeBurnNodeOnHost(fileId) {
+    if (!isHost || !fileId) return;
+    const node = vfs.findNode(fileId);
+    if (!node) return;
+
+    // Collect lineage from node up to root (excluding root)
+    const lineage = [];
+    let cur = node;
+    while (cur && cur.id !== 'root') {
+        lineage.push(cur);
+        cur = cur.parent;
+    }
+
+    let stateChanged = false;
+    let remainingToastMsg = null;
+
+    // Check from highest ancestor down or node up; if an ancestor folder burns, it takes the subtree with it
+    for (const target of lineage) {
+        const hasDlLimit = (Number(target.burnMaxDownloads) || 0) > 0 || (target.isBurn && !target.burnExpiresAt);
+        if (!hasDlLimit) continue;
+        const maxDl = (Number(target.burnMaxDownloads) || 0) > 0 ? Number(target.burnMaxDownloads) : 1;
+        target.burnDownloadsCount = (Number(target.burnDownloadsCount) || 0) + 1;
+        if (target.burnDownloadsCount >= maxDl) {
+            executeNodeSelfDestruct(target, `Download limit (${maxDl}) reached`);
+            return;
+        } else {
+            stateChanged = true;
+            const rem = maxDl - target.burnDownloadsCount;
+            remainingToastMsg = `🔥 Burn Counter: "${target.name}" (${rem}/${maxDl} download${rem === 1 ? '' : 's'} remaining)`;
+        }
+    }
+
+    if (stateChanged) {
+        saveVFSToDB();
+        renderHostExplorer();
+        broadcastTree();
+        if (remainingToastMsg) showToast(remainingToastMsg);
+    }
+}
+
+// 1-second ticker for live countdown badges & automatic timed expiration
+setInterval(() => {
+    const now = Date.now();
+    // 1. Update live countdown badges in DOM (both Host and Guest)
+    const timerBadges = document.querySelectorAll('.burn-timer-val[data-burn-expires]');
+    timerBadges.forEach(el => {
+        const exp = Number(el.getAttribute('data-burn-expires')) || 0;
+        if (exp > 0) {
+            el.textContent = `⏱️ ${formatBurnRemaining(exp - now)}`;
+        }
+    });
+
+    // 2. Host checks VFS tree for expired timed files/folders
+    if (isHost && vfs && vfs.root) {
+        const expiredNodes = [];
+        function findExpired(dir) {
+            if (!dir || !Array.isArray(dir.children)) return;
+            for (const ch of dir.children) {
+                if (ch.burnExpiresAt && now >= ch.burnExpiresAt) {
+                    expiredNodes.push(ch);
+                } else if (ch.type === 'folder') {
+                    findExpired(ch);
+                }
+            }
+        }
+        findExpired(vfs.root);
+        for (const expNode of expiredNodes) {
+            executeNodeSelfDestruct(expNode, 'Self-destruct timer expired');
+        }
+    }
+}, 1000);
+
+let activeBurnModalTargetId = null;
+const burnProtocolModal = document.getElementById('burn-protocol-modal');
+const burnProtocolTargetName = document.getElementById('burn-protocol-target-name');
+const burnMaxDownloadsInput = document.getElementById('burn-max-downloads-input');
+const burnTimerMinutesInput = document.getElementById('burn-timer-minutes-input');
+const btnArmBurnProtocol = document.getElementById('btn-arm-burn-protocol');
+const btnDisarmBurnProtocol = document.getElementById('btn-disarm-burn-protocol');
+const btnCancelBurnProtocol = document.getElementById('btn-cancel-burn-protocol');
+const btnCloseBurnProtocol = document.getElementById('btn-close-burn-protocol');
+
+function syncBurnModalPresets() {
+    const dlVal = String(Math.max(0, parseInt(burnMaxDownloadsInput ? burnMaxDownloadsInput.value : '0', 10) || 0));
+    document.querySelectorAll('.burn-dl-preset').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-dl') === dlVal);
+    });
+    const minsVal = String(Math.max(0, parseInt(burnTimerMinutesInput ? burnTimerMinutesInput.value : '0', 10) || 0));
+    document.querySelectorAll('.burn-timer-preset').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-mins') === minsVal);
+    });
+}
+
+function openBurnProtocolModal(targetId) {
+    const isClientMode = typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open && !isHost;
+    const node = isClientMode ? findClientNode(clientVFS, targetId) : vfs.findNode(targetId);
+    if (!node || node.id === 'root') return;
+
+    activeBurnModalTargetId = targetId;
+    if (burnProtocolTargetName) {
+        burnProtocolTargetName.textContent = `${node.type === 'folder' ? '📁 ' : '📄 '}${node.name}`;
+    }
+
+    const isArmed = !!(node.isBurn || node.burnMaxDownloads || node.burnExpiresAt);
+    const currentMaxDl = (Number(node.burnMaxDownloads) || 0) > 0
+        ? Math.max(1, Number(node.burnMaxDownloads) - (Number(node.burnDownloadsCount) || 0))
+        : (isArmed && !node.burnExpiresAt ? 1 : (isArmed ? 0 : 1));
+    const currentRemMins = (node.burnExpiresAt && node.burnExpiresAt > Date.now())
+        ? Math.max(1, Math.ceil((node.burnExpiresAt - Date.now()) / 60000))
+        : 0;
+
+    if (burnMaxDownloadsInput) burnMaxDownloadsInput.value = String(currentMaxDl);
+    if (burnTimerMinutesInput) burnTimerMinutesInput.value = String(currentRemMins);
+    if (btnDisarmBurnProtocol) {
+        btnDisarmBurnProtocol.classList.toggle('hidden', !isArmed);
+    }
+    syncBurnModalPresets();
+
+    if (burnProtocolModal) {
+        burnProtocolModal.classList.remove('hidden');
+    }
+}
+
+function closeBurnProtocolModal() {
+    activeBurnModalTargetId = null;
+    if (burnProtocolModal) burnProtocolModal.classList.add('hidden');
+}
+
+document.querySelectorAll('.burn-dl-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (burnMaxDownloadsInput) {
+            burnMaxDownloadsInput.value = btn.getAttribute('data-dl') || '0';
+            syncBurnModalPresets();
+        }
+    });
+});
+
+document.querySelectorAll('.burn-timer-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (burnTimerMinutesInput) {
+            burnTimerMinutesInput.value = btn.getAttribute('data-mins') || '0';
+            syncBurnModalPresets();
+        }
+    });
+});
+
+if (burnMaxDownloadsInput) burnMaxDownloadsInput.addEventListener('input', syncBurnModalPresets);
+if (burnTimerMinutesInput) burnTimerMinutesInput.addEventListener('input', syncBurnModalPresets);
+if (btnCloseBurnProtocol) btnCloseBurnProtocol.addEventListener('click', closeBurnProtocolModal);
+if (btnCancelBurnProtocol) btnCancelBurnProtocol.addEventListener('click', closeBurnProtocolModal);
+
+if (btnArmBurnProtocol) {
+    btnArmBurnProtocol.addEventListener('click', () => {
+        if (!activeBurnModalTargetId) return;
+        const maxDownloads = Math.max(0, parseInt(burnMaxDownloadsInput ? burnMaxDownloadsInput.value : '0', 10) || 0);
+        const timerMinutes = Math.max(0, parseFloat(burnTimerMinutesInput ? burnTimerMinutesInput.value : '0') || 0);
+        if (maxDownloads === 0 && timerMinutes === 0) {
+            showToast("Select a download limit or expiration timer (or click Disarm).");
+            return;
+        }
+        const targetId = activeBurnModalTargetId;
+        closeBurnProtocolModal();
+
+        if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open && !isHost) {
+            hostConnection.send({
+                type: 'CLIENT_SET_BURN_POLICY',
+                id: targetId,
+                isBurn: true,
+                maxDownloads,
+                timerMinutes
+            });
+            showToast("🔥 Burn / Self-Destruct Protocol Armed!");
             return;
         }
 
         const node = vfs.findNode(targetId);
-        if (node && node.type === 'file') {
-            if (node.isBurn) {
-                delete node.isBurn;
-                showToast("Burn Protocol Disabled");
-            } else {
-                if (await cyberConfirm("Enable Burn-After-Reading? The file will be permanently deleted from your system after the first guest downloads it.", "BURN PROTOCOL")) {
-                    node.isBurn = true;
-                    showToast("Burn Protocol Enabled");
-                }
-            }
+        if (node) {
+            applyNodeBurnPolicy(node, { isBurn: true, maxDownloads, timerMinutes });
             saveVFSToDB();
             renderHostExplorer();
             broadcastTree();
-        } else {
-            await cyberAlert("You can only apply Burn Protocol to files.", "NOTICE");
+            const summary = [
+                maxDownloads > 0 ? `${maxDownloads} download${maxDownloads === 1 ? '' : 's'}` : null,
+                timerMinutes > 0 ? `${timerMinutes}m timer` : null
+            ].filter(Boolean).join(' + ');
+            showToast(`🔥 Burn Protocol Armed on "${node.name}" (${summary})`);
         }
+    });
+}
+
+if (btnDisarmBurnProtocol) {
+    btnDisarmBurnProtocol.addEventListener('click', () => {
+        if (!activeBurnModalTargetId) return;
+        const targetId = activeBurnModalTargetId;
+        closeBurnProtocolModal();
+
+        if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open && !isHost) {
+            hostConnection.send({
+                type: 'CLIENT_SET_BURN_POLICY',
+                id: targetId,
+                isBurn: false,
+                maxDownloads: 0,
+                timerMinutes: 0
+            });
+            showToast("Burn Protocol Disarmed");
+            return;
+        }
+
+        const node = vfs.findNode(targetId);
+        if (node) {
+            applyNodeBurnPolicy(node, { isBurn: false });
+            saveVFSToDB();
+            renderHostExplorer();
+            broadcastTree();
+            showToast(`Burn Protocol Disarmed on "${node.name}"`);
+        }
+    });
+}
+
+const ctxBurn = document.getElementById('ctx-burn');
+if (ctxBurn) {
+    ctxBurn.addEventListener('click', () => {
+        if (!contextTargetId) return;
+        const targetId = contextTargetId;
+        contextTargetId = null;
+        contextMenu.classList.add('hidden');
+        openBurnProtocolModal(targetId);
     });
 }
 
@@ -13952,6 +14332,9 @@ async function startMediaStream(fileId, name, mime, size) {
             }
         },
         onComplete: (fullBlob) => {
+            if (fileId && hostConnection && hostConnection.open && hasBurnPolicyInLineage(clientVFS, fileId)) {
+                hostConnection.send({ type: 'BURN_CONSUMED', fileId: fileId });
+            }
             const fullUrl = URL.createObjectURL(fullBlob);
             if (bufferDetail) {
                 bufferDetail.textContent = `⚡ STREAM COMPLETE (${downloader.getSwarmTelemetryLabel()})`;
