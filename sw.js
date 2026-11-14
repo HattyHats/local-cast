@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v155';
+const CACHE_NAME = 'localcast-v161';
 const ASSETS = [
     './',
     './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
     './plugins.js',
     './manifest.json',
     './hat-logo.png',
+    './hatty-news-banner-970x250.gif',
     './icon-192.png',
     './icon-512.png',
     './icon-maskable-512.png',
@@ -51,7 +52,11 @@ self.addEventListener('fetch', (e) => {
                     });
                     const tx = db.transaction('shares', 'readwrite');
                     tx.objectStore('shares').put(files, 'pending_files');
-                    await new Promise(r => tx.oncomplete = r);
+                    await new Promise((resolve, reject) => {
+                        tx.oncomplete = () => { db.close(); resolve(); };
+                        tx.onerror = () => { db.close(); reject(tx.error); };
+                        tx.onabort = () => { db.close(); reject(tx.error); };
+                    });
                 }
             } catch (err) {
                 console.error("SW Share Target Error:", err);
@@ -70,7 +75,7 @@ self.addEventListener('fetch', (e) => {
 
     // Only intercept same-origin static requests or explicit CDN scripts
     const isSameOrigin = url.startsWith(self.location.origin);
-    const isCdn = url.includes('cdnjs.cloudflare.com') || url.includes('unpkg.com');
+    const isCdn = url.includes('cdnjs.cloudflare.com') || url.includes('unpkg.com') || url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com');
 
     if (!isSameOrigin && !isCdn) {
         return;

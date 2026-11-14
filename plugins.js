@@ -74,17 +74,26 @@ if (btnAirgap) {
             if (!html5QrcodeScanner) {
                 html5QrcodeScanner = new Html5QrcodeScanner("airgap-scanner-container", { fps: 10, qrbox: {width: 200, height: 200} }, false);
                 html5QrcodeScanner.render((decodedText, decodedResult) => {
+                    let targetPeerId = null;
                     try {
                         const data = JSON.parse(decodedText);
-                        if (data.action === 'airgap_connect' && data.peerId) {
-                            html5QrcodeScanner.clear();
-                            html5QrcodeScanner = null;
-                            airgapModal.classList.add('hidden');
-                            if (typeof setupClientPeer !== 'undefined') {
-                                window.location.href = window.location.origin + window.location.pathname + '?room=' + data.peerId;
-                            }
+                        if (data && data.action === 'airgap_connect' && data.peerId) {
+                            targetPeerId = data.peerId;
                         }
-                    } catch(e) {}
+                    } catch (e) {
+                        try {
+                            const scannedUrl = new URL(decodedText, window.location.origin);
+                            targetPeerId = scannedUrl.searchParams.get('room');
+                        } catch (urlErr) {}
+                    }
+                    if (targetPeerId) {
+                        html5QrcodeScanner.clear();
+                        html5QrcodeScanner = null;
+                        airgapModal.classList.add('hidden');
+                        if (typeof setupClientPeer !== 'undefined') {
+                            window.location.href = window.location.origin + window.location.pathname + '?room=' + encodeURIComponent(targetPeerId);
+                        }
+                    }
                 }, (error) => {});
             }
         });
@@ -98,6 +107,8 @@ const emulatorRomInput = document.getElementById('emulator-rom-input');
 let nes, emuInterval, isEmulatorHost = false, isEmulating = false;
 let emuKeyListenersAttached = false;
 let hostEmuKeyListenersAttached = false;
+let emuLocalStream = null;
+let activeEmuCalls = [];
 
 function isEmuKeyboardActive() {
     const arcadeModal = document.getElementById('arcade-modal');
@@ -110,22 +121,43 @@ function isEmuKeyboardActive() {
 
 window.stopSwarmEmulator = function() {
     isEmulating = false;
+    isEmulatorHost = false;
     if (emuInterval) {
         cancelAnimationFrame(emuInterval);
         emuInterval = null;
     }
+    if (activeEmuCalls.length) {
+        activeEmuCalls.forEach(c => { try { c.close(); } catch (e) {} });
+        activeEmuCalls = [];
+    }
+    if (emuLocalStream) {
+        emuLocalStream.getTracks().forEach(t => t.stop());
+        emuLocalStream = null;
+    }
     if (emulatorContainer) emulatorContainer.classList.add('hidden');
+    if (emulatorCanvas) emulatorCanvas.style.display = 'block';
+    if (emulatorRomInput) emulatorRomInput.value = '';
     const guestVid = document.getElementById('emu-guest-video');
-    if (guestVid && guestVid.srcObject) {
-        guestVid.srcObject.getTracks().forEach(t => t.stop());
-        guestVid.srcObject = null;
+    if (guestVid) {
+        if (guestVid.srcObject) {
+            guestVid.srcObject.getTracks().forEach(t => t.stop());
+            guestVid.srcObject = null;
+        }
+        guestVid.remove();
     }
 };
 
 window.handleEmulatorStream = function(remoteStream) {
+    isEmulatorHost = false;
     document.getElementById('arcade-lobby-modal').classList.add('hidden');
+    const radarGuestModal = document.getElementById('radar-guest-modal');
+    if (radarGuestModal) radarGuestModal.classList.add('hidden');
     document.getElementById('arcade-modal').classList.remove('hidden');
     document.getElementById('arcade-game-title').textContent = 'SWARM EMULATOR (GUEST)';
+    const arcadeStatus = document.getElementById('arcade-status');
+    if (arcadeStatus) arcadeStatus.textContent = 'PLAYER 2 READY // USE ARROWS + Z/X';
+    const btnArcadeReset = document.getElementById('btn-arcade-reset');
+    if (btnArcadeReset) btnArcadeReset.classList.add('hidden');
     if(document.getElementById('tic-tac-toe-board')) document.getElementById('tic-tac-toe-board').classList.add('hidden');
     if(document.getElementById('pong-canvas')) document.getElementById('pong-canvas').classList.add('hidden');
     if(document.getElementById('chess-board')) document.getElementById('chess-board').classList.add('hidden');
@@ -152,7 +184,7 @@ window.handleEmulatorStream = function(remoteStream) {
     if (!emuKeyListenersAttached) {
         emuKeyListenersAttached = true;
         document.addEventListener('keydown', (e) => {
-            if (!isEmuKeyboardActive()) return;
+            if (isEmulatorHost || !isEmuKeyboardActive()) return;
             const btn = mapKeyToNes(e.key);
             const targetConn = (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) ? hostConnection : (typeof connections !== 'undefined' ? connections[0] : null);
             if (btn !== null && targetConn && targetConn.open) {
@@ -161,7 +193,7 @@ window.handleEmulatorStream = function(remoteStream) {
             }
         });
         document.addEventListener('keyup', (e) => {
-            if (!isEmuKeyboardActive()) return;
+            if (isEmulatorHost || !isEmuKeyboardActive()) return;
             const btn = mapKeyToNes(e.key);
             const targetConn = (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open) ? hostConnection : (typeof connections !== 'undefined' ? connections[0] : null);
             if (btn !== null && targetConn && targetConn.open) {
@@ -187,14 +219,21 @@ document.addEventListener('click', (e) => {
         const btn = e.target.closest('.btn-emulator-game');
         if (btn.dataset.game === 'emulator') {
             document.getElementById('arcade-lobby-modal').classList.add('hidden');
+            const radarGuestModal = document.getElementById('radar-guest-modal');
+            if (radarGuestModal) radarGuestModal.classList.add('hidden');
             document.getElementById('arcade-modal').classList.remove('hidden');
             document.getElementById('arcade-game-title').textContent = 'SWARM EMULATOR';
+            const arcadeStatus = document.getElementById('arcade-status');
+            if (arcadeStatus) arcadeStatus.textContent = isHost ? 'SELECT A .NES ROM TO LAUNCH' : 'WAITING FOR HOST STREAM...';
+            const btnArcadeReset = document.getElementById('btn-arcade-reset');
+            if (btnArcadeReset) btnArcadeReset.classList.add('hidden');
             if(document.getElementById('tic-tac-toe-board')) document.getElementById('tic-tac-toe-board').classList.add('hidden');
             if(document.getElementById('pong-canvas')) document.getElementById('pong-canvas').classList.add('hidden');
             if(document.getElementById('chess-board')) document.getElementById('chess-board').classList.add('hidden');
             
             emulatorContainer.classList.remove('hidden');
             if (isHost) {
+                if (emulatorCanvas) emulatorCanvas.style.display = 'block';
                 emulatorRomInput.style.display = 'block';
                 isEmulatorHost = true;
                 
@@ -277,8 +316,8 @@ function initEmulator(romBinaryData) {
         if (!lastTime) lastTime = timestamp;
         const elapsed = timestamp - lastTime;
 
-        // Only draw a frame if enough time has passed (syncs 60fps on 120hz/144hz monitors)
-        if (elapsed > fpsInterval) {
+        // Only draw a frame if enough time has passed (syncs 60fps on 60hz/120hz/144hz monitors)
+        if (elapsed >= fpsInterval - 0.5) {
             // Adjust lastTime to account for slight delays
             lastTime = timestamp - (elapsed % fpsInterval);
             nes.frame();
@@ -307,6 +346,7 @@ function initEmulator(romBinaryData) {
         });
     }
 }
+window.startHostEmulator = initEmulator;
 
 function mapKeyToNes(key) {
     switch (key.toLowerCase()) {
@@ -333,10 +373,18 @@ function mapKeyToNes(key) {
 
 function broadcastEmulatorStream() {
     if (!isEmulatorHost || !peer) return;
-    const stream = emulatorCanvas.captureStream(30);
+    if (activeEmuCalls.length) {
+        activeEmuCalls.forEach(c => { try { c.close(); } catch (e) {} });
+        activeEmuCalls = [];
+    }
+    if (emuLocalStream) {
+        emuLocalStream.getTracks().forEach(t => t.stop());
+    }
+    emuLocalStream = emulatorCanvas.captureStream(30);
     connections.forEach(conn => {
         if (conn.open) {
-            peer.call(conn.peer, stream, { metadata: { type: 'EMULATOR' } });
+            const call = peer.call(conn.peer, emuLocalStream, { metadata: { type: 'EMULATOR' } });
+            if (call) activeEmuCalls.push(call);
         }
     });
 }
@@ -623,6 +671,7 @@ function exitCyberspace(switchToRadar = false) {
         hostPlanet.dispose();
         hostPlanet = null;
     }
+    hostMesh = null;
     if (peerMeshes) {
         Object.values(peerMeshes).forEach(p => {
             if (p.node) p.node.dispose();
@@ -664,6 +713,8 @@ function exitCyberspace(switchToRadar = false) {
         if (cyberspaceContainer) cyberspaceContainer.innerHTML = '';
         renderer = null;
     }
+    scene = null;
+    camera = null;
     if (cyberspaceLabelsContainer) {
         cyberspaceLabelsContainer.remove();
         cyberspaceLabelsContainer = null;
@@ -786,21 +837,31 @@ function initCyberspace() {
 
     window.cyberspaceBeams = [];
     window.triggerCyberspaceBeam = function(fromId, toId, color = '#00f0ff') {
-        if (typeof scene === 'undefined' || !scene || cyberspaceOverlay.classList.contains('hidden') || isCyberspacePaused) return;
+        if (typeof scene === 'undefined' || !scene || !hostMesh || cyberspaceOverlay.classList.contains('hidden') || isCyberspacePaused) return;
         
         // Throttle beams to prevent memory leaks / extreme lag during torrents
         if (window.cyberspaceBeams.length > 50) return; 
 
-        let p1, p2;
-        if (fromId === 'host') p1 = hostMesh.position;
-        else if (peerMeshes[fromId]) p1 = peerMeshes[fromId].mesh.position;
-        else p1 = hostMesh.position; // fallback
+        const hostPeerId = (typeof isHost !== 'undefined' && isHost && typeof peer !== 'undefined' && peer)
+            ? peer.id
+            : ((typeof hostConnection !== 'undefined' && hostConnection) ? hostConnection.peer : null);
 
-        if (toId === 'host') p2 = hostMesh.position;
-        else if (peerMeshes[toId]) p2 = peerMeshes[toId].mesh.position;
-        else p2 = hostMesh.position; // fallback
+        const normFrom = (fromId === 'host' || (hostPeerId && fromId === hostPeerId)) ? 'host' : fromId;
+        const normTo = (toId === 'host' || (hostPeerId && toId === hostPeerId)) ? 'host' : toId;
 
-        if (!p1 || !p2) return;
+        let fromMesh = null, toMesh = null;
+        if (normFrom === 'host') fromMesh = hostMesh;
+        else if (peerMeshes[normFrom]) fromMesh = peerMeshes[normFrom].mesh;
+        else fromMesh = hostMesh;
+
+        if (normTo === 'host') toMesh = hostMesh;
+        else if (peerMeshes[normTo]) toMesh = peerMeshes[normTo].mesh;
+        else toMesh = hostMesh;
+
+        if (!fromMesh || !toMesh || fromMesh === toMesh) return;
+
+        const p1 = fromMesh.position;
+        const p2 = toMesh.position;
 
         const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color) });
         // Create an elongated diamond/laser shape
@@ -813,6 +874,8 @@ function initCyberspace() {
         scene.add(mesh);
         window.cyberspaceBeams.push({
             mesh: mesh,
+            sourceObj: fromMesh,
+            targetObj: toMesh,
             start: p1.clone(),
             end: p2.clone(),
             progress: 0,
@@ -832,10 +895,30 @@ function initCyberspace() {
         return '#00ffff';
     }
 
+    function handleCyberspaceNodeClick(nodeId, nodeAlias, nodeColor) {
+        const myId = (typeof peer !== 'undefined' && peer) ? peer.id : null;
+        if (nodeId === 'host') {
+            if (typeof isHost !== 'undefined' && isHost) {
+                if (typeof showToast === 'function') showToast("System Root: Host Prime Station (YOU)", "info");
+            } else if (typeof openRadarGuestModal === 'function') {
+                const hInfo = (typeof window !== 'undefined' && window.hostPeerInfo) || null;
+                const hPeerId = (typeof hostConnection !== 'undefined' && hostConnection) ? hostConnection.peer : 'host';
+                const pAvatar = getPeerAvatar('host');
+                openRadarGuestModal(hPeerId, hInfo ? hInfo.alias : (nodeAlias || 'HOST'), hInfo ? hInfo.color : (nodeColor || '#39ff14'), pAvatar);
+            }
+        } else if (myId && nodeId === myId) {
+            if (typeof showToast === 'function') showToast(`Local Node: ${nodeAlias || 'YOU'}`, "info");
+        } else if (typeof openRadarGuestModal === 'function') {
+            const pAvatar = getPeerAvatar(nodeId);
+            openRadarGuestModal(nodeId, nodeAlias, nodeColor, pAvatar);
+        }
+    }
+
     // Interactivity: Click to open Radar Guest Menu
     renderer.domElement.addEventListener('click', (e) => {
-        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / (rect.width || window.innerWidth)) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / (rect.height || window.innerHeight)) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
         
         const interactables = [];
@@ -855,13 +938,8 @@ function initCyberspace() {
         if (intersects.length > 0) {
             const hitObj = intersects[0].object;
             const data = hitObj.userData || (hitObj.parent && hitObj.parent.userData);
-            if (data && data.id && data.id !== 'host') {
-                if (typeof openRadarGuestModal === 'function') {
-                    const pAvatar = getPeerAvatar(data.id);
-                    openRadarGuestModal(data.id, data.name || data.alias, data.color, pAvatar);
-                }
-            } else if (data && data.id === 'host') {
-                showToast("System Root: Host Prime Station", "info");
+            if (data && data.id) {
+                handleCyberspaceNodeClick(data.id, data.name || data.alias, data.color);
             }
         }
     });
@@ -964,10 +1042,8 @@ function initCyberspace() {
                 
                 label.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    if (typeof openRadarGuestModal === 'function') {
-                        const curAvatar = getPeerAvatar(peerId);
-                        openRadarGuestModal(peerId, alias, colorHex, curAvatar);
-                    }
+                    const curEntry = peerMeshes[peerId];
+                    handleCyberspaceNodeClick(peerId, curEntry ? curEntry.alias : alias, curEntry ? curEntry.color : colorHex);
                 });
 
                 cyberspaceLabelsContainer.appendChild(label);
@@ -1025,7 +1101,10 @@ function initCyberspace() {
                     if (b.mesh.material) b.mesh.material.dispose();
                     window.cyberspaceBeams.splice(i, 1);
                 } else {
-                    b.mesh.position.lerpVectors(b.start, b.end, b.progress);
+                    const startPos = (b.sourceObj && b.sourceObj.parent) ? b.sourceObj.position : b.start;
+                    const endPos = (b.targetObj && b.targetObj.parent) ? b.targetObj.position : b.end;
+                    b.mesh.position.lerpVectors(startPos, endPos, b.progress);
+                    b.mesh.lookAt(endPos);
                 }
             }
         }
@@ -1058,6 +1137,10 @@ function initCyberspace() {
                 const safeColor = (typeof sanitizeCssColor === 'function') ? sanitizeCssColor(color) : color;
                 const safeText = (typeof escapeHtml === 'function') ? escapeHtml(text) : String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 mesh.userData.labelEl.innerHTML = `<span style="width:6px; height:6px; border-radius:50%; background:${safeColor}; box-shadow:0 0 6px ${safeColor};"></span><span>${safeText}</span>`;
+                mesh.userData.labelEl.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    handleCyberspaceNodeClick(mesh.userData.id || 'host', text, color);
+                });
                 cyberspaceLabelsContainer.appendChild(mesh.userData.labelEl);
             }
             label = mesh.userData.labelEl;
@@ -1073,8 +1156,9 @@ function initCyberspace() {
         }
         label.style.display = 'flex';
         
-        const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
-        const y = (vector.y * -0.5 + 0.5) * window.innerHeight;
+        const rect = renderer && renderer.domElement ? renderer.domElement.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+        const x = (vector.x * 0.5 + 0.5) * (rect.width || window.innerWidth);
+        const y = (vector.y * -0.5 + 0.5) * (rect.height || window.innerHeight);
         label.style.transform = `translate(-50%, -100%) translate(${x}px, ${y - 42}px)`;
     }
 
