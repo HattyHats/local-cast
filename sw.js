@@ -1,4 +1,4 @@
-const CACHE_NAME = 'localcast-v162';
+const CACHE_NAME = 'localcast-v163';
 const ASSETS = [
     './',
     './index.html',

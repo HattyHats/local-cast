@@ -3,7 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Local-Cast // Serverless P2P Mesh</title>
+    <title>Local-Cast — Serverless P2P Mesh &amp; Encrypted File Sharing</title>
+    <meta name="description" content="Share files, stream media, and collaborate directly peer-to-peer in your browser with ECDH P-256 and AES-GCM encryption, burn-after-download timers, QuickPad, Whiteboard, and Swarm sharing. No central storage servers.">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="canonical" href="https://local-cast.org/">
+
+    <!-- Open Graph / Social Previews -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Local-Cast">
+    <meta property="og:url" content="https://local-cast.org/">
+    <meta property="og:title" content="Local-Cast — Serverless P2P Mesh &amp; Encrypted File Sharing">
+    <meta property="og:description" content="Direct browser-to-browser P2P file sharing, media streaming, whiteboard, and encrypted vaults powered by WebRTC — zero central storage servers.">
+    <meta property="og:image" content="https://local-cast.org/icon-512.png">
+    <meta property="og:image:alt" content="Local-Cast P2P Mesh Logo">
+
+    <!-- Twitter / X Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Local-Cast — Serverless P2P Mesh &amp; Encrypted File Sharing">
+    <meta name="twitter:description" content="Direct browser-to-browser P2P file sharing, media streaming, and encrypted vaults powered by WebRTC with zero central storage.">
+    <meta name="twitter:image" content="https://local-cast.org/icon-512.png">
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Local-Cast",
+        "url": "https://local-cast.org/",
+        "description": "Serverless peer-to-peer file sharing, encrypted vaults, media streaming, screen sharing, and real-time browser collaboration powered by WebRTC.",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires modern web browser with WebRTC and Web Crypto API",
+        "image": "https://local-cast.org/icon-512.png",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        }
+    }
+    </script>
+
     <link rel="stylesheet" href="style.css?v=101">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -2271,7 +2310,7 @@ Scanning active WebRTC peer connection...
     <script>
         if ('serviceWorker' in navigator) {
             const registerSW = () => {
-                navigator.serviceWorker.register('./sw.js?v=162').then(reg => {
+                navigator.serviceWorker.register('./sw.js?v=163').then(reg => {
                     reg.update();
                 }).catch(err => {
                     console.log('SW Registration failed: ', err);
