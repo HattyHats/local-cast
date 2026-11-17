@@ -1,6 +1,6 @@
-# 🌐 LOCAL-CAST v3.5 // Zero-Knowledge Decentralized WebOS & Swarm Network
+# 🌐 LOCAL-CAST v3.6 // Zero-Knowledge Decentralized WebOS & Swarm Network
 
-[![Version](https://img.shields.io/badge/Version-v3.5-39ff14.svg)](https://local-cast.org)
+[![Version](https://img.shields.io/badge/Version-v3.6-39ff14.svg)](https://local-cast.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![WebRTC](https://img.shields.io/badge/WebRTC-Peer--to--Peer-00f0ff.svg)](https://webrtc.org/)
 [![Cryptography](https://img.shields.io/badge/Crypto-AES--GCM--256%20%7C%20ECDH%20P--256-39ff14.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
@@ -39,7 +39,7 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 * **Adaptive Hardware Scaling:** Dynamically caps device pixel ratios (DPR) and disables expensive post-processing on mobile/low-power hardware, cutting battery draw and boosting framerates by up to 85%.
 
 ### 🔥 4. Burn Protocol & Honey-Pot Countermeasures
-* **Burn-on-Download Protocol ("Zero-Trace Shredding"):** Flag files for self-destruction. Once downloaded by a recipient, a synchronized burn broadcast triggers: the file is automatically shredded from RAM, IndexedDB, and the host mesh with a digital disintegration animation.
+* **Burn / Self-Destruct Protocol — Download Limits & Timers (v3.6):** Configure files or folders to self-destruct after a custom download count (`1 DL`, `3 DLs`, `5 DLs`, custom) or countdown timer (`1m`–`1h`, custom) — or both at once — with live ticking explorer badges and automatic Host VFS + P2P Swarm chunk cache purging.
 * **Honey-Pot Traps:** Right-click any folder to designate it as an active decoy honey-pot. Unauthorized access attempts log silent strikes. After 3 strikes, the intruder is permanently disconnected and their browser UI is locked down.
 * **Dead Drops (Invisible Folders):** Conceal sensitive folders from guest view completely. Reveal them exclusively in the Host terminal with `/deaddrop`.
 * **Emergency Burn Notice ("Destroy Network"):** One-click panic button that severs all WebRTC channels, wipes cryptographic keys from RAM, and purges IndexedDB storage with zero forensic traces.
@@ -105,13 +105,19 @@ Built entirely with standard web primitives (WebRTC DataChannels, WebRTC MediaSt
 * **1-Click Instant Guest Onboarding:** Auto-generated cyberpunk handles and unique SVG emoji avatars remove all friction for new guests joining the swarm.
 * **Streamlined UI & Compact Sidebar:** Ergonomic 2-column actions toolbar with integrated QuickPad note-taking, responsive folder navigation ("Up One Level" breadcrumbs), and inline real-time transfer progress indicators.
 
+### 🚀 11. Vanity Room Codes, Live Telemetry & `.lcroom` Snapshots (v3.6)
+* **Vanity Room Codes & Join Modal:** Hosts can set custom short room codes (e.g., `HATTY-7`) in the Share modal, and peers on any device can connect via the header **`JOIN ROOM`** modal by entering a short code, Peer ID, or invite link.
+* **Encrypted `.lcroom` Workspace Snapshots:** Export and restore your entire Virtual File System, QuickPad tabs, and CyberBoard Kanban cards in one click as an optional AES-GCM encrypted `.lcroom` archive.
+* **Inline PDF Viewer & Live Activity Log:** Preview `.pdf` documents directly inside the in-app viewer on both Host and Guest, and inspect real-time room events inside the collapsible Session Telemetry Activity Feed.
+* **First-Time Empty Drop Zone & Guest Ad Placement:** Intuitive empty-folder drop zone with quick actions plus responsive Desktop/Mobile layout optimizations for Host and Guest views.
+
 ---
 
 ## 🛠️ Technical Specifications
 
 | Component | Implementation Details |
 | :--- | :--- |
-| **Release Version** | v3.5 (Multi-Source Swarm Seeding, Live Code Sandbox, P2P Watch Party & CyberBoard) |
+| **Release Version** | v3.6 (Vanity Room Codes, Timed/Counted Burn Protocol, `.lcroom` Snapshots, Inline PDF & Activity Feed) |
 | **Transport Layer** | WebRTC DataChannels (SCTP over DTLS/UDP) & MediaStreams (SRTP) |
 | **Network Topology** | P2P Swarm Mesh with deterministic initiator connection pairing & Host bitfield relay |
 | **Chunk Size** | 16 KB (`16384` bytes) optimized for WebRTC MTU boundaries |

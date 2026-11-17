@@ -19,7 +19,7 @@ if (btnAirgap) {
         btnAirgapClose.addEventListener('click', () => {
             if (airgapModal) airgapModal.classList.add('hidden');
             if (html5QrcodeScanner) {
-                html5QrcodeScanner.clear();
+                html5QrcodeScanner.clear().catch(() => {});
                 html5QrcodeScanner = null;
             }
             if (airgapScannerContainer) {
@@ -35,7 +35,7 @@ if (btnAirgap) {
 
     if (btnAirgapGenerate) {
         btnAirgapGenerate.addEventListener('click', () => {
-            if (html5QrcodeScanner) { html5QrcodeScanner.clear(); html5QrcodeScanner = null; }
+            if (html5QrcodeScanner) { html5QrcodeScanner.clear().catch(() => {}); html5QrcodeScanner = null; }
             if (airgapScannerContainer) {
                 airgapScannerContainer.innerHTML = '';
                 airgapScannerContainer.style.display = 'none';
@@ -85,9 +85,15 @@ if (btnAirgap) {
                             const scannedUrl = new URL(decodedText, window.location.origin);
                             targetPeerId = scannedUrl.searchParams.get('room');
                         } catch (urlErr) {}
+                        if (!targetPeerId && typeof decodedText === 'string') {
+                            const candidate = decodedText.trim();
+                            if (/^[a-zA-Z0-9_-]{3,40}$/.test(candidate)) {
+                                targetPeerId = candidate;
+                            }
+                        }
                     }
                     if (targetPeerId) {
-                        html5QrcodeScanner.clear();
+                        html5QrcodeScanner.clear().catch(() => {});
                         html5QrcodeScanner = null;
                         airgapModal.classList.add('hidden');
                         if (typeof setupClientPeer !== 'undefined') {
@@ -382,7 +388,7 @@ function broadcastEmulatorStream() {
     }
     emuLocalStream = emulatorCanvas.captureStream(30);
     connections.forEach(conn => {
-        if (conn.open) {
+        if (conn.open && conn.isAuthenticated) {
             const call = peer.call(conn.peer, emuLocalStream, { metadata: { type: 'EMULATOR' } });
             if (call) activeEmuCalls.push(call);
         }

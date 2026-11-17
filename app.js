@@ -977,7 +977,11 @@ const transferList = document.getElementById('transfer-list');
 const btnMinimizeTransfers = document.getElementById('btn-minimize-transfers');
 
 let dragCounter = 0;
+function hasFilesTransfer(e) {
+    return !!(e && e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files'));
+}
 document.addEventListener('dragenter', (e) => {
+    if (!hasFilesTransfer(e)) return;
     e.preventDefault();
     dragCounter++;
     if (dragOverlay) {
@@ -985,6 +989,7 @@ document.addEventListener('dragenter', (e) => {
     }
 });
 document.addEventListener('dragleave', (e) => {
+    if (!hasFilesTransfer(e)) return;
     e.preventDefault();
     dragCounter--;
     if (dragCounter <= 0 && dragOverlay) {
@@ -994,7 +999,9 @@ document.addEventListener('dragleave', (e) => {
 });
 document.addEventListener('dragover', (e) => {
     e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = hasFilesTransfer(e) ? 'copy' : 'move';
+    }
 });
 document.addEventListener('drop', (e) => {
     dragCounter = 0;
@@ -1775,13 +1782,109 @@ function getPeerConfig() {
     };
 }
 
+function sanitizeVanitySlug(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    return raw.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
+}
+
+function extractRoomParam(input) {
+    if (!input || typeof input !== 'string') return '';
+    const trimmed = input.trim();
+    if (!trimmed) return '';
+    try {
+        if (trimmed.includes('room=')) {
+            const urlObj = trimmed.startsWith('http') ? new URL(trimmed) : new URL('https://local-cast.org/' + trimmed.replace(/^\/+/, ''));
+            const r = urlObj.searchParams.get('room');
+            if (r) return r.trim();
+        }
+    } catch (e) {}
+    return trimmed;
+}
+
+function normalizeRoomPeerId(raw) {
+    const val = extractRoomParam(raw);
+    if (!val) return null;
+    if (/^(host_|guest_|magic_)/i.test(val)) {
+        const clean = val.replace(/[^a-zA-Z0-9_-]/g, '');
+        return clean.length >= 6 ? clean : null;
+    }
+    if (/^lc_room_/i.test(val)) {
+        const slug = sanitizeVanitySlug(val.slice(8)).toLowerCase();
+        return slug.length >= 3 ? `lc_room_${slug}` : null;
+    }
+    const slug = sanitizeVanitySlug(val).toLowerCase();
+    return slug.length >= 3 ? `lc_room_${slug}` : null;
+}
+
+function formatRoomDisplayCode(peerId) {
+    if (!peerId) return '...';
+    if (peerId.toLowerCase().startsWith('lc_room_')) {
+        return peerId.slice(8).toUpperCase();
+    }
+    return peerId;
+}
+
+function getHostShareUrl(peerId) {
+    if (!peerId) return '';
+    const param = peerId.toLowerCase().startsWith('lc_room_') ? formatRoomDisplayCode(peerId) : peerId;
+    return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(param)}`;
+}
+
+let customVanitySlug = (() => {
+    try { return sanitizeVanitySlug(localStorage.getItem('localcast_vanity_slug') || ''); } catch (e) { return ''; }
+})();
+
 const urlParams = new URLSearchParams(window.location.search);
-const roomCode = urlParams.get('room');
+const rawRoomParam = urlParams.get('room');
+const roomCode = normalizeRoomPeerId(rawRoomParam);
 const magicPeerId = urlParams.get('peer');
 const magicFileId = urlParams.get('file');
 
-if (roomCode) {
+if (roomCode || rawRoomParam) {
     isHost = false;
+}
+
+const roomActivityEntries = [];
+function logRoomActivity(message, tone = 'info') {
+    try {
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        const safeTone = /^(info|success|warning|danger)$/.test(tone) ? tone : 'info';
+        roomActivityEntries.unshift({ time: timeStr, message: String(message), tone: safeTone });
+        if (roomActivityEntries.length > 40) roomActivityEntries.length = 40;
+
+        const feedEl = document.getElementById('session-activity-feed');
+        const countEl = document.getElementById('telemetry-activity-count');
+        if (countEl) countEl.textContent = String(roomActivityEntries.length);
+        if (feedEl) {
+            feedEl.innerHTML = roomActivityEntries.map(item =>
+                `<div class="activity-entry activity-${item.tone}"><span class="activity-time">${escapeHtml(item.time)}</span><span>${escapeHtml(item.message)}</span></div>`
+            ).join('');
+        }
+    } catch (e) {}
+}
+
+function isPdfFile(name, mime) {
+    const lower = (name || '').toLowerCase();
+    return (mime && mime.toLowerCase() === 'application/pdf') || lower.endsWith('.pdf');
+}
+
+function openPdfInMediaModal(url, name) {
+    if (!mediaModal || !mediaContainer) return;
+    if (typeof currentMediaNodeMeta !== 'undefined') currentMediaNodeMeta = null;
+    if (typeof setWatchPartyUIActive === 'function') setWatchPartyUIActive(false);
+    if (btnWatchPartyToggle) btnWatchPartyToggle.classList.add('hidden');
+    const bufferContainer = document.getElementById('stream-buffer-container');
+    if (bufferContainer) bufferContainer.classList.add('hidden');
+    mediaModal.classList.remove('hidden');
+    if (mediaTitle) mediaTitle.innerText = `📄 ${name}`;
+    mediaContainer.innerHTML = `<iframe src="${url}#view=FitH" title="${escapeHtml(name)}" style="width:100%; height:72vh; border:none; display:block; background:#141822;"></iframe>`;
+    if (btnDownloadMedia) {
+        btnDownloadMedia.href = url;
+        btnDownloadMedia.download = name;
+        btnDownloadMedia.style.display = 'block';
+        btnDownloadMedia.textContent = 'DOWNLOAD PDF';
+    }
 }
 
 function syncActiveViewAds() {
@@ -2745,6 +2848,42 @@ async function initHost() {
         await localforage.removeItem("host_peer_id");
     } catch(e) {}
     let hostOpenTimeout = null;
+    let hostReconnectTimer = null;
+    let hostVanityRetries = 0;
+
+    function cleanupAllHostConnections() {
+        try {
+            connections.forEach(c => { try { c.close(); } catch(e) {} });
+        } catch(e) {}
+        connections = [];
+        if (typeof activePeers !== 'undefined' && activePeers && typeof activePeers.clear === 'function') {
+            activePeers.clear();
+        }
+        if (typeof intercomUsers !== 'undefined' && intercomUsers && typeof intercomUsers.clear === 'function') {
+            intercomUsers.clear();
+        }
+        if (typeof peerEcdhSharedKeys !== 'undefined' && peerEcdhSharedKeys && typeof peerEcdhSharedKeys.clear === 'function') {
+            peerEcdhSharedKeys.clear();
+        }
+        if (typeof activeScreenCalls !== 'undefined' && activeScreenCalls) {
+            Object.values(activeScreenCalls).forEach(call => { try { call.close(); } catch(e) {} });
+            activeScreenCalls = {};
+        }
+        if (typeof swarmBitfields !== 'undefined' && swarmBitfields && typeof swarmBitfields.clear === 'function') {
+            swarmBitfields.clear();
+        }
+        if (typeof updateTelemetryPeers === 'function') updateTelemetryPeers();
+    }
+
+    function scheduleHostRestart(delayMs) {
+        if (isServerBurned) return;
+        if (hostReconnectTimer) clearTimeout(hostReconnectTimer);
+        hostReconnectTimer = setTimeout(() => {
+            hostReconnectTimer = null;
+            setupHostPeer();
+        }, delayMs);
+    }
+
     setupHostPeer = function(attempts = 0) {
         if (typeof Peer === 'undefined') {
             if (attempts < 25) {
@@ -2760,13 +2899,21 @@ async function initHost() {
             clearTimeout(hostOpenTimeout);
             hostOpenTimeout = null;
         }
+        if (hostReconnectTimer) {
+            clearTimeout(hostReconnectTimer);
+            hostReconnectTimer = null;
+        }
+
+        cleanupAllHostConnections();
 
         if (peer && !peer.destroyed) {
             try { peer.destroy(); } catch(e) {}
         }
 
-        const freshHostId = generatePeerId('host_');
-        peer = new Peer(freshHostId, getPeerConfig());
+        const targetHostId = (customVanitySlug && customVanitySlug.length >= 3)
+            ? `lc_room_${customVanitySlug.toLowerCase()}`
+            : generatePeerId('host_');
+        peer = new Peer(targetHostId, getPeerConfig());
 
         hostOpenTimeout = setTimeout(() => {
             if (isServerBurned) return;
@@ -2782,21 +2929,45 @@ async function initHost() {
             clearTimeout(hostOpenTimeout);
             console.error("PeerJS Host Error:", err);
             if (err.type === 'unavailable-id') {
+                if (customVanitySlug && hostVanityRetries < 2) {
+                    hostVanityRetries++;
+                    updateStatus('RETRYING...', 'offline');
+                    scheduleHostRestart(1200);
+                    return;
+                }
+                if (customVanitySlug) {
+                    const taken = customVanitySlug.toUpperCase();
+                    customVanitySlug = '';
+                    hostVanityRetries = 0;
+                    try { localStorage.removeItem('localcast_vanity_slug'); } catch(e) {}
+                    const vanityInput = document.getElementById('vanity-room-input');
+                    if (vanityInput) vanityInput.value = '';
+                    showToast(`Room code "${taken}" is currently in use — switched to a unique ID.`);
+                    logRoomActivity(`Vanity code "${taken}" already taken; rotated ID`, 'warning');
+                }
                 updateStatus('RETRYING...', 'offline');
-                setTimeout(() => setupHostPeer(), 1000);
+                scheduleHostRestart(800);
+            } else if (err.type === 'invalid-id') {
+                customVanitySlug = '';
+                hostVanityRetries = 0;
+                try { localStorage.removeItem('localcast_vanity_slug'); } catch(e) {}
+                updateStatus('RETRYING...', 'offline');
+                scheduleHostRestart(800);
             } else if (err.type === 'server-error' || err.type === 'socket-error' || err.type === 'network' || err.type === 'socket-closed') {
                 if (peer && !peer.destroyed && peer.id && typeof peer.reconnect === 'function' && peer.disconnected) {
                     updateStatus('RECONNECTING...', 'offline');
-                    try { peer.reconnect(); } catch(e) { setTimeout(() => setupHostPeer(), 1500); }
+                    try { peer.reconnect(); } catch(e) { scheduleHostRestart(1500); }
                 } else if (!peer || !peer.open) {
                     updateStatus('RETRYING...', 'offline');
-                    setTimeout(() => setupHostPeer(), 1500);
+                    scheduleHostRestart(1500);
                 }
             } else if (err.type === 'peer-unavailable') {
                 // Ignore transient peer disconnect
             } else {
                 updateStatus('OFFLINE', 'offline');
-                setTimeout(() => {
+                if (hostReconnectTimer) clearTimeout(hostReconnectTimer);
+                hostReconnectTimer = setTimeout(() => {
+                    hostReconnectTimer = null;
                     if (!peer || !peer.open) {
                         updateStatus('RECONNECTING...', 'offline');
                         setupHostPeer();
@@ -2817,12 +2988,20 @@ async function initHost() {
 
         peer.on('open', (id) => {
             clearTimeout(hostOpenTimeout);
+            if (hostReconnectTimer) { clearTimeout(hostReconnectTimer); hostReconnectTimer = null; }
+            hostVanityRetries = 0;
             updateStatus('HOST ACTIVE', 'online');
-            const connectUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
+            const displayCode = formatRoomDisplayCode(id);
+            const connectUrl = getHostShareUrl(id);
             
             renderHostQR(connectUrl);
             if (joinInfo) joinInfo.classList.remove('hidden');
             if (joinUrl) joinUrl.textContent = connectUrl;
+            const shareRoomCodeDisplay = document.getElementById('share-room-code-display');
+            if (shareRoomCodeDisplay) shareRoomCodeDisplay.textContent = displayCode;
+            const vanityInputEl = document.getElementById('vanity-room-input');
+            if (vanityInputEl && customVanitySlug) vanityInputEl.value = customVanitySlug.toUpperCase();
+            logRoomActivity(`Host mesh online (${displayCode})`, 'success');
             
             const btnCopyUrl = document.getElementById('btn-copy-url');
             if (btnCopyUrl) {
@@ -2856,6 +3035,7 @@ async function initHost() {
             conn.permissions = { upload: false, chat: true, delete: false, edit: false, whiteboard: false, scratchpad: false, cyberboard: false };
 
             const handleOpen = () => {
+                logRoomActivity(`Peer connected (${conn.peer.slice(-8)})`, 'success');
                 sendEcdhHandshake(conn);
                 if (hostPassword && !conn.isAuthenticated) {
                     conn.send({ type: 'AUTH_REQUIRED' });
@@ -3089,9 +3269,8 @@ async function initHost() {
                     };
                     if (typeof getActivePadFile === 'function' && getActivePadFile().id === data.fileId && typeof renderPeerCursor === 'function') {
                         renderPeerCursor(conn.peer, data.pos, data.name, data.color);
-                    } else if (typeof padCursorOverlay !== 'undefined' && padCursorOverlay) {
-                        const existingEl = document.getElementById('pad-cursor-' + conn.peer);
-                        if (existingEl) existingEl.style.display = 'none';
+                    } else if (typeof removePeerCursor === 'function') {
+                        removePeerCursor(conn.peer);
                     }
                 }
                 connections.forEach(c => {
@@ -3449,6 +3628,7 @@ async function initHost() {
                             sendFileInChunks(conn, node.id, blob, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: false });
                         }).catch(e => console.error('Native read error:', e));
                     } else {
+                        logRoomActivity(`Peer "${conn.peer.slice(-8)}" downloading ${node.name}`, 'info');
                         sendFileInChunks(conn, node.id, node.fileObj, node.name, node.mime, 'FILE_CHUNK', { isEncrypted: node.isEncrypted, salt: node.salt, iv: node.iv });
                     }
                 } else {
@@ -3477,12 +3657,13 @@ async function initHost() {
             } else if (data.type === 'CLIENT_UPLOAD_CHUNK' && conn.isAuthenticated) {
                 if (!conn.permissions || !conn.permissions.upload) return;
                 const transfer = incomingTransfers[data.id];
-                if (transfer && data.chunk && data.index >= 0 && data.index < transfer.total) {
+                const chunkSize = data.chunk ? (data.chunk.byteLength || data.chunk.size || 0) : 0;
+                if (transfer && transfer.peerId === conn.peer && data.chunk && data.index >= 0 && data.index < transfer.total) {
                     if (transfer.chunks[data.index] === undefined) {
                         transfer.received++;
                     }
                     transfer.chunks[data.index] = data.chunk;
-                    updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
+                    updateTransferProgress(data.id, chunkSize, transfer.size);
                     const now = Date.now();
                     if (window.triggerCyberspaceBeam && (!transfer.lastBeamTime || now - transfer.lastBeamTime > 250)) {
                         transfer.lastBeamTime = now;
@@ -3552,29 +3733,41 @@ async function initHost() {
                                     const encryptedBuffer = await encryptNativeFile(buffer, nativeVaultPassword);
                                     let dirHandle = current.nativeHandle;
                                     if (!dirHandle && current.isNativeRoot) dirHandle = nativeVaultHandle;
-                                    if (dirHandle) {
-                                        const fileHandle = await dirHandle.getFileHandle(transfer.name + '.loc', { create: true });
-                                        const writable = await fileHandle.createWritable();
-                                        await writable.write(encryptedBuffer);
-                                        await writable.close();
-                                        nativeHandle = fileHandle;
-                                        finalFileObj = null;
-                                        isEncrypted = true;
-                                        isNative = true;
+                                    if (!dirHandle) {
+                                        conn.send({ type: 'ALERT', message: 'Upload rejected: Native folder handle unavailable.' });
+                                        return;
                                     }
-                                } catch (e) { console.error("Native save failed", e); }
+                                    const fileHandle = await dirHandle.getFileHandle(transfer.name + '.loc', { create: true });
+                                    const writable = await fileHandle.createWritable();
+                                    await writable.write(encryptedBuffer);
+                                    await writable.close();
+                                    nativeHandle = fileHandle;
+                                    finalFileObj = null;
+                                    isEncrypted = true;
+                                    isNative = true;
+                                } catch (e) {
+                                    console.error("Native save failed", e);
+                                    conn.send({ type: 'ALERT', message: 'Upload failed: Native Vault encryption/save error.' });
+                                    return;
+                                }
                             } else if (vaultNode) {
                                 try {
                                     const buffer = await fileBlob.arrayBuffer();
                                     const pass = unlockedVaults[vaultNode.id] || vaultNode.password;
-                                    if (pass) {
-                                        const encData = await encryptFile(buffer, pass);
-                                        finalFileObj = new Blob([encData.encrypted], { type: 'application/octet-stream' });
-                                        isEncrypted = true;
-                                        salt = encData.salt;
-                                        iv = encData.iv;
+                                    if (!pass) {
+                                        conn.send({ type: 'ALERT', message: 'Upload rejected: Target Vault is locked.' });
+                                        return;
                                     }
-                                } catch(e) { console.error("Guest Vault upload failed:", e); }
+                                    const encData = await encryptFile(buffer, pass);
+                                    finalFileObj = new Blob([encData.encrypted], { type: 'application/octet-stream' });
+                                    isEncrypted = true;
+                                    salt = encData.salt;
+                                    iv = encData.iv;
+                                } catch(e) {
+                                    console.error("Guest Vault upload failed:", e);
+                                    conn.send({ type: 'ALERT', message: 'Upload failed: Vault encryption error.' });
+                                    return;
+                                }
                             }
 
                             current.children.push({ id: newId, name: transfer.name, type: 'file', size: transfer.size, mime: transfer.mime, fileObj: finalFileObj, parent: current, thumbnail: transfer.thumbnail, isEncrypted, salt, iv, nativeHandle, isNative });
@@ -3743,6 +3936,7 @@ async function initHost() {
         });
         
         const handlePeerDisconnect = () => {
+            logRoomActivity(`Peer disconnected (${conn.peer.slice(-8)})`, 'warning');
             connections = connections.filter(c => c !== conn);
             if (typeof intercomUsers !== 'undefined') intercomUsers.delete(conn.peer);
             if (typeof cleanupAudio === 'function') cleanupAudio(conn.peer);
@@ -3964,10 +4158,12 @@ function setupHostActions() {
         btnShareServer.addEventListener('click', () => {
             if (shareModal) shareModal.classList.remove('hidden');
             if (peer && peer.id) {
-                const connectUrl = `${window.location.origin}${window.location.pathname}?room=${peer.id}`;
+                const connectUrl = getHostShareUrl(peer.id);
                 renderHostQR(connectUrl);
                 if (joinInfo) joinInfo.classList.remove('hidden');
                 if (joinUrl) joinUrl.textContent = connectUrl;
+                const shareRoomCodeDisplay = document.getElementById('share-room-code-display');
+                if (shareRoomCodeDisplay) shareRoomCodeDisplay.textContent = formatRoomDisplayCode(peer.id);
             } else {
                 if (!peer || !peer.open) {
                     updateStatus('CONNECTING...', 'offline');
@@ -4004,7 +4200,7 @@ function setupHostActions() {
         } else {
             btnNativeShare.addEventListener('click', async () => {
                 if (peer && peer.id) {
-                    const connectUrl = `${window.location.origin}${window.location.pathname}?room=${peer.id}`;
+                    const connectUrl = getHostShareUrl(peer.id);
                     try {
                         await navigator.share({
                             title: 'LocalCast P2P Room',
@@ -4156,17 +4352,28 @@ function setupHostActions() {
     });
     
     btnDownloadAllHost.addEventListener('click', async () => {
+        const origHtml = btnDownloadAllHost.innerHTML;
         btnDownloadAllHost.style.opacity = '0.5';
         btnDownloadAllHost.innerText = 'Zipping...';
-        const blob = await generateZipBlob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'local-cast-backup.zip';
-        a.click();
-        URL.revokeObjectURL(url);
-        btnDownloadAllHost.style.opacity = '1';
-        btnDownloadAllHost.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download Backup`;
+        try {
+            const blob = await generateZipBlob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'local-cast-backup.zip';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                if (a.parentNode) document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 10000);
+        } catch (err) {
+            console.error('Host zip backup error:', err);
+            showToast('Failed to create backup zip.');
+        } finally {
+            btnDownloadAllHost.style.opacity = '1';
+            btnDownloadAllHost.innerHTML = origHtml;
+        }
     });
     
     fileInput.addEventListener('change', (e) => processFiles(Array.from(e.target.files)));
@@ -4379,6 +4586,9 @@ async function processFiles(files) {
     folderInput.value = '';
     renderHostExplorer();
     broadcastTree();
+    if (files && files.length > 0) {
+        logRoomActivity(`Added ${files.length} item${files.length === 1 ? '' : 's'} to ${vfs.currentDir.name || 'Home'}`, 'success');
+    }
 }
 
 function moveNode(nodeId, targetFolderId, autoRender = true) {
@@ -4561,7 +4771,39 @@ function renderHostExplorer() {
     }
     
     if (itemsToRender.length === 0) {
-        hostExplorerGrid.innerHTML = `<p style="color: var(--text-muted); padding: 1rem;">${hostSearchQuery ? 'No matching files found' : 'Folder is empty'}</p>`;
+        if (hostSearchQuery) {
+            hostExplorerGrid.innerHTML = `<p style="color: var(--text-muted); padding: 1rem;">No matching files found</p>`;
+            return;
+        }
+        hostExplorerGrid.innerHTML = `
+            <div class="empty-drop-zone" id="empty-drop-zone">
+                <div class="empty-drop-icon">
+                    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                </div>
+                <h3 class="empty-drop-title">DROP FILES OR FOLDERS ANYWHERE</h3>
+                <p class="empty-drop-subtitle">Stream media, preview PDFs, share notes, or arm self-destructing files directly browser-to-browser with zero cloud uploads.</p>
+                <div class="empty-drop-actions">
+                    <button type="button" class="custom-btn empty-drop-btn" id="empty-btn-upload-files" style="border-color: var(--neon-blue); color: var(--neon-blue);">📁 Upload Files</button>
+                    <button type="button" class="custom-btn empty-drop-btn" id="empty-btn-upload-folder" style="border-color: var(--neon-purple); color: var(--neon-purple);">📂 Upload Folder</button>
+                    <button type="button" class="custom-btn empty-drop-btn" id="empty-btn-join-room" style="border-color: var(--neon-green); color: var(--neon-green);">🔗 Join Room</button>
+                    <button type="button" class="custom-btn empty-drop-btn" id="empty-btn-load-lcroom" style="border-color: rgba(255,255,255,0.28); color: var(--text-main);">📦 Load .lcroom</button>
+                </div>
+            </div>`;
+        const eUpFiles = document.getElementById('empty-btn-upload-files');
+        const eUpFolder = document.getElementById('empty-btn-upload-folder');
+        const eJoin = document.getElementById('empty-btn-join-room');
+        const eLoad = document.getElementById('empty-btn-load-lcroom');
+        if (eUpFiles && fileInput) eUpFiles.addEventListener('click', () => fileInput.click());
+        if (eUpFolder && folderInput) eUpFolder.addEventListener('click', () => folderInput.click());
+        if (eJoin) eJoin.addEventListener('click', () => { if (typeof openJoinRoomModal === 'function') openJoinRoomModal(); });
+        if (eLoad) eLoad.addEventListener('click', () => {
+            const inp = document.getElementById('lcroom-import-input');
+            if (inp) inp.click();
+        });
         return;
     }
 
@@ -4574,6 +4816,7 @@ function renderHostExplorer() {
         item.className = `file-item ${child.type}`;
         item.setAttribute('data-id', child.id);
         
+        const safeId = escapeHtml(child.id);
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
         const isFolderSecured = child.type === 'folder' && !!(child.isLocked || child.password || child.isVault || child.isNuclear);
@@ -4593,8 +4836,8 @@ function renderHostExplorer() {
         const burnIcon = isBurnArmed ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
         const burnBadgeHtml = renderBurnBadgeHtml(child);
-        const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
-        const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${child.id}"><div class="item-progress-fill" id="item-prog-fill-${child.id}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${child.id}">0%</span>`;
+        const checkboxHtml = `<div class="item-select-checkbox" data-id="${safeId}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
+        const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${safeId}"><div class="item-progress-fill" id="item-prog-fill-${safeId}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${safeId}">0%</span>`;
         item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${burnBadgeHtml}${progressHtml}`;
         item.draggable = true;
         
@@ -4686,15 +4929,22 @@ function renderHostExplorer() {
         if (child.type === 'folder') {
             item.addEventListener('dragover', (e) => {
                 e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = hasFilesTransfer(e) ? 'copy' : 'move';
                 item.style.borderColor = 'var(--neon-blue)';
             });
             item.addEventListener('dragleave', () => {
-                item.style.borderColor = 'transparent';
+                item.style.borderColor = child.isHoneyPot ? '#ff00ff' : 'transparent';
             });
             item.addEventListener('drop', (e) => {
+                item.style.borderColor = child.isHoneyPot ? '#ff00ff' : 'transparent';
+                if (hasFilesTransfer(e)) {
+                    dragCounter = 0;
+                    if (dragOverlay) dragOverlay.classList.add('hidden');
+                    return; // Allow external file drop to bubble to document drop handler
+                }
                 e.preventDefault();
                 e.stopPropagation();
-                item.style.borderColor = 'transparent';
                 try {
                     const ids = JSON.parse(e.dataTransfer.getData('application/json'));
                     let moved = false;
@@ -4721,6 +4971,9 @@ function renderHostExplorer() {
                     vaultPasswordModal.classList.remove('hidden');
                     vaultPasswordInput.value = '';
                     
+                    if (window._activeHostVaultUnlock) {
+                        btnConfirmVaultPassword.removeEventListener('click', window._activeHostVaultUnlock);
+                    }
                     const handleUnlock = async () => {
                         const pass = vaultPasswordInput.value;
                         if (!pass) return await cyberAlert("Password required to access this folder", "FOLDER LOCKED", true);
@@ -4728,6 +4981,7 @@ function renderHostExplorer() {
                             return await cyberAlert("Incorrect password. Access denied.", "ACCESS DENIED", true);
                         }
                         btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
+                        window._activeHostVaultUnlock = null;
                         vaultPasswordModal.classList.add('hidden');
                         
                         unlockedVaults[child.id] = pass;
@@ -4735,15 +4989,21 @@ function renderHostExplorer() {
                         renderHostExplorer();
                         broadcastTree();
                     };
+                    window._activeHostVaultUnlock = handleUnlock;
                     btnConfirmVaultPassword.addEventListener('click', handleUnlock);
                     btnCloseVaultModal.addEventListener('click', () => {
                         btnConfirmVaultPassword.removeEventListener('click', handleUnlock);
+                        window._activeHostVaultUnlock = null;
                         vaultPasswordModal.classList.add('hidden');
                     }, { once: true });
                 } else {
                     vfs.currentDir = child;
                     renderHostExplorer();
                 }
+            });
+        } else {
+            item.addEventListener('dblclick', () => {
+                if (typeof openHostFilePreview === 'function') openHostFilePreview(child);
             });
         }
         
@@ -4770,64 +5030,6 @@ function renderHostExplorer() {
             
             contextMenu.classList.remove('hidden');
         });
-        
-        if (child.type === 'file' && (child.name.endsWith('.txt') || child.name.endsWith('.md'))) {
-            item.addEventListener('dblclick', async () => {
-                    try {
-                        const decryptedObj = await getDecryptedFileObj(child);
-                        const text = await decryptedObj.text();
-                        currentEditorFileId = child.id;
-                        editorFilename.value = child.name;
-                        editorTextarea.value = text;
-                        editorModal.classList.remove('hidden');
-                    } catch (e) {
-                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
-                    }
-            });
-        } else if (child.type === 'file' && child.mime && (child.mime.startsWith('image/') || child.mime.startsWith('video/') || child.mime.startsWith('audio/'))) {
-            item.addEventListener('dblclick', async () => {
-                    try {
-                        const decryptedObj = await getDecryptedFileObj(child);
-                        const url = URL.createObjectURL(decryptedObj);
-                        mediaModal.classList.remove('hidden');
-                    mediaTitle.innerText = child.name;
-                    mediaContainer.innerHTML = '';
-                    if (typeof currentMediaNodeMeta !== 'undefined') {
-                        currentMediaNodeMeta = { id: child.id, name: child.name, mime: child.mime, size: child.size };
-                    }
-                    if (btnDownloadMedia) {
-                        btnDownloadMedia.href = url;
-                        btnDownloadMedia.download = child.name;
-                        btnDownloadMedia.style.display = "block";
-                    }
-                    if (child.mime.startsWith('video/')) {
-                        mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
-                    } else if (child.mime.startsWith('audio/')) {
-                        mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%;"></audio>`;
-                    } else {
-                        mediaContainer.innerHTML = `<img src="${url}" style="max-width:100%; max-height:70vh; display:block; margin:0 auto;" />`;
-                    }
-                    const mediaEl = (typeof getActiveMediaPlayerElement === 'function') ? getActiveMediaPlayerElement() : null;
-                    if (mediaEl && typeof bindWatchPartyMediaEvents === 'function') bindWatchPartyMediaEvents(mediaEl);
-                    } catch (e) {
-                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
-                    }
-            });
-        } else if (child.type === 'file') {
-            item.addEventListener('dblclick', async () => {
-                    try {
-                        const decryptedObj = await getDecryptedFileObj(child);
-                        const url = URL.createObjectURL(decryptedObj);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = child.name;
-                        a.click();
-                        setTimeout(() => URL.revokeObjectURL(url), 1000);
-                    } catch (e) {
-                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
-                    }
-            });
-        }
         
         hostExplorerGrid.appendChild(item);
     });
@@ -4869,6 +5071,8 @@ function renderBreadcrumbs(currentDir, container, onClick) {
         
         crumb.addEventListener('dragover', (e) => {
             e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = hasFilesTransfer(e) ? 'copy' : 'move';
             crumb.style.color = '#fff';
             crumb.style.textShadow = '0 0 8px var(--neon-blue)';
         });
@@ -4877,10 +5081,15 @@ function renderBreadcrumbs(currentDir, container, onClick) {
             crumb.style.textShadow = '';
         });
         crumb.addEventListener('drop', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
             crumb.style.color = '';
             crumb.style.textShadow = '';
+            if (hasFilesTransfer(e)) {
+                dragCounter = 0;
+                if (dragOverlay) dragOverlay.classList.add('hidden');
+                return; // Bubble external file drops to global drop handler
+            }
+            e.preventDefault();
+            e.stopPropagation();
             if (isHost) {
                 try {
                     const ids = JSON.parse(e.dataTransfer.getData('application/json'));
@@ -4998,7 +5207,24 @@ async function initClient() {
     updateStatus('CONNECTING...', 'offline');
     
     let clientOpenTimeout = null;
+    let clientConnectionTimeout = null;
+    let clientReconnectTimer = null;
+
+    function scheduleClientRestart(delayMs) {
+        if (isServerBurned) return;
+        if (clientReconnectTimer) clearTimeout(clientReconnectTimer);
+        clientReconnectTimer = setTimeout(() => {
+            clientReconnectTimer = null;
+            setupClientPeer();
+        }, delayMs);
+    }
+
     setupClientPeer = function(attempts = 0) {
+        if (!roomCode) {
+            updateStatus('INVALID ROOM CODE', 'offline');
+            showToast('Invalid or missing Room Code.');
+            return;
+        }
         if (typeof Peer === 'undefined') {
             if (attempts < 25) {
                 setTimeout(() => setupClientPeer(attempts + 1), 200);
@@ -5012,6 +5238,14 @@ async function initClient() {
         if (clientOpenTimeout) {
             clearTimeout(clientOpenTimeout);
             clientOpenTimeout = null;
+        }
+        if (clientConnectionTimeout) {
+            clearTimeout(clientConnectionTimeout);
+            clientConnectionTimeout = null;
+        }
+        if (clientReconnectTimer) {
+            clearTimeout(clientReconnectTimer);
+            clientReconnectTimer = null;
         }
 
         if (peer && !peer.destroyed) {
@@ -5033,15 +5267,31 @@ async function initClient() {
         peer.on("error", err => {
             if (isServerBurned) return;
             clearTimeout(clientOpenTimeout);
+            if (clientConnectionTimeout) {
+                clearTimeout(clientConnectionTimeout);
+                clientConnectionTimeout = null;
+            }
             console.error("PeerJS Client Error:", err);
             if (err.type === 'unavailable-id' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'network' || err.type === 'socket-closed') {
-                updateStatus('RETRYING...', 'offline');
-                setTimeout(() => setupClientPeer(), 1000);
+                if (peer && !peer.destroyed && peer.id && typeof peer.reconnect === 'function' && peer.disconnected) {
+                    updateStatus('RECONNECTING...', 'offline');
+                    try { peer.reconnect(); } catch (e) { scheduleClientRestart(1000); }
+                } else {
+                    updateStatus('RETRYING...', 'offline');
+                    scheduleClientRestart(1000);
+                }
             } else if (err.type === 'peer-unavailable') {
                 updateStatus('HOST NOT FOUND', 'offline');
                 showToast("Host room unavailable or offline.");
             } else {
                 updateStatus('HOST OFFLINE', 'offline');
+            }
+        });
+
+        peer.on('disconnected', () => {
+            if (isServerBurned) return;
+            if (peer && !peer.destroyed && typeof peer.reconnect === 'function') {
+                try { peer.reconnect(); } catch(e) {}
             }
         });
         
@@ -5059,24 +5309,40 @@ async function initClient() {
             clearTimeout(clientOpenTimeout);
             updateStatus('CONNECTING TO HOST...', 'offline');
             
-            let connectionTimeout = setTimeout(() => {
+            if (clientConnectionTimeout) clearTimeout(clientConnectionTimeout);
+            clientConnectionTimeout = setTimeout(() => {
+                clientConnectionTimeout = null;
                 if (!hostConnection || !hostConnection.open) {
                     updateStatus('HOST OFFLINE', 'offline');
                     showToast("Host room unavailable. Click 'START AS HOST' to begin your own session.");
                 }
             }, 7000);
 
-            hostConnection = peer.connect(roomCode, { reliable: true });
+            try {
+                hostConnection = peer.connect(roomCode, { reliable: true });
+            } catch (connErr) {
+                clearTimeout(clientConnectionTimeout);
+                clientConnectionTimeout = null;
+                updateStatus('INVALID ROOM CODE', 'offline');
+                showToast('Invalid Room Code format.');
+                return;
+            }
             
             hostConnection.on('open', () => {
-                clearTimeout(connectionTimeout);
+                if (clientConnectionTimeout) {
+                    clearTimeout(clientConnectionTimeout);
+                    clientConnectionTimeout = null;
+                }
                 updateStatus('CONNECTED TO HOST', 'online');
                 showToast("Connected to host mesh!");
                 sendEcdhHandshake(hostConnection);
             });
 
             hostConnection.on('error', () => {
-                clearTimeout(connectionTimeout);
+                if (clientConnectionTimeout) {
+                    clearTimeout(clientConnectionTimeout);
+                    clientConnectionTimeout = null;
+                }
                 updateStatus('CONNECTION FAILED', 'offline');
             });
         
@@ -5189,12 +5455,13 @@ async function initClient() {
                 if (pct) pct.textContent = '0%';
             } else if (data.type === 'FILE_CHUNK' || data.type === 'ZIP_CHUNK') {
                 const transfer = incomingTransfers[data.id];
-                if (transfer) {
+                if (transfer && data.chunk && data.index >= 0 && data.index < transfer.total) {
+                    const chunkLen = data.chunk.byteLength || data.chunk.size || 0;
                     if (transfer.chunks[data.index] === undefined) {
                         transfer.received++;
                     }
                     transfer.chunks[data.index] = data.chunk;
-                    updateTransferProgress(data.id, data.chunk.byteLength, transfer.size);
+                    updateTransferProgress(data.id, chunkLen, transfer.size);
                     const now = Date.now();
                     if (window.triggerCyberspaceBeam && (!transfer.lastBeamTime || now - transfer.lastBeamTime > 250)) {
                         transfer.lastBeamTime = now;
@@ -5564,9 +5831,8 @@ async function initClient() {
                     };
                     if (typeof getActivePadFile === 'function' && getActivePadFile().id === data.fileId && typeof renderPeerCursor === 'function') {
                         renderPeerCursor(data.peerId, data.pos, data.name, data.color);
-                    } else if (typeof padCursorOverlay !== 'undefined' && padCursorOverlay) {
-                        const existingEl = document.getElementById('pad-cursor-' + data.peerId);
-                        if (existingEl) existingEl.style.display = 'none';
+                    } else if (typeof removePeerCursor === 'function') {
+                        removePeerCursor(data.peerId);
                     }
                 }
             } else if (data.type === 'PAD_TAB_CREATE') {
@@ -5733,6 +5999,33 @@ async function initClient() {
             } else if (data.type === 'SWARM_PURGE_FILE') {
                 if (Array.isArray(data.fileIds)) {
                     purgeSwarmCacheForFileIds(data.fileIds);
+                    data.fileIds.forEach(fid => {
+                        if (activeSwarmDownloads && activeSwarmDownloads.has(fid)) {
+                            try { activeSwarmDownloads.get(fid).abort(); } catch (e) {}
+                            activeSwarmDownloads.delete(fid);
+                            failTransfer(fid, 'BURNED');
+                        }
+                        if (activeMediaStreamDownloader && activeMediaStreamDownloader.fileId === fid) {
+                            try { activeMediaStreamDownloader.abort(); } catch (e) {}
+                            activeMediaStreamDownloader = null;
+                            if (mediaModal) mediaModal.classList.add('hidden');
+                            if (mediaContainer) mediaContainer.innerHTML = '';
+                        }
+                        if (activePreviewFileId === fid && previewModal) {
+                            activePreviewFileId = null;
+                            previewModal.classList.add('hidden');
+                        }
+                        if (currentEditorFileId === fid && editorModal) {
+                            currentEditorFileId = null;
+                            editorModal.classList.add('hidden');
+                        }
+                        if (activeBurnModalTargetId === fid && burnProtocolModal) {
+                            closeBurnProtocolModal();
+                        }
+                        if (incomingTransfers && incomingTransfers[fid]) {
+                            delete incomingTransfers[fid];
+                        }
+                    });
                 }
                 if (data.nodeName) {
                     showToast(`🔥 "${data.nodeName}" self-destructed (${data.reason || 'Burn Protocol'}).`);
@@ -5873,10 +6166,12 @@ if (btnCloseMedia) {
         if (typeof watchPartyFileId !== 'undefined') {
             watchPartyFileId = null;
         }
-        const activeMediaEl = mediaContainer ? mediaContainer.querySelector('video, audio, img') : null;
+        const activeMediaEl = mediaContainer ? mediaContainer.querySelector('video, audio, img, iframe') : null;
         if (activeMediaEl && activeMediaEl.src && activeMediaEl.src.startsWith('blob:')) {
             try { URL.revokeObjectURL(activeMediaEl.src); } catch (e) {}
         }
+        if (btnWatchPartyToggle) btnWatchPartyToggle.classList.remove('hidden');
+        if (btnDownloadMedia) btnDownloadMedia.textContent = 'DOWNLOAD FILE';
         if (btnDownloadMedia && btnDownloadMedia.href && btnDownloadMedia.href.startsWith('blob:')) {
             try { URL.revokeObjectURL(btnDownloadMedia.href); } catch (e) {}
             btnDownloadMedia.removeAttribute('href');
@@ -5949,6 +6244,7 @@ function renderClientExplorer() {
         item.className = `file-item ${child.type}`;
         item.setAttribute('data-id', child.id);
         
+        const safeId = escapeHtml(child.id);
         const safeName = escapeHtml(child.name);
         const safeThumb = sanitizeThumbnailUrl(child.thumbnail);
         const isFolderSecured = child.type === 'folder' && (child.isLocked || child.isVault || child.isNuclear || child.password || child.isSecured);
@@ -5972,8 +6268,8 @@ function renderClientExplorer() {
         const burnIcon = isBurnArmed ? '🔥 ' : '';
         const nuclearIcon = child.isNuclear ? '☢️ ' : '';
         const burnBadgeHtml = renderBurnBadgeHtml(child);
-        const checkboxHtml = `<div class="item-select-checkbox" data-id="${child.id}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
-        const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${child.id}"><div class="item-progress-fill" id="item-prog-fill-${child.id}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${child.id}">0%</span>`;
+        const checkboxHtml = `<div class="item-select-checkbox" data-id="${safeId}" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
+        const progressHtml = `<div class="item-progress-track hidden" id="item-prog-track-${safeId}"><div class="item-progress-fill" id="item-prog-fill-${safeId}"></div></div><span class="item-progress-text hidden" id="item-prog-text-${safeId}">0%</span>`;
         item.innerHTML = `${checkboxHtml}${icon}<div class="item-name" title="${safeName}">${burnIcon}${nuclearIcon}${safeName}</div>${sizeText}${burnBadgeHtml}${progressHtml}`;
         item.draggable = true;
 
@@ -5996,7 +6292,7 @@ function renderClientExplorer() {
         }
         
         item.addEventListener('dragstart', (e) => {
-            if (!myPermissions || !myPermissions.delete) { e.preventDefault(); return; }
+            if (!myPermissions || (!myPermissions.delete && !myPermissions.edit)) { e.preventDefault(); return; }
             if (!clientSelectedNodes.has(child.id)) {
                 clientSelectedNodes.clear();
                 document.querySelectorAll('#client-file-grid .file-item.selected').forEach(el => el.classList.remove('selected'));
@@ -6092,6 +6388,9 @@ function renderClientExplorer() {
                     guestOtpEntryModal.classList.remove('hidden');
                     guestOtpInput.value = '';
                     
+                    if (window._activeGuestOtpSubmit) btnSubmitGuestOtp.removeEventListener('click', window._activeGuestOtpSubmit);
+                    if (window._activeGuestOtpClose) btnCloseGuestOtp.removeEventListener('click', window._activeGuestOtpClose);
+
                     const handleGuestOtpSubmit = () => {
                         const pin = guestOtpInput.value;
                         if (!pin) return;
@@ -6099,12 +6398,18 @@ function renderClientExplorer() {
                         guestOtpEntryModal.classList.add('hidden');
                         btnSubmitGuestOtp.removeEventListener('click', handleGuestOtpSubmit);
                         btnCloseGuestOtp.removeEventListener('click', handleGuestOtpClose);
+                        window._activeGuestOtpSubmit = null;
+                        window._activeGuestOtpClose = null;
                     };
                     const handleGuestOtpClose = () => {
                         guestOtpEntryModal.classList.add('hidden');
                         btnSubmitGuestOtp.removeEventListener('click', handleGuestOtpSubmit);
                         btnCloseGuestOtp.removeEventListener('click', handleGuestOtpClose);
+                        window._activeGuestOtpSubmit = null;
+                        window._activeGuestOtpClose = null;
                     };
+                    window._activeGuestOtpSubmit = handleGuestOtpSubmit;
+                    window._activeGuestOtpClose = handleGuestOtpClose;
                     btnSubmitGuestOtp.addEventListener('click', handleGuestOtpSubmit);
                     btnCloseGuestOtp.addEventListener('click', handleGuestOtpClose);
                 } else if ((child.isVault || child.isLocked || child.hasPassword || child.password || child.isSecured) && !child.isUnlocked) {
@@ -6166,6 +6471,7 @@ function renderClientExplorer() {
                                 lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') ||
                                 lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a');
                 if (isMedia) {
+                    activePreviewFileId = null;
                     startMediaStream(child.id, child.name, child.mime, child.size);
                 }
             }
@@ -6222,16 +6528,16 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
         const url = URL.createObjectURL(fileData);
         const a = document.createElement('a');
         a.href = url; a.download = name; document.body.appendChild(a); a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+        setTimeout(() => { if (a.parentNode) document.body.removeChild(a); URL.revokeObjectURL(url); }, 10000);
     } else {
-        const url = URL.createObjectURL(fileData);
         const loaderContainer = document.getElementById('preview-loader-container');
         if (loaderContainer) loaderContainer.classList.add('hidden');
 
         if (activePreviewFileId === null || (previewModal && previewModal.classList.contains('hidden')) || (fileId && activePreviewFileId !== fileId)) {
+            const url = URL.createObjectURL(fileData);
             const a = document.createElement('a');
             a.href = url; a.download = name; document.body.appendChild(a); a.click();
-            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+            setTimeout(() => { if (a.parentNode) document.body.removeChild(a); URL.revokeObjectURL(url); }, 10000);
             
             // Check for BURN-AFTER-DOWNLOAD (file or ancestor folder)
             if (fileId && hostConnection && hostConnection.open) {
@@ -6250,39 +6556,74 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
         }
         
         const lowerName = name.toLowerCase();
+        const isPdf = isPdfFile(name, mime);
         const isMedia = (mime && (mime.startsWith('video/') || mime.startsWith('audio/') || mime.startsWith('image/'))) || 
                         lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg') ||
                         lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') ||
                         lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.gif');
         const isText = lowerName.endsWith('.txt') || lowerName.endsWith('.md');
         
-        if (isMedia) {
+        if (isPdf) {
+            const url = URL.createObjectURL(fileData);
+            btnDownloadDirect.href = url;
+            btnDownloadDirect.download = name;
+            btnDownloadDirect.classList.remove('hidden');
+            btnDownloadDirect.style.display = "block";
+            if (btnStreamDirect) {
+                btnStreamDirect.classList.remove('hidden');
+                btnStreamDirect.style.display = "block";
+                btnStreamDirect.textContent = "📄 OPEN PDF VIEWER";
+                btnStreamDirect.onclick = () => {
+                    previewModal.classList.add('hidden');
+                    activePreviewFileId = null;
+                    const viewerUrl = URL.createObjectURL(fileData);
+                    openPdfInMediaModal(viewerUrl, name);
+                };
+            }
+        } else if (isMedia) {
+            const url = URL.createObjectURL(fileData);
             btnDownloadDirect.href = url;
             btnDownloadDirect.download = name;
             btnDownloadDirect.classList.remove('hidden');
             btnDownloadDirect.style.display = "block";
             btnStreamDirect.classList.remove('hidden');
             btnStreamDirect.style.display = "block";
+            btnStreamDirect.textContent = "STREAM MEDIA";
             btnStreamDirect.onclick = () => {
                 previewModal.classList.add('hidden');
+                activePreviewFileId = null;
+                const bufferContainer = document.getElementById('stream-buffer-container');
+                if (bufferContainer) bufferContainer.classList.add('hidden');
+                const mediaUrl = URL.createObjectURL(fileData);
+                const isImg = (mime && mime.startsWith('image/')) || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.gif');
+                if (btnWatchPartyToggle) btnWatchPartyToggle.classList.toggle('hidden', !!isImg);
+                if (!isImg && typeof currentMediaNodeMeta !== 'undefined') {
+                    currentMediaNodeMeta = { id: fileId, name, mime: mime || 'video/mp4', size: fileData.size || 0 };
+                } else if (typeof currentMediaNodeMeta !== 'undefined') {
+                    currentMediaNodeMeta = null;
+                }
                 mediaModal.classList.remove('hidden');
                 mediaTitle.innerText = name;
                 mediaContainer.innerHTML = '';
                 if (btnDownloadMedia) {
-                    btnDownloadMedia.href = url;
+                    btnDownloadMedia.href = mediaUrl;
                     btnDownloadMedia.download = name;
                     btnDownloadMedia.style.display = "block";
+                    btnDownloadMedia.textContent = 'DOWNLOAD FILE';
                 }
-                if ((mime && mime.startsWith('video/')) || lowerName.endsWith('.mp4') || lowerName.endsWith('.webm')) {
-                    mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
+                if ((mime && mime.startsWith('video/')) || lowerName.endsWith('.mp4') || lowerName.endsWith('.webm') || lowerName.endsWith('.ogg')) {
+                    mediaContainer.innerHTML = `<video id="active-stream-media" src="${mediaUrl}" controls autoplay playsinline style="width:100%; max-height:70vh; display:block;"></video>`;
                 } else if ((mime && mime.startsWith('audio/')) || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav')) {
-                    mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+                    mediaContainer.innerHTML = `<audio id="active-stream-media" src="${mediaUrl}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
                 } else {
-                    mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
+                    mediaContainer.innerHTML = `<img src="${mediaUrl}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
                 }
+                const mediaEl = (typeof getActiveMediaPlayerElement === 'function') ? getActiveMediaPlayerElement() : null;
+                if (mediaEl && typeof bindWatchPartyMediaEvents === 'function') bindWatchPartyMediaEvents(mediaEl);
             };
         } else if (isText && fileId && activePreviewFileId === fileId) {
             previewModal.classList.add('hidden');
+            activePreviewFileId = null;
             const text = await fileData.text();
             currentEditorFileId = fileId;
             editorFilename.value = name;
@@ -6290,6 +6631,7 @@ async function triggerDownload(fileData, name, mime, fileId = null) {
             editorTextarea.readOnly = !isHost && !myPermissions.edit;
             editorModal.classList.remove('hidden');
         } else {
+            const url = URL.createObjectURL(fileData);
             btnDownloadDirect.href = url;
             btnDownloadDirect.download = name;
             btnDownloadDirect.classList.remove('hidden');
@@ -6647,6 +6989,65 @@ function findClientNode(node, id) {
     return null;
 }
 
+async function openHostFilePreview(node) {
+    if (!node || node.type !== 'file') return;
+    if (isPdfFile(node.name, node.mime)) {
+        try {
+            const decryptedObj = await getDecryptedFileObj(node);
+            const url = URL.createObjectURL(decryptedObj);
+            openPdfInMediaModal(url, node.name);
+        } catch (e) {
+            await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
+        }
+        return;
+    }
+    if (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) {
+        try {
+            const decryptedObj = await getDecryptedFileObj(node);
+            const url = URL.createObjectURL(decryptedObj);
+            if (btnWatchPartyToggle) btnWatchPartyToggle.classList.remove('hidden');
+            mediaModal.classList.remove('hidden');
+            mediaTitle.innerText = node.name;
+            mediaContainer.innerHTML = '';
+            if (typeof currentMediaNodeMeta !== 'undefined') {
+                currentMediaNodeMeta = { id: node.id, name: node.name, mime: node.mime, size: node.size };
+            }
+            if (btnDownloadMedia) {
+                btnDownloadMedia.href = url;
+                btnDownloadMedia.download = node.name;
+                btnDownloadMedia.style.display = "block";
+            }
+            if (node.mime.startsWith('video/')) {
+                mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
+            } else if (node.mime.startsWith('audio/')) {
+                mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
+            } else {
+                mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
+            }
+            const mediaEl = (typeof getActiveMediaPlayerElement === 'function') ? getActiveMediaPlayerElement() : null;
+            if (mediaEl && typeof bindWatchPartyMediaEvents === 'function') bindWatchPartyMediaEvents(mediaEl);
+        } catch(e) {
+            await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
+        }
+    } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
+        if (node.fileObj || node.isNative) {
+            try {
+                const decryptedObj = await getDecryptedFileObj(node);
+                const text = await decryptedObj.text();
+                currentEditorFileId = node.id;
+                editorFilename.value = node.name;
+                editorTextarea.value = text;
+                editorTextarea.readOnly = !isHost && !myPermissions.edit;
+                editorModal.classList.remove('hidden');
+            } catch(e) {
+                await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
+            }
+        }
+    } else {
+        await cyberAlert("Cannot preview this file type.", "PREVIEW NOT AVAILABLE");
+    }
+}
+
 if (ctxOpen) {
     ctxOpen.addEventListener('click', async () => {
         if (!contextTargetId) return;
@@ -6655,50 +7056,7 @@ if (ctxOpen) {
             const node = vfs.findNode(contextTargetId);
             if (!node) return;
             if (node.type === 'file') {
-                if (node.mime && (node.mime.startsWith('image/') || node.mime.startsWith('video/') || node.mime.startsWith('audio/'))) {
-                    try {
-                        const decryptedObj = await getDecryptedFileObj(node);
-                        const url = URL.createObjectURL(decryptedObj);
-                        mediaModal.classList.remove('hidden');
-                        mediaTitle.innerText = node.name;
-                        mediaContainer.innerHTML = '';
-                        if (typeof currentMediaNodeMeta !== 'undefined') {
-                            currentMediaNodeMeta = { id: node.id, name: node.name, mime: node.mime, size: node.size };
-                        }
-                        if (btnDownloadMedia) {
-                            btnDownloadMedia.href = url;
-                            btnDownloadMedia.download = node.name;
-                            btnDownloadMedia.style.display = "block";
-                        }
-                        if (node.mime.startsWith('video/')) {
-                            mediaContainer.innerHTML = `<video src="${url}" controls autoplay style="width:100%; max-height:70vh; display:block;"></video>`;
-                        } else if (node.mime.startsWith('audio/')) {
-                            mediaContainer.innerHTML = `<audio src="${url}" controls autoplay style="width:100%; margin: 2rem 0;"></audio>`;
-                        } else {
-                            mediaContainer.innerHTML = `<img src="${url}" style="width:100%; max-height:70vh; display:block; object-fit: contain;">`;
-                        }
-                        const mediaEl = (typeof getActiveMediaPlayerElement === 'function') ? getActiveMediaPlayerElement() : null;
-                        if (mediaEl && typeof bindWatchPartyMediaEvents === 'function') bindWatchPartyMediaEvents(mediaEl);
-                    } catch(e) {
-                        await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
-                    }
-                } else if (node.name.endsWith('.txt') || node.name.endsWith('.md')) {
-                    if (node.fileObj || node.isNative) {
-                        try {
-                            const decryptedObj = await getDecryptedFileObj(node);
-                            const text = await decryptedObj.text();
-                            currentEditorFileId = node.id;
-                            editorFilename.value = node.name;
-                            editorTextarea.value = text;
-                            editorTextarea.readOnly = !isHost && !myPermissions.edit;
-                            editorModal.classList.remove('hidden');
-                        } catch(e) {
-                            await cyberAlert("Failed to decrypt: " + e.message, "DECRYPTION ERROR", true);
-                        }
-                    }
-                } else {
-                    await cyberAlert("Cannot preview this file type.", "PREVIEW NOT AVAILABLE");
-                }
+                await openHostFilePreview(node);
             } else if (node.type === 'folder') {
                 if (node.isNuclear && !unlockedVaults[node.id]) {
                     openNuclearModal(node);
@@ -6772,6 +7130,10 @@ if (ctxOpen) {
             } else if (node.type === 'folder') {
                 if (node.isNuclear && !node.isUnlocked) {
                     openNuclearModal(node);
+                } else if (node.isNativeRoot && !node.isUnlocked) {
+                    hostConnection.send({ type: 'REQUEST_NATIVE_VAULT_ACCESS' });
+                    if (guestOtpEntryModal) guestOtpEntryModal.classList.remove('hidden');
+                    if (guestOtpInput) guestOtpInput.value = '';
                 } else if ((node.isVault || node.isLocked || node.hasPassword || node.password || node.isSecured) && !node.isUnlocked) {
                     activeAuthFolderId = node.id;
                     if (folderPasswordInput) folderPasswordInput.value = '';
@@ -7043,15 +7405,19 @@ function purgeSwarmCacheForFileIds(fileItems) {
         if (!fid) continue;
         try {
             if (typeof localFileBitfields !== 'undefined' && localFileBitfields) {
-                delete localFileBitfields[fid];
+                if (typeof localFileBitfields.delete === 'function') {
+                    localFileBitfields.delete(fid);
+                } else {
+                    delete localFileBitfields[fid];
+                }
             }
             if (typeof seededSwarmFiles !== 'undefined' && seededSwarmFiles) {
                 seededSwarmFiles.delete(fid);
             }
-            if (typeof peerSwarmBitfields !== 'undefined' && peerSwarmBitfields) {
-                Object.keys(peerSwarmBitfields).forEach(p => {
-                    if (peerSwarmBitfields[p]) delete peerSwarmBitfields[p][fid];
-                });
+            if (typeof swarmBitfields !== 'undefined' && swarmBitfields && typeof swarmBitfields.keys === 'function') {
+                for (const key of Array.from(swarmBitfields.keys())) {
+                    if (key.endsWith(`:${fid}`)) swarmBitfields.delete(key);
+                }
             }
             if (typeof clearCachedTransfer === 'function') {
                 const totalChunks = fsize > 0 ? Math.max(1, Math.ceil(fsize / CHUNK_SIZE)) : 64;
@@ -7061,11 +7427,29 @@ function purgeSwarmCacheForFileIds(fileItems) {
     }
 }
 
-function executeNodeSelfDestruct(node, reason = 'Burn policy triggered') {
+function executeNodeSelfDestruct(node, reason = 'Burn policy triggered', opts = {}) {
     if (!isHost || !node || !node.parent || node.id === 'root') return false;
+    const { suppressSaveAndRender = false } = opts;
     const fileItems = collectSubtreeFileIds(node);
     const fileIds = fileItems.map(f => f.id);
     purgeSwarmCacheForFileIds(fileItems);
+
+    if (activeBurnModalTargetId === node.id || fileIds.includes(activeBurnModalTargetId)) {
+        closeBurnProtocolModal();
+    }
+    if (currentEditorFileId === node.id || fileIds.includes(currentEditorFileId)) {
+        currentEditorFileId = null;
+        if (editorModal) editorModal.classList.add('hidden');
+    }
+
+    const purgePayload = { type: 'SWARM_PURGE_FILE', fileIds, nodeName: node.name, reason };
+    if (Array.isArray(connections)) {
+        connections.forEach(c => {
+            if (c && c.open && c.isAuthenticated && isNodeAuthorizedForConnection(node, c)) {
+                safeSend(c, purgePayload);
+            }
+        });
+    }
 
     node.parent.children = (node.parent.children || []).filter(c => c.id !== node.id);
     selectedNodes.delete(node.id);
@@ -7081,18 +7465,14 @@ function executeNodeSelfDestruct(node, reason = 'Burn policy triggered') {
         curDir = curDir.parent;
     }
 
-    saveVFSToDB();
-    renderHostExplorer();
-    broadcastTree();
-
-    const purgePayload = { type: 'SWARM_PURGE_FILE', fileIds, nodeName: node.name, reason };
-    if (Array.isArray(connections)) {
-        connections.forEach(c => {
-            if (c && c.open && c.isAuthenticated) safeSend(c, purgePayload);
-        });
+    if (!suppressSaveAndRender) {
+        saveVFSToDB(true);
+        renderHostExplorer();
+        broadcastTree();
     }
 
     showToast(`🔥 Burn Protocol Activated: "${node.name}" self-destructed (${reason}).`);
+    logRoomActivity(`Burned "${node.name}" (${reason})`, 'danger');
     try {
         document.body.style.transition = 'none';
         document.body.style.backgroundColor = 'rgba(255, 42, 109, 0.32)';
@@ -7118,29 +7498,30 @@ function consumeBurnNodeOnHost(fileId) {
     }
 
     let stateChanged = false;
+    let destructedAny = false;
     let remainingToastMsg = null;
 
-    // Check from highest ancestor down or node up; if an ancestor folder burns, it takes the subtree with it
     for (const target of lineage) {
         const hasDlLimit = (Number(target.burnMaxDownloads) || 0) > 0 || (target.isBurn && !target.burnExpiresAt);
         if (!hasDlLimit) continue;
         const maxDl = (Number(target.burnMaxDownloads) || 0) > 0 ? Number(target.burnMaxDownloads) : 1;
         target.burnDownloadsCount = (Number(target.burnDownloadsCount) || 0) + 1;
+        stateChanged = true;
         if (target.burnDownloadsCount >= maxDl) {
-            executeNodeSelfDestruct(target, `Download limit (${maxDl}) reached`);
-            return;
+            if (!destructedAny && executeNodeSelfDestruct(target, `Download limit (${maxDl}) reached`, { suppressSaveAndRender: true })) {
+                destructedAny = true;
+            }
         } else {
-            stateChanged = true;
             const rem = maxDl - target.burnDownloadsCount;
             remainingToastMsg = `🔥 Burn Counter: "${target.name}" (${rem}/${maxDl} download${rem === 1 ? '' : 's'} remaining)`;
         }
     }
 
-    if (stateChanged) {
-        saveVFSToDB();
+    if (stateChanged || destructedAny) {
+        saveVFSToDB(true);
         renderHostExplorer();
         broadcastTree();
-        if (remainingToastMsg) showToast(remainingToastMsg);
+        if (!destructedAny && remainingToastMsg) showToast(remainingToastMsg);
     }
 }
 
@@ -7187,13 +7568,15 @@ const btnCancelBurnProtocol = document.getElementById('btn-cancel-burn-protocol'
 const btnCloseBurnProtocol = document.getElementById('btn-close-burn-protocol');
 
 function syncBurnModalPresets() {
-    const dlVal = String(Math.max(0, parseInt(burnMaxDownloadsInput ? burnMaxDownloadsInput.value : '0', 10) || 0));
+    const dlRaw = parseFloat(burnMaxDownloadsInput ? burnMaxDownloadsInput.value : '0');
+    const dlVal = (!isNaN(dlRaw) && dlRaw >= 0 && Number.isInteger(dlRaw)) ? String(dlRaw) : '';
     document.querySelectorAll('.burn-dl-preset').forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('data-dl') === dlVal);
+        btn.classList.toggle('active', dlVal !== '' && btn.getAttribute('data-dl') === dlVal);
     });
-    const minsVal = String(Math.max(0, parseInt(burnTimerMinutesInput ? burnTimerMinutesInput.value : '0', 10) || 0));
+    const minsRaw = parseFloat(burnTimerMinutesInput ? burnTimerMinutesInput.value : '0');
+    const minsVal = (!isNaN(minsRaw) && minsRaw >= 0 && Number.isInteger(minsRaw)) ? String(minsRaw) : '';
     document.querySelectorAll('.burn-timer-preset').forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('data-mins') === minsVal);
+        btn.classList.toggle('active', minsVal !== '' && btn.getAttribute('data-mins') === minsVal);
     });
 }
 
@@ -7268,6 +7651,10 @@ if (btnArmBurnProtocol) {
         closeBurnProtocolModal();
 
         if (typeof hostConnection !== 'undefined' && hostConnection && hostConnection.open && !isHost) {
+            if (!myPermissions || (!myPermissions.upload && !myPermissions.edit)) {
+                showToast('Permission required: Host upload/edit permission needed.');
+                return;
+            }
             hostConnection.send({
                 type: 'CLIENT_SET_BURN_POLICY',
                 id: targetId,
@@ -7282,7 +7669,7 @@ if (btnArmBurnProtocol) {
         const node = vfs.findNode(targetId);
         if (node) {
             applyNodeBurnPolicy(node, { isBurn: true, maxDownloads, timerMinutes });
-            saveVFSToDB();
+            saveVFSToDB(true);
             renderHostExplorer();
             broadcastTree();
             const summary = [
@@ -7859,6 +8246,24 @@ async function initDB() {
                         }
                     }
                     reattachParents(vfs.root, null);
+                    // Prune any burn timers that expired while offline before broadcasting TREE
+                    const nowBoot = Date.now();
+                    function pruneExpiredOnBoot(dir) {
+                        if (!dir || !Array.isArray(dir.children)) return false;
+                        let modified = false;
+                        dir.children = dir.children.filter(ch => {
+                            if (ch && ((ch.burnExpiresAt && nowBoot >= ch.burnExpiresAt) || (ch.burnMaxDownloads && (ch.burnDownloadsCount || 0) >= ch.burnMaxDownloads))) {
+                                modified = true;
+                                return false;
+                            }
+                            if (ch && ch.type === 'folder' && pruneExpiredOnBoot(ch)) modified = true;
+                            return true;
+                        });
+                        return modified;
+                    }
+                    if (pruneExpiredOnBoot(vfs.root)) {
+                        saveVFSToDB(true);
+                    }
                 }
             }
         } catch (e) {
@@ -8352,7 +8757,7 @@ function computeTextDiff(oldText, newText) {
     }
     let oldEnd = oldLen;
     let newEnd = newLen;
-    while (oldEnd > start && newEnd > start && oldText[oldEnd - 1] === newEnd[newEnd - 1]) {
+    while (oldEnd > start && newEnd > start && oldText[oldEnd - 1] === newText[newEnd - 1]) {
         oldEnd--;
         newEnd--;
     }
@@ -9218,7 +9623,7 @@ function openScratchpadModal() {
         if (padHeartbeatTimer) clearInterval(padHeartbeatTimer);
         padHeartbeatTimer = setInterval(() => {
             if (scratchpadModal && !scratchpadModal.classList.contains('hidden')) {
-                const myId = isHost ? 'host' : (peer && peer.id ? peer.id : 'guest');
+                const myId = (peer && peer.id) ? peer.id : (isHost ? 'host' : 'guest');
                 if (padPeerPresence[myId]) {
                     padPeerPresence[myId].lastSeen = Date.now();
                     padPeerPresence[myId].activeFileId = getActivePadFile().id;
@@ -13502,6 +13907,10 @@ async function clearCachedTransfer(fileId, totalChunks = 0) {
     if (typeof localforage === 'undefined') return;
     try {
         const metaKey = `transfer_meta_${fileId}`;
+        if (metaCacheSaveTimer && activeTransferMetaCache.has(metaKey)) {
+            clearTimeout(metaCacheSaveTimer);
+            metaCacheSaveTimer = null;
+        }
         const cachedMeta = activeTransferMetaCache.get(metaKey);
         activeTransferMetaCache.delete(metaKey);
         const meta = cachedMeta || await localforage.getItem(metaKey);
@@ -13769,7 +14178,7 @@ async function handleGuestSwarmChunkRequest(conn, fileId, chunkIndex, requesterP
             if (seeded && seeded.blob) {
                 const start = chunkIndex * CHUNK_SIZE;
                 const end = Math.min(start + CHUNK_SIZE, seeded.blob.size);
-                if (start < seeded.blob.size) {
+                if (seeded.blob.size === 0 ? start === 0 : start < seeded.blob.size) {
                     chunkData = await seeded.blob.slice(start, end).arrayBuffer();
                 }
             }
@@ -13850,7 +14259,7 @@ class SwarmDownloader {
         this.fileId = fileId;
         this.fileName = fileName;
         this.fileMime = fileMime;
-        this.fileSize = fileSize || (totalChunks * CHUNK_SIZE);
+        this.fileSize = (typeof fileSize === 'number' && !isNaN(fileSize)) ? fileSize : (totalChunks * CHUNK_SIZE);
         this.totalChunks = totalChunks;
         this.isSequential = isSequential;
         this.onChunk = onChunk;
@@ -13877,24 +14286,29 @@ class SwarmDownloader {
             const seeded = seededSwarmFiles.get(this.fileId);
             if (seeded && seeded.blob) {
                 for (let i = 0; i < this.totalChunks; i++) {
+                    if (this.aborted || this.isDone) return;
                     const start = i * CHUNK_SIZE;
                     const end = Math.min(start + CHUNK_SIZE, seeded.blob.size);
                     const buf = await seeded.blob.slice(start, end).arrayBuffer();
+                    if (this.aborted || this.isDone) return;
                     this.chunks[i] = buf;
                     this.completedIndices.add(i);
                     if (this.onChunk) this.onChunk(i, buf, 'local-cache');
                 }
-                this.finish();
+                if (!this.aborted && !this.isDone) this.finish();
                 return;
             }
         }
 
         try {
             const cachedMeta = await getCachedTransferMeta(this.fileId);
+            if (this.aborted || this.isDone) return;
             if (cachedMeta && cachedMeta.receivedIndices && cachedMeta.receivedIndices.length > 0) {
                 for (const idx of cachedMeta.receivedIndices) {
-                    if (idx < this.totalChunks) {
+                    if (this.aborted || this.isDone) return;
+                    if (idx >= 0 && idx < this.totalChunks) {
                         const chunkData = await getCachedChunk(this.fileId, idx);
+                        if (this.aborted || this.isDone) return;
                         if (chunkData) {
                             this.chunks[idx] = chunkData;
                             this.completedIndices.add(idx);
@@ -14059,7 +14473,7 @@ class SwarmDownloader {
     }
 
     receiveChunk(chunkIndex, chunkData, fromPeerId) {
-        if (this.aborted || this.completedIndices.has(chunkIndex)) return;
+        if (this.aborted || this.isDone || chunkIndex < 0 || chunkIndex >= this.totalChunks || this.completedIndices.has(chunkIndex)) return;
         this.inFlight.delete(chunkIndex);
         this.chunks[chunkIndex] = chunkData;
         this.completedIndices.add(chunkIndex);
@@ -14143,6 +14557,7 @@ class SwarmDownloader {
 
     abort() {
         this.aborted = true;
+        this.isDone = true;
         if (this.pumpInterval) {
             clearInterval(this.pumpInterval);
             this.pumpInterval = null;
@@ -14155,6 +14570,10 @@ class SwarmDownloader {
 function startSwarmDownload(fileId) {
     const node = findClientNode(clientVFS, fileId);
     if (!node) return;
+    if (activeSwarmDownloads.has(fileId)) {
+        try { activeSwarmDownloads.get(fileId).abort(); } catch (e) {}
+        activeSwarmDownloads.delete(fileId);
+    }
     const totalChunks = Math.max(1, Math.ceil(node.size / CHUNK_SIZE));
     createTransferItem(fileId, node.name, 'download', { isSwarm: true, totalChunks, totalSize: node.size });
 
@@ -14285,6 +14704,10 @@ async function startMediaStream(fileId, name, mime, size) {
         activeMediaStreamDownloader = null;
     }
 
+    const streamNode = typeof findClientNode === 'function' ? findClientNode(clientVFS, fileId) : null;
+    const isEncryptedStream = !!(streamNode && streamNode.isEncrypted);
+    if (btnWatchPartyToggle) btnWatchPartyToggle.classList.remove('hidden');
+
     const downloader = new SwarmDownloader({
         fileId,
         fileName: name,
@@ -14300,11 +14723,13 @@ async function startMediaStream(fileId, name, mime, size) {
             if (bufferFill) bufferFill.style.width = `${pct}%`;
             if (bufferPct) bufferPct.textContent = `${pct}%`;
             if (bufferDetail) {
-                bufferDetail.textContent = `BUFFERED ${receivedCount}/${totalChunks} CHUNKS • ${downloader.getSwarmTelemetryLabel()}`;
+                bufferDetail.textContent = isEncryptedStream
+                    ? `ENCRYPTED STREAM BUFFERING ${receivedCount}/${totalChunks} • ${downloader.getSwarmTelemetryLabel()}`
+                    : `BUFFERED ${receivedCount}/${totalChunks} CHUNKS • ${downloader.getSwarmTelemetryLabel()}`;
             }
 
-            // Start playback as soon as initial sequential buffer arrives (e.g. first 4 contiguous chunks)
-            if (!playbackStarted && streamChunks[0]) {
+            // Skip partial unencrypted playback if Vault ciphertext needs full decryption first
+            if (!isEncryptedStream && !playbackStarted && streamChunks[0]) {
                 const consecutive = [];
                 for (let i = 0; i < totalChunks; i++) {
                     if (streamChunks[i]) consecutive.push(streamChunks[i]);
@@ -14331,7 +14756,44 @@ async function startMediaStream(fileId, name, mime, size) {
                 }
             }
         },
-        onComplete: (fullBlob) => {
+        onComplete: async (rawBlob) => {
+            let fullBlob = rawBlob;
+            if (isEncryptedStream && streamNode) {
+                let pass = typeof clientUnlockedVaults[fileId] === 'string' ? clientUnlockedVaults[fileId] : null;
+                if (!pass) {
+                    let cur = streamNode.parent || clientCurrentDir;
+                    while (cur) {
+                        if (typeof clientUnlockedVaults[cur.id] === 'string' && clientUnlockedVaults[cur.id].length > 0) {
+                            pass = clientUnlockedVaults[cur.id];
+                            break;
+                        }
+                        cur = cur.parent;
+                    }
+                }
+                if (!pass) {
+                    pass = await cyberPrompt(`Enter password to decrypt stream "${name}":`, "", "VAULT DECRYPTION");
+                }
+                if (!pass) {
+                    if (bufferDetail) {
+                        bufferDetail.textContent = 'DECRYPTION CANCELLED';
+                        bufferDetail.style.color = 'var(--neon-red)';
+                    }
+                    activeMediaStreamDownloader = null;
+                    return;
+                }
+                try {
+                    const buf = await rawBlob.arrayBuffer();
+                    const decBuf = await decryptFile(buf, pass, streamNode.salt, streamNode.iv);
+                    fullBlob = new Blob([decBuf], { type: mime });
+                } catch (decErr) {
+                    if (bufferDetail) {
+                        bufferDetail.textContent = 'DECRYPTION FAILED: ' + decErr.message;
+                        bufferDetail.style.color = 'var(--neon-red)';
+                    }
+                    activeMediaStreamDownloader = null;
+                    return;
+                }
+            }
             if (fileId && hostConnection && hostConnection.open && hasBurnPolicyInLineage(clientVFS, fileId)) {
                 hostConnection.send({ type: 'BURN_CONSUMED', fileId: fileId });
             }
@@ -14355,19 +14817,21 @@ async function startMediaStream(fileId, name, mime, size) {
                     const curRate = mediaElement.playbackRate || 1;
                     _wpSuppressEvents = true;
                     if (_wpSuppressTimer) clearTimeout(_wpSuppressTimer);
-                    mediaElement.src = fullUrl;
-                    if (lastPartialUrl) {
-                        URL.revokeObjectURL(lastPartialUrl);
-                        lastPartialUrl = null;
-                    }
-                    mediaElement.onloadedmetadata = () => {
+                    _wpSuppressTimer = setTimeout(() => { _wpSuppressEvents = false; }, 1200);
+                    mediaElement.addEventListener('loadedmetadata', () => {
                         try {
                             mediaElement.currentTime = curTime;
                             mediaElement.playbackRate = curRate;
                         } catch(e) {}
                         if (!wasPaused) mediaElement.play().catch(e => console.log("Stream play error:", e));
+                        if (_wpSuppressTimer) clearTimeout(_wpSuppressTimer);
                         _wpSuppressTimer = setTimeout(() => { _wpSuppressEvents = false; }, 350);
-                    };
+                    }, { once: true });
+                    mediaElement.src = fullUrl;
+                    if (lastPartialUrl) {
+                        URL.revokeObjectURL(lastPartialUrl);
+                        lastPartialUrl = null;
+                    }
                 }
             }
 
@@ -15766,3 +16230,401 @@ window.addEventListener('beforeunload', () => {
         try { peer.destroy(); } catch(e) {}
     }
 });
+
+// =========================================================================
+// VANITY ROOM CODES, JOIN ROOM MODAL & .LCROOM WORKSPACE SNAPSHOTS
+// =========================================================================
+function openJoinRoomModal() {
+    const modal = document.getElementById('join-room-modal');
+    const inp = document.getElementById('join-room-code-input');
+    if (modal) modal.classList.remove('hidden');
+    if (inp) {
+        inp.value = '';
+        setTimeout(() => inp.focus(), 60);
+    }
+}
+
+function closeJoinRoomModal() {
+    const modal = document.getElementById('join-room-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function submitJoinRoomModal() {
+    const inp = document.getElementById('join-room-code-input');
+    if (!inp) return;
+    const raw = extractRoomParam(inp.value);
+    const normalized = normalizeRoomPeerId(raw);
+    if (!raw || !normalized) {
+        showToast('Enter a valid Room Code (min 3 letters/numbers) or ?room= invite link.');
+        return;
+    }
+    const destParam = normalized.startsWith('lc_room_') ? formatRoomDisplayCode(normalized) : normalized;
+    closeJoinRoomModal();
+    window.location.href = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(destParam)}`;
+}
+
+const btnJoinRoomHeader = document.getElementById('btn-join-room-header');
+const btnCloseJoinRoom = document.getElementById('btn-close-join-room');
+const btnCancelJoinRoom = document.getElementById('btn-cancel-join-room');
+const btnConfirmJoinRoom = document.getElementById('btn-confirm-join-room');
+const joinRoomCodeInput = document.getElementById('join-room-code-input');
+
+if (btnJoinRoomHeader) btnJoinRoomHeader.addEventListener('click', openJoinRoomModal);
+if (btnCloseJoinRoom) btnCloseJoinRoom.addEventListener('click', closeJoinRoomModal);
+if (btnCancelJoinRoom) btnCancelJoinRoom.addEventListener('click', closeJoinRoomModal);
+if (btnConfirmJoinRoom) btnConfirmJoinRoom.addEventListener('click', submitJoinRoomModal);
+if (joinRoomCodeInput) {
+    joinRoomCodeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submitJoinRoomModal();
+    });
+}
+
+const btnApplyVanityRoom = document.getElementById('btn-apply-vanity-room');
+const vanityRoomInput = document.getElementById('vanity-room-input');
+if (btnApplyVanityRoom && vanityRoomInput) {
+    const applyVanity = () => {
+        if (!isHost) return;
+        const cleaned = sanitizeVanitySlug(vanityRoomInput.value);
+        if (vanityRoomInput.value.trim() && cleaned.length < 3) {
+            showToast('Custom room code must be at least 3 letters/numbers.');
+            return;
+        }
+        customVanitySlug = cleaned;
+        try {
+            if (cleaned) {
+                localStorage.setItem('localcast_vanity_slug', cleaned);
+            } else {
+                localStorage.removeItem('localcast_vanity_slug');
+            }
+        } catch (e) {}
+
+        if (Array.isArray(connections) && connections.length > 0) {
+            showToast('Updating Host Room ID — existing guests may need the new link.');
+        }
+        logRoomActivity(cleaned ? `Switching to vanity code "${cleaned.toUpperCase()}"` : 'Resetting to random Host ID', 'info');
+        if (peer && !peer.destroyed) {
+            try { peer.destroy(); } catch (e) {}
+            peer = null;
+        }
+        setTimeout(() => setupHostPeer(), 300);
+    };
+    btnApplyVanityRoom.addEventListener('click', applyVanity);
+    vanityRoomInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') applyVanity();
+    });
+}
+
+function uint8ToBase64(bytes) {
+    const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < arr.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, arr.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+}
+
+function base64ToUint8(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+        bytes[i] = bin.charCodeAt(i);
+    }
+    return bytes;
+}
+
+function sanitizeNodeId(rawId, fallbackPrefix = 'node_') {
+    if (typeof rawId === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(rawId)) {
+        return rawId;
+    }
+    return fallbackPrefix + Math.random().toString(36).slice(2, 10);
+}
+
+async function serializeVfsNodeForSnapshot(node, stats = { nativeSkipped: 0 }) {
+    const out = {
+        id: sanitizeNodeId(node.id),
+        name: node.name,
+        type: node.type,
+        size: node.size || 0,
+        mime: node.mime || 'application/octet-stream',
+        thumbnail: node.thumbnail || null,
+        isLocked: !!node.isLocked,
+        password: node.password || null,
+        isVault: !!node.isVault,
+        isNuclear: !!node.isNuclear,
+        nuclearVotesRequired: node.nuclearVotesRequired || null,
+        isEncrypted: !!node.isEncrypted,
+        salt: node.salt ? Array.from(node.salt) : null,
+        iv: node.iv ? Array.from(node.iv) : null,
+        isBurn: !!node.isBurn,
+        burnMaxDownloads: node.burnMaxDownloads || null,
+        burnDownloadsCount: node.burnDownloadsCount || 0,
+        burnExpiresAt: node.burnExpiresAt || null,
+        isHidden: !!node.isHidden,
+        isHoneyPot: !!node.isHoneyPot,
+        baitPassword: node.baitPassword || null,
+        children: []
+    };
+    if (node.type === 'file' && node.fileObj && typeof node.fileObj.arrayBuffer === 'function') {
+        const buf = await node.fileObj.arrayBuffer();
+        out.fileDataB64 = uint8ToBase64(new Uint8Array(buf));
+    } else if (Array.isArray(node.children)) {
+        for (const ch of node.children) {
+            if (ch.isNative) {
+                stats.nativeSkipped++;
+            } else {
+                out.children.push(await serializeVfsNodeForSnapshot(ch, stats));
+            }
+        }
+    }
+    return out;
+}
+
+function restoreVfsNodeFromSnapshot(raw, parentNode = null, now = Date.now(), forceFolder = false) {
+    const isFolder = forceFolder || (raw && raw.type === 'folder');
+    const expAt = raw && raw.burnExpiresAt ? Number(raw.burnExpiresAt) : null;
+    const maxDl = raw && raw.burnMaxDownloads ? Number(raw.burnMaxDownloads) : null;
+    const usedDl = raw && raw.burnDownloadsCount ? Number(raw.burnDownloadsCount) : 0;
+
+    if (!forceFolder && ((expAt && expAt <= now) || (maxDl && usedDl >= maxDl))) {
+        return null; // Already expired or exhausted burn policy
+    }
+
+    const node = {
+        id: sanitizeNodeId(raw && raw.id, isFolder ? 'folder_' : 'file_'),
+        name: sanitizeFilename((raw && raw.name) || 'untitled'),
+        type: isFolder ? 'folder' : 'file',
+        size: (raw && raw.size) || 0,
+        mime: (raw && raw.mime) || 'application/octet-stream',
+        thumbnail: sanitizeThumbnailUrl(raw && raw.thumbnail),
+        isLocked: !!(raw && raw.isLocked),
+        password: (raw && raw.password) || null,
+        isVault: !!(raw && raw.isVault),
+        isNuclear: !!(raw && raw.isNuclear),
+        nuclearVotesRequired: (raw && raw.nuclearVotesRequired) || null,
+        isEncrypted: !!(raw && raw.isEncrypted),
+        salt: (raw && raw.salt) ? new Uint8Array(raw.salt) : null,
+        iv: (raw && raw.iv) ? new Uint8Array(raw.iv) : null,
+        isBurn: !!(raw && raw.isBurn),
+        burnMaxDownloads: maxDl,
+        burnDownloadsCount: usedDl,
+        burnExpiresAt: expAt,
+        isHidden: !!(raw && raw.isHidden),
+        isHoneyPot: !!(raw && raw.isHoneyPot),
+        baitPassword: (raw && raw.baitPassword) || null,
+        parent: parentNode,
+        children: []
+    };
+    if (node.type === 'file') {
+        const hasB64 = raw && raw.fileDataB64 !== undefined && raw.fileDataB64 !== null;
+        const bytes = hasB64 ? base64ToUint8(raw.fileDataB64) : new Uint8Array(0);
+        node.fileObj = new File([bytes], node.name, { type: node.mime || 'application/octet-stream' });
+        node.size = node.fileObj.size;
+    } else if (Array.isArray(raw && raw.children)) {
+        node.children = raw.children.map(ch => restoreVfsNodeFromSnapshot(ch, node, now, false)).filter(Boolean);
+    }
+    return node;
+}
+
+async function exportWorkspaceSnapshot() {
+    if (!isHost || !vfs || !vfs.root) return;
+    const pass = await cyberPrompt(
+        'Enter an optional encryption password for this .lcroom workspace snapshot (leave empty for an unencrypted backup):',
+        '',
+        'EXPORT .LCROOM SNAPSHOT'
+    );
+    if (pass === null) return;
+
+    try {
+        showToast('Packaging workspace snapshot...');
+        const stats = { nativeSkipped: 0 };
+        const rootSerialized = await serializeVfsNodeForSnapshot(vfs.root, stats);
+        const snapshot = {
+            version: 1,
+            exportedAt: Date.now(),
+            vanitySlug: customVanitySlug || null,
+            vfsRoot: rootSerialized,
+            quickPad: typeof nativePadState !== 'undefined' ? {
+                files: nativePadState.files || [],
+                activeFileId: nativePadState.activeFileId || 'f_main',
+                isLocked: !!nativePadState.isLocked
+            } : null,
+            cyberBoard: typeof cyberboardState !== 'undefined' ? {
+                cards: cyberboardState.cards || [],
+                rev: cyberboardState.rev || 1
+            } : null
+        };
+
+        let envelope;
+        if (pass && pass.length > 0) {
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const key = await deriveKey(pass, salt);
+            const encoded = new TextEncoder().encode(JSON.stringify(snapshot));
+            const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+            envelope = {
+                magic: 'LOCALCAST_ROOM_V1',
+                encrypted: true,
+                salt: Array.from(salt),
+                iv: Array.from(iv),
+                payloadB64: uint8ToBase64(new Uint8Array(encrypted))
+            };
+        } else {
+            envelope = {
+                magic: 'LOCALCAST_ROOM_V1',
+                encrypted: false,
+                payload: snapshot
+            };
+        }
+
+        const blob = new Blob([JSON.stringify(envelope)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const dateTag = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `localcast-workspace-${dateTag}.lcroom`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            if (a.parentNode) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 10000);
+
+        const nativeNote = stats.nativeSkipped > 0 ? ` (${stats.nativeSkipped} Native Vault item(s) excluded)` : '';
+        showToast((pass ? '🔐 Encrypted .lcroom snapshot exported!' : '📦 .lcroom workspace snapshot exported!') + nativeNote);
+        logRoomActivity(`Exported ${pass ? 'encrypted ' : ''}.lcroom snapshot${nativeNote}`, 'success');
+    } catch (err) {
+        console.error('Export .lcroom error:', err);
+        await cyberAlert('Failed to export snapshot: ' + err.message, 'EXPORT ERROR', true);
+    }
+}
+
+async function importWorkspaceSnapshot(file) {
+    if (!isHost || !file) return;
+    try {
+        const text = await file.text();
+        const envelope = JSON.parse(text);
+        if (!envelope || envelope.magic !== 'LOCALCAST_ROOM_V1') {
+            await cyberAlert('Invalid .lcroom workspace file.', 'IMPORT ERROR', true);
+            return;
+        }
+
+        let snapshot;
+        if (envelope.encrypted) {
+            const pass = await cyberPrompt('Enter password to decrypt this .lcroom workspace snapshot:', '', 'UNLOCK .LCROOM SNAPSHOT');
+            if (!pass) return;
+            try {
+                const salt = new Uint8Array(envelope.salt);
+                const iv = new Uint8Array(envelope.iv);
+                const cipherBytes = base64ToUint8(envelope.payloadB64);
+                const key = await deriveKey(pass, salt);
+                const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherBytes);
+                snapshot = JSON.parse(new TextDecoder().decode(plainBuf));
+            } catch (decErr) {
+                await cyberAlert('Decryption failed: wrong password or corrupted snapshot.', 'DECRYPTION ERROR', true);
+                return;
+            }
+        } else {
+            snapshot = envelope.payload;
+        }
+
+        if (!snapshot || !snapshot.vfsRoot) {
+            await cyberAlert('Snapshot contains no valid VFS data.', 'IMPORT ERROR', true);
+            return;
+        }
+
+        const restoredRoot = restoreVfsNodeFromSnapshot(snapshot.vfsRoot, null, Date.now(), true);
+        restoredRoot.id = 'root';
+        restoredRoot.name = restoredRoot.name || 'Home';
+        vfs.root = restoredRoot;
+        vfs.currentDir = vfs.root;
+        selectedNodes.clear();
+        updateBatchBar();
+
+        // Reset stale vault unlocks across Host & Peers so restored Vaults lock properly
+        if (typeof unlockedVaults !== 'undefined') unlockedVaults = {};
+        if (typeof activeNuclearVotes !== 'undefined') activeNuclearVotes = {};
+        if (Array.isArray(connections)) {
+            connections.forEach(c => {
+                if (c.unlockedFolders && typeof c.unlockedFolders.clear === 'function') c.unlockedFolders.clear();
+            });
+        }
+
+        if (snapshot.quickPad && Array.isArray(snapshot.quickPad.files) && typeof nativePadState !== 'undefined') {
+            const sanitizedFiles = snapshot.quickPad.files.slice(0, 50).map((f, idx) => ({
+                id: sanitizeNodeId(f && f.id, `f_${idx}_`),
+                name: sanitizeFilename((f && f.name) || `note_${idx + 1}.txt`),
+                content: typeof (f && f.content) === 'string' ? f.content : '',
+                rev: Number(f && f.rev) || 0
+            }));
+            nativePadState.files = sanitizedFiles.length > 0 ? sanitizedFiles : [{ id: 'f_main', name: 'main.txt', content: '', rev: 0 }];
+            const activeValid = nativePadState.files.some(f => f.id === snapshot.quickPad.activeFileId);
+            nativePadState.activeFileId = activeValid ? snapshot.quickPad.activeFileId : nativePadState.files[0].id;
+            nativePadState.isLocked = !!snapshot.quickPad.isLocked;
+            try { localStorage.setItem('localcast_native_pad', JSON.stringify(nativePadState)); } catch (e) {}
+
+            // Update local QuickPad UI & push full sync to authorized guests
+            if (typeof getActivePadFile === 'function' && padEditor) {
+                padEditor.value = getActivePadFile().content || '';
+            }
+            if (typeof renderPadTabs === 'function') renderPadTabs();
+            if (typeof updatePadLineNumbers === 'function') updatePadLineNumbers();
+            if (typeof updatePadStats === 'function') updatePadStats();
+            if (typeof updatePadLockUI === 'function') updatePadLockUI();
+            if (typeof padPreviewMode !== 'undefined' && padPreviewMode && typeof renderPadPreview === 'function') renderPadPreview();
+            if (typeof sendPadFullSync === 'function' && Array.isArray(connections)) {
+                connections.forEach(c => {
+                    if (c.open && c.isAuthenticated && c.permissions && c.permissions.scratchpad) {
+                        sendPadFullSync(c);
+                    }
+                });
+            }
+        }
+
+        if (snapshot.cyberBoard && Array.isArray(snapshot.cyberBoard.cards) && typeof cyberboardState !== 'undefined') {
+            cyberboardState.cards = snapshot.cyberBoard.cards.map((c, i) => normalizeCyberboardCard(c, i)).filter(Boolean);
+            cyberboardState.rev = (Number(snapshot.cyberBoard.rev) || 1) + 1;
+            if (typeof saveCyberboardState === 'function') saveCyberboardState();
+            if (typeof renderCyberboard === 'function') renderCyberboard();
+            if (typeof broadcastCyberboardUpdate === 'function') broadcastCyberboardUpdate();
+        }
+
+        if (snapshot.vanitySlug && typeof sanitizeVanitySlug === 'function') {
+            const nextVanity = sanitizeVanitySlug(snapshot.vanitySlug);
+            if (nextVanity.length >= 3 && nextVanity.toLowerCase() !== (customVanitySlug || '').toLowerCase()) {
+                customVanitySlug = nextVanity;
+                try { localStorage.setItem('localcast_vanity_slug', nextVanity); } catch (e) {}
+                const vInput = document.getElementById('vanity-room-input');
+                if (vInput) vInput.value = nextVanity.toUpperCase();
+                if (peer && !peer.destroyed) {
+                    try { peer.destroy(); } catch (e) {}
+                    peer = null;
+                }
+                setTimeout(() => setupHostPeer(), 300);
+            }
+        }
+
+        await saveVFSToDB(true);
+        renderHostExplorer();
+        broadcastTree();
+        showToast('✅ .lcroom workspace snapshot restored!');
+        logRoomActivity(`Restored .lcroom workspace (${(restoredRoot.children || []).length} root items)`, 'success');
+    } catch (err) {
+        console.error('Import .lcroom error:', err);
+        await cyberAlert('Failed to load .lcroom snapshot: ' + err.message, 'IMPORT ERROR', true);
+    }
+}
+
+const btnExportWorkspace = document.getElementById('btn-export-workspace');
+const btnImportWorkspace = document.getElementById('btn-import-workspace');
+const lcroomImportInput = document.getElementById('lcroom-import-input');
+
+if (btnExportWorkspace) btnExportWorkspace.addEventListener('click', exportWorkspaceSnapshot);
+if (btnImportWorkspace && lcroomImportInput) {
+    btnImportWorkspace.addEventListener('click', () => lcroomImportInput.click());
+    lcroomImportInput.addEventListener('change', async (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f) await importWorkspaceSnapshot(f);
+        lcroomImportInput.value = '';
+    });
+}
